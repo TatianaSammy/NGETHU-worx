@@ -93,39 +93,117 @@
         const qualityStageColors = { raw: "#57e0ed", coagulated: "#ffc363", clarified: "#b4a0ff", treated: "#4ee1ae" };
         function qualityDatasets(parameterId) {
             const parameterSeries = (waterQuality.series || {})[String(parameterId)] || {};
-            return (waterQuality.stages || []).map(function (stage) {
-                return {
-                    label: stage.label,
+            const onlineSeries = (waterQuality.online_series || {})[String(parameterId)] || {};
+            const projectionSeries = (waterQuality.projection_series || {})[String(parameterId)] || {};
+            const limits = (waterQuality.limits || {})[String(parameterId)] || {};
+            const datasets = (waterQuality.stages || []).reduce(function (items, stage) {
+                const color = stage.color || qualityStageColors[stage.key] || "#57e0ed";
+                items.push({
+                    label: stage.label + " · QC",
                     data: parameterSeries[stage.key] || [],
-                    borderColor: stage.color || qualityStageColors[stage.key] || "#57e0ed",
-                    backgroundColor: (stage.color || qualityStageColors[stage.key] || "#57e0ed") + "24",
-                    pointBackgroundColor: stage.color || qualityStageColors[stage.key] || "#57e0ed",
+                    borderColor: color,
+                    backgroundColor: color + "24",
+                    pointBackgroundColor: color,
                     borderWidth: 2,
                     pointRadius: 1.7,
                     pointHoverRadius: 4,
                     tension: .3,
                     fill: false,
                     spanGaps: false,
-                };
+                });
+                items.push({
+                    label: stage.label + " · online",
+                    data: onlineSeries[stage.key] || [],
+                    borderColor: color,
+                    backgroundColor: "transparent",
+                    pointBackgroundColor: color,
+                    borderWidth: 1.6,
+                    borderDash: [6, 4],
+                    pointRadius: 1.3,
+                    pointHoverRadius: 4,
+                    tension: .25,
+                    fill: false,
+                    spanGaps: false,
+                });
+                items.push({
+                    label: stage.label + " · trend baseline",
+                    data: projectionSeries[stage.key] || [],
+                    borderColor: color,
+                    backgroundColor: "transparent",
+                    pointBackgroundColor: color,
+                    borderWidth: 2,
+                    borderDash: [2, 4],
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    tension: .2,
+                    fill: false,
+                    spanGaps: false,
+                });
+                return items;
+            }, []);
+            (waterQuality.stages || []).forEach(function (stage) {
+                const range = limits[stage.key] || {};
+                const color = stage.color || qualityStageColors[stage.key] || "#57e0ed";
+                ["minimum", "maximum"].forEach(function (bound) {
+                    if (range[bound] === null || range[bound] === undefined) return;
+                    datasets.push({
+                        label: stage.label + " · " + bound + " limit",
+                        data: (waterQuality.labels || []).map(function () { return Number(range[bound]); }),
+                        borderColor: color + "99",
+                        backgroundColor: "transparent",
+                        borderWidth: 1,
+                        borderDash: [5, 5],
+                        pointRadius: 0,
+                        pointHoverRadius: 0,
+                        fill: false,
+                        spanGaps: false,
+                    });
+                });
+            });
+            return datasets;
+        }
+        function renderQualityProjection(parameterId) {
+            const parameter = (waterQuality.parameters || []).find(function (item) { return String(item.id) === String(parameterId); });
+            const projectionByStage = (waterQuality.projections || {})[String(parameterId)] || {};
+            const title = document.getElementById("waterQualityProjectionParameter");
+            if (title) title.textContent = parameter ? parameter.name + " · " + parameter.unit : "Selected parameter";
+            document.querySelectorAll("[data-projection-stage]").forEach(function (card) {
+                const projection = projectionByStage[card.dataset.projectionStage] || {};
+                [24, 72].forEach(function (hours) {
+                    const horizon = hours === 24 ? "1" : "3";
+                    const output = card.querySelector('[data-projection-value="' + hours + '"]');
+                    const range = card.querySelector('[data-projection-range="' + hours + '"]');
+                    const values = projection.horizons && projection.horizons[horizon];
+                    if (output) output.textContent = projection.available && values ? Number(values.value).toFixed(3) : "—";
+                    if (range) range.textContent = projection.available && values ? Number(values.low).toFixed(3) + " – " + Number(values.high).toFixed(3) + " " + (parameter ? parameter.unit : "") : "";
+                });
+                const meta = card.querySelector("[data-projection-meta]");
+                if (meta) meta.textContent = projection.available
+                    ? projection.direction + " · " + projection.observations + " daily QC points · as of " + projection.as_of
+                    : projection.reason || (waterQuality.plant_required ? "Select one plant for isolated projections" : "Insufficient recent QC history");
             });
         }
         if (qualitySelector && waterQualityTrendChart === null) {
             const selectedParameter = (waterQuality.parameters || []).find(function (item) { return String(item.id) === qualitySelector.value; });
             waterQualityTrendChart = makeChart("waterQualityTrendChart", "line", waterQuality.labels || data.labels, qualityDatasets(qualitySelector.value), {
-                plugins: { legend: { display: true, position: "bottom", labels: { color: "#91a8ba", boxWidth: 8, usePointStyle: true, font: { size: 9 } } } },
+                plugins: { legend: { display: true, position: "bottom", labels: { color: "#91a8ba", boxWidth: 8, usePointStyle: true, font: { size: 8 }, filter: function (item) { return item.text.indexOf("limit") === -1 && (item.text.indexOf("trend baseline") === -1 || item.text.indexOf("Raw water") === 0); } } } },
                 scales: {
                     x: { grid: { color: "rgba(124,160,181,.07)" }, ticks: { color: "#718b9e", maxTicksLimit: 10, font: { size: 9 } } },
                     y: { beginAtZero: false, grid: { color: "rgba(124,160,181,.1)" }, ticks: { color: "#67cedb", font: { size: 9 } }, title: { display: true, text: selectedParameter ? selectedParameter.unit : "Measured value", color: "#67cedb", font: { size: 9 } } },
                 },
             });
+            renderQualityProjection(qualitySelector.value);
             if (qualitySelector && waterQualityTrendChart) {
                 qualitySelector.addEventListener("change", function () {
                     const parameter = (waterQuality.parameters || []).find(function (item) { return String(item.id) === qualitySelector.value; });
                     waterQualityTrendChart.data.datasets = qualityDatasets(qualitySelector.value);
                     waterQualityTrendChart.options.scales.y.title.text = parameter ? parameter.unit : "Measured value";
                     waterQualityTrendChart.update();
+                    renderQualityProjection(qualitySelector.value);
                 });
             }
+        } else if (qualitySelector) {
+            renderQualityProjection(qualitySelector.value);
         }
         const stageCoverage = data.water_quality_stages || { labels: [], samples: [], compliance: [] };
         makeChart("waterQualityStageChart", "bar", stageCoverage.labels, [

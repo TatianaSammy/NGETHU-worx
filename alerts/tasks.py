@@ -33,17 +33,13 @@ def _as_list(value):
 # =========================================
 # 🔹 Helper: Filter recipients by preferences & scope
 # =========================================
-def filter_recipients(recipients, message_type="email", treatment_plant=None, group=None, section=None):
+def filter_recipients(recipients, treatment_plant=None, group=None, section=None):
     """
-    Filters users based on:
-    - UserAlertPreference
-    - Treatment plant
-    - Group membership
-    - Section
+    Filter recipient scope before dispatch. Per-channel preferences are applied
+    during delivery so an email opt-out does not suppress inbox or push alerts.
     """
     filtered = []
     for user in recipients:
-        pref = getattr(user, "alert_preferences", None)
         # Scope checks
         target_plant_id = getattr(treatment_plant, "pk", treatment_plant)
         user_plant_id = getattr(user, "assigned_treatment_plant_id", None)
@@ -127,6 +123,7 @@ def send_websocket_notification(
     notification_id=None,
     auto_voice=True,
     repeat_voice=False,
+    voice_profile=None,
 ):
     try:
         channel_layer = get_channel_layer()
@@ -137,6 +134,7 @@ def send_websocket_notification(
             "title": title,
             "message": message,
             "voice_url": voice_url,
+            "voice_profile": voice_profile,
             "priority": priority,
             "alert_type": alert_type,
             "instance_ref": instance_ref,
@@ -180,8 +178,12 @@ def dispatch_alerts(subject=None, body=None, recipients=None,
             recipient_id = recipient.get("id") if isinstance(recipient, dict) else getattr(recipient, "pk", recipient)
             if recipient_id:
                 recipient_ids.append(recipient_id)
-        users = CustomUser.objects.filter(pk__in=recipient_ids, is_active=True, is_locked=False)
-        filtered = filter_recipients(users, "email", treatment_plant, group, section)
+        users = (
+            CustomUser.objects
+            .filter(pk__in=recipient_ids, is_active=True, is_locked=False)
+            .select_related("alert_preferences")
+        )
+        filtered = filter_recipients(users, treatment_plant, group, section)
         if not filtered:
             logger.info("dispatch_alerts: no recipients passed filter; skipping.")
             return
@@ -242,7 +244,8 @@ def deliver_alert_notification(notification_id):
         notification.save(update_fields=["delivery_status", "next_attempt_at", "updated_at"])
         return notification.delivery_status
     voice_alert = VoiceAlert.objects.filter(alert_state=state).order_by("-created_at").first()
-    voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.audio_file else None
+    voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
+    voice_profile = voice_alert.voice_over.name if voice_url else ""
     channel_layer = get_channel_layer()
 
     for channel in notification.channels or []:
@@ -307,6 +310,7 @@ def deliver_alert_notification(notification_id):
                             "alert_type": state.alert_config.alert_type,
                             "instance_ref": state.instance_ref,
                             "voice_url": voice_url,
+                            "voice_profile": voice_profile,
                             "auto_voice": bool(
                                 state.alert_config.active
                                 and state.alert_config.template.active
@@ -673,7 +677,7 @@ def generate_voice_notification(
             source_key = f"alert-state:{state.pk}"
 
         voice_alert = VoiceAlert.objects.filter(source_key=source_key).first() if source_key else None
-        if not voice_alert or not voice_alert.audio_file:
+        if not voice_alert or not voice_alert.profile_audio_ready:
             voice_alert = VoiceAlert.generate_persistent_voice_alert(
                 message=resolved_message,
                 title=resolved_title,
@@ -682,7 +686,7 @@ def generate_voice_notification(
                 forced_voice=forced_voice,
                 source_key=source_key,
             )
-        voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.audio_file else None
+        voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
         if not voice_url:
             raise RuntimeError("Voice synthesis did not produce a persistent audio file.")
 
@@ -732,6 +736,7 @@ def generate_voice_notification(
                             "alert_type": ca_alert.alert_type,
                             "instance_ref": str(ca_alert.analysis_request_id or ca_alert.batch_id or ""),
                             "voice_url": voice_url,
+                            "voice_profile": voice_alert.voice_over.name if voice_alert.voice_over_id else "",
                             "auto_voice": True,
                             "repeat_voice": False,
                             "timestamp": timezone.now().isoformat(),
@@ -744,6 +749,7 @@ def generate_voice_notification(
                             "type": "voice.alert",
                             "id": f"state_{state.pk}" if state else f"voice_{voice_alert.pk}",
                             "audio_url": voice_url,
+                            "voice_profile": voice_alert.voice_over.name if voice_alert.voice_over_id else "",
                             "message": resolved_message,
                             "title": resolved_title,
                             "auto_voice": True,
@@ -829,10 +835,17 @@ def repeat_workflow_voice_alert(voice_alert_id):
             voice_alert.repeat_due_at = None
             voice_alert.save(update_fields=["repeat_due_at"])
             return "repeat_limit_reached"
-        if not voice_alert.audio_file:
-            voice_alert.repeat_due_at = None
+        if not voice_alert.profile_audio_ready:
+            interval = max(5, int(getattr(config, "voice_repeat_interval_seconds", 60) or 60))
+            voice_alert.repeat_due_at = now + timedelta(seconds=interval)
             voice_alert.save(update_fields=["repeat_due_at"])
-            return "voice_audio_missing"
+            transaction.on_commit(lambda: generate_voice_notification.delay(
+                message=ca_alert.message,
+                title=ca_alert.title,
+                alert_config_id=config.pk if config else None,
+                source_key=voice_alert.source_key,
+            ))
+            return "profile_voice_refresh_queued"
 
         preference = UserAlertPreference.objects.filter(user_id=ca_alert.recipient_id).first()
         user = CustomUser.objects.filter(pk=ca_alert.recipient_id, is_active=True, is_locked=False).first()
@@ -853,7 +866,8 @@ def repeat_workflow_voice_alert(voice_alert_id):
         payload = {
             "message": ca_alert.message,
             "title": ca_alert.title,
-            "voice_url": voice_alert.audio_file.url if voice_alert.audio_file else None,
+            "voice_url": voice_alert.audio_file.url if voice_alert.profile_audio_ready else None,
+            "voice_profile": voice_alert.voice_over.name if voice_alert.voice_over_id else "",
             "user_ids": [ca_alert.recipient_id],
             "priority": ca_alert.severity,
             "alert_type": ca_alert.alert_type,
@@ -886,7 +900,8 @@ def trigger_alarm(user_id, message, alarm_sound_path=None, alert_state_id=None):
         if preference and not preference.receive_push:
             return
         voice_alert = VoiceAlert.objects.filter(alert_state_id=alert_state_id).order_by("-created_at").first() if alert_state_id else None
-        voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.audio_file else None
+        voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
+        voice_profile = voice_alert.voice_over.name if voice_alert and voice_alert.voice_over_id else ""
         state = voice_alert.alert_state if voice_alert else None
         async_to_sync(channel_layer.group_send)(
             f"user_{user_id}_alerts",
@@ -899,6 +914,7 @@ def trigger_alarm(user_id, message, alarm_sound_path=None, alert_state_id=None):
                 "alert_type": "critical_alarm",
                 "instance_ref": state.instance_ref if state else None,
                 "voice_url": voice_url,
+                "voice_profile": voice_profile,
                 "auto_voice": True,
                 "timestamp": timezone.now().isoformat(),
             },
@@ -1000,7 +1016,8 @@ def repeat_alarm_until_acknowledged(self, alert_state_id, interval_sec=30, max_r
         from alerts.models import VoiceAlert
 
         voice_alert = VoiceAlert.objects.filter(alert_state=state).exclude(audio_file="").order_by("-created_at").first()
-        voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.audio_file else None
+        voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
+        voice_profile = voice_alert.voice_over.name if voice_alert and voice_alert.voice_over_id else ""
         if not voice_url:
             # TTS can finish after the initial reminder becomes due. Keep the
             # durable reminder pending and let the next scheduler pass retry.
@@ -1046,6 +1063,7 @@ def repeat_alarm_until_acknowledged(self, alert_state_id, interval_sec=30, max_r
         notification_id=f"state_{alert_state_id}",
         auto_voice=auto_voice,
         repeat_voice=True,
+        voice_profile=voice_profile,
     )
 
 

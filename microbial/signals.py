@@ -105,7 +105,7 @@ def auto_create_water_results(sender, instance, created, **kwargs):
             if placeholders:
                 ResultModel.objects.bulk_create(placeholders)
                 engine = get_alert_engine()
-                engine.trigger_alerts(instance, alert_type="water_analysis_creation")
+                engine.trigger_alert(instance, alert_type="water_analysis_creation")
 
             logger.info(f"[microbial] Auto-created {len(placeholders)} results for {instance.reference_id}")
 
@@ -132,7 +132,7 @@ def handle_water_nc(sender, instance, created, **kwargs):
         return
 
     engine = get_alert_engine()
-    engine.trigger_alerts(instance, alert_type="water_nc")
+    engine.trigger_alert(instance, alert_type="water_nc")
     engine.auto_escalate_unacknowledged(alert_type="water_nc", instance=instance)
     logger.info(f"[microbial] Triggered alert for NC {instance.parameter_name} on analysis {instance.analysis.reference_id}")
 
@@ -154,7 +154,7 @@ def auto_detect_nc(sender, instance, **kwargs):
     detect_nonconformity(instance.parameter, instance.value, instance.analysis, instance.analysis.verified_by)
 
     engine = get_alert_engine()
-    engine.trigger_alerts(instance, alert_type="parameter_deviation")
+    engine.trigger_alert(instance, alert_type="parameter_deviation")
     engine.auto_escalate_unacknowledged(alert_type="parameter_deviation", instance=instance)
 
 for model_name in RESULT_MODELS:

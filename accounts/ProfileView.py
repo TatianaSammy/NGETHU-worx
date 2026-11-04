@@ -12,10 +12,8 @@ from django.contrib.auth.models import (
     Permission,
 )
 from django.contrib.sessions.models import Session
-from django.db.models import (
-    Count,
-    Q,
-)
+from django.core.paginator import Paginator
+from django.db.models import Count, Q
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.generic import (
@@ -27,7 +25,7 @@ from django.views.generic import (
     DetailView,
     View,
 )
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.forms import (
@@ -49,6 +47,22 @@ from core.models import (
     UserSession,
     UserPasswordHistory,
 )
+
+
+ACCOUNT_DASHBOARD_TABS = {
+    "profile": "accounts/profile/profile.html",
+    "users": "accounts/partials/users_table.html",
+    "sections": "accounts/partials/sections_table.html",
+    "groups": "accounts/partials/groups_table.html",
+    "permissions": "accounts/partials/permissions_table.html",
+    "plants": "accounts/partials/plants_table.html",
+    "labs": "accounts/partials/labs_table.html",
+    "sessions": "accounts/partials/sessions_table.html",
+    "security": "accounts/partials/security.html",
+    "password": "accounts/partials/reset_password_form.html",
+    "configuration": "accounts/partials/configuration.html",
+    "system": "accounts/partials/system_information.html",
+}
 
 
 # ==========================================================
@@ -82,6 +96,15 @@ class ProfileView(
                 from django.core.exceptions import PermissionDenied
                 raise PermissionDenied("Only authorized staff or administrators may export user registry data.")
             return self.export_users(request, export_fmt)
+        tab = request.GET.get("tab")
+        if tab:
+            if not request.user.is_superuser:
+                from django.core.exceptions import PermissionDenied
+                raise PermissionDenied("Account management tabs are available to system administrators.")
+            template_name = ACCOUNT_DASHBOARD_TABS.get(tab)
+            if template_name is None:
+                raise Http404("Unknown Accounts dashboard tab.")
+            return render(request, template_name, self.get_dashboard_tab_context(tab))
         return super().get(request, *args, **kwargs)
 
     def get_users_queryset(self):
@@ -122,7 +145,136 @@ class ProfileView(
         if status in filters:
             qs = qs.filter(**filters[status])
 
+        section_id = self.request.GET.get("section")
+        if section_id and section_id.isdigit():
+            qs = qs.filter(section_id=int(section_id))
+
+        plant_id = self.request.GET.get("plant")
+        if plant_id and plant_id.isdigit():
+            qs = qs.filter(assigned_treatment_plant_id=int(plant_id))
+
         return qs
+
+    def _profile_fields(self, user, now=None, configuration=None):
+        now = now or timezone.now()
+        if configuration is None:
+            configuration = SystemConfiguration.current()
+        expiry_days = configuration.password_expire_days if configuration else 90
+        password_expiry = (
+            user.password_last_set + timezone.timedelta(days=expiry_days)
+            if user.password_last_set
+            else None
+        )
+        return {
+            "Username": user.username,
+            "Email": user.email,
+            "First Name": user.first_name,
+            "Last Name": user.last_name,
+            "Mobile Number": user.mobile_number,
+            "Section": user.section,
+            "Date Joined": user.date_joined,
+            "Last Login": user.last_login,
+            "Password Last Set": user.password_last_set,
+            "Password Expiry": password_expiry,
+            "Failed Login Attempts": user.failed_login_attempts,
+            "Email Verified": user.email_verified,
+            "MFA Enabled": user.mfa_enabled,
+            "Account Locked": user.is_locked,
+            "Groups": ", ".join(user.groups.values_list("name", flat=True)),
+            "Permissions": ", ".join(user.user_permissions.values_list("codename", flat=True)),
+        }
+
+    def _paginated(self, queryset, *, page_size):
+        paginator = Paginator(queryset, page_size)
+        page_obj = paginator.get_page(self.request.GET.get("page"))
+        return {
+            "page_obj": page_obj,
+            "paginator": paginator,
+            "is_paginated": paginator.num_pages > 1,
+        }
+
+    def get_dashboard_tab_context(self, tab):
+        now = timezone.now()
+        configuration = None
+
+        if tab == "profile":
+            user = self.request.user
+            return {
+                "user_obj": user,
+                "fields": self._profile_fields(user, now=now),
+            }
+
+        if tab == "users":
+            from t.models import TreatmentPlant
+            users = self.get_users_queryset()
+            metrics = users.aggregate(
+                active=Count("pk", filter=Q(is_active=True)),
+                locked=Count("pk", filter=Q(is_locked=True)),
+                mfa=Count("pk", filter=Q(mfa_enabled=True)),
+            )
+            page = self._paginated(users, page_size=50)
+            return {
+                **page,
+                "users": page["page_obj"],
+                "total_users_count": page["paginator"].count,
+                "active_users_count": metrics["active"],
+                "locked_users_count": metrics["locked"],
+                "mfa_users_count": metrics["mfa"],
+                "sections": Section.objects.order_by("name"),
+                "plants": TreatmentPlant.objects.order_by("name"),
+            }
+
+        if tab == "sections":
+            sections = Section.objects.annotate(user_count=Count("users", distinct=True)).order_by("name")
+            return {
+                "sections": sections,
+                "active_sections_count": sections.filter(is_active=True).count(),
+                "total_section_users": CustomUser.objects.filter(section__isnull=False).count(),
+            }
+
+        if tab == "groups":
+            return {
+                "groups": Group.objects.annotate(
+                    user_count=Count("accounts_users", distinct=True)
+                ).prefetch_related("permissions").order_by("name"),
+            }
+
+        if tab == "permissions":
+            permissions = Permission.objects.select_related("content_type").order_by(
+                "content_type__app_label", "codename"
+            )
+            page = self._paginated(permissions, page_size=100)
+            return {**page, "permissions": page["page_obj"]}
+
+        if tab == "plants":
+            from t.models import TreatmentPlant
+            return {"plants": TreatmentPlant.objects.order_by("name")}
+
+        if tab == "labs":
+            from laboratory.models import Laboratory
+            return {"labs": Laboratory.objects.order_by("name")}
+
+        if tab == "sessions":
+            sessions = Session.objects.filter(expire_date__gte=now).order_by("-expire_date")
+            page = self._paginated(sessions, page_size=50)
+            return {**page, "sessions": page["page_obj"], "now": now}
+
+        if tab == "password" or tab == "configuration":
+            configuration = SystemConfiguration.current()
+            return {"configuration": configuration}
+
+        if tab == "security":
+            return {}
+
+        if tab == "system":
+            return {
+                "django_version": django.get_version(),
+                "environment": "Development" if settings.DEBUG else "Production",
+                "now": now,
+                "TIME_ZONE": settings.TIME_ZONE,
+            }
+
+        return {}
 
     def export_users(self, request, fmt: str):
         users = self.get_users_queryset()
@@ -311,191 +463,47 @@ class ProfileView(
                 },
             }
 
-        context = super().get_context_data(**kwargs)
-
-        user = self.request.user
-        now = timezone.now()
-
-        users = self.get_users_queryset()
-
-        sections = (
-            Section.objects
-            .annotate(user_count=Count("users"))
-            .order_by("name")
+        user_metrics = CustomUser.objects.aggregate(
+            total=Count("pk"),
+            active=Count("pk", filter=Q(is_active=True)),
+            staff=Count("pk", filter=Q(is_staff=True)),
+            mfa=Count("pk", filter=Q(mfa_enabled=True)),
+            superusers=Count("pk", filter=Q(is_superuser=True)),
+            locked=Count("pk", filter=Q(is_locked=True)),
         )
-
-        groups = (
-            Group.objects
-            .annotate(
-                user_count=Count("accounts_users")
-            )
-            .order_by("name")
-        )
-
-        permissions = (
-            Permission.objects
-            .select_related("content_type")
-            .order_by(
-                "content_type__app_label",
-                "codename",
-            )
-        )
-
-        sessions = (
-            Session.objects
-            .filter(
-                expire_date__gte=now
-            )
-            .order_by("-expire_date")
-        )
-
-        user_sessions = (
-            UserSession.objects
-            .select_related("user")
-            .order_by("-login_time")
-        )
-
-        audit_logs = (
-            AuditLogEntry.objects
-            .all()[:100]
-        )
-
-        ip_restrictions = (
-            IPRestriction.objects
-            .all()
-        )
-
-        password_history = (
-            UserPasswordHistory.objects
-            .filter(user=user)
-            .order_by("-created_at")
-        )
-
-        configuration = (
-            SystemConfiguration.current()
-        )
-
-        expiry_days = (
-            configuration.password_expire_days
-            if configuration
-            else 90
-        )
-
-        password_expiry = (
-            user.password_last_set
-            + timezone.timedelta(days=expiry_days)
-            if user.password_last_set
-            else None
-        )
-
-        profile_fields = {
-            "Username": user.username,
-            "Email": user.email,
-            "First Name": user.first_name,
-            "Last Name": user.last_name,
-            "Mobile Number": user.mobile_number,
-            "Section": user.section,
-            "Date Joined": user.date_joined,
-            "Last Login": user.last_login,
-            "Password Last Set": user.password_last_set,
-            "Password Expiry": password_expiry,
-            "Failed Login Attempts": user.failed_login_attempts,
-            "Email Verified": user.email_verified,
-            "MFA Enabled": user.mfa_enabled,
-            "Account Locked": user.is_locked,
-            "Groups": ", ".join(
-                user.groups.values_list(
-                    "name",
-                    flat=True,
-                )
-            ),
-            "Permissions": ", ".join(
-                user.user_permissions.values_list(
-                    "codename",
-                    flat=True,
-                )
-            ),
+        return {
+            "account_dashboard_tabs": [
+                {"key": "profile", "id": "profile-tab"},
+                {"key": "users", "id": "users-tab"},
+                {"key": "sections", "id": "sections-tab"},
+                {"key": "groups", "id": "groups-tab"},
+                {"key": "permissions", "id": "permissions-tab"},
+                {"key": "plants", "id": "plants-tab"},
+                {"key": "labs", "id": "labs-tab"},
+                {"key": "sessions", "id": "sessions-tab"},
+                {"key": "security", "id": "security-tab"},
+                {"key": "password", "id": "password-tab"},
+                {"key": "configuration", "id": "config-tab"},
+                {"key": "system", "id": "system-tab"},
+            ],
+            "stats": {
+                "total_users": user_metrics["total"],
+                "active_users": user_metrics["active"],
+                "staff_users": user_metrics["staff"],
+                "mfa_users": user_metrics["mfa"],
+                "superusers": user_metrics["superusers"],
+                "locked_users": user_metrics["locked"],
+            },
+            "recent_users": CustomUser.objects.select_related(
+                "section", "assigned_treatment_plant"
+            ).order_by("-date_joined", "-pk")[:8],
+            "dashboard_counts": {
+                "users": user_metrics["total"],
+                "sections": Section.objects.count(),
+                "groups": Group.objects.count(),
+                "permissions": Permission.objects.count(),
+            },
         }
-
-        stats = {
-            "total_users": users.count(),
-            "active_users": users.filter(
-                is_active=True
-            ).count(),
-            "inactive_users": users.filter(
-                is_active=False
-            ).count(),
-            "locked_users": users.filter(
-                is_locked=True
-            ).count(),
-            "verified_users": users.filter(
-                email_verified=True
-            ).count(),
-            "mfa_users": users.filter(
-                mfa_enabled=True
-            ).count(),
-            "staff_users": users.filter(
-                is_staff=True
-            ).count(),
-            "superusers": users.filter(
-                is_superuser=True
-            ).count(),
-            "total_groups": groups.count(),
-            "total_sections": sections.count(),
-            "total_permissions": permissions.count(),
-            "active_sessions": sessions.count(),
-            "tracked_sessions": user_sessions.count(),
-            "audit_logs": audit_logs.count(),
-            "ip_restrictions": ip_restrictions.count(),
-        }
-
-        system_info = {
-            "django_version": django.get_version(),
-            "debug": settings.DEBUG,
-            "environment": (
-                "Development"
-                if settings.DEBUG
-                else "Production"
-            ),
-            "server_time": now,
-            "python_version": settings.PYTHON_VERSION
-            if hasattr(settings, "PYTHON_VERSION")
-            else None,
-            "timezone": settings.TIME_ZONE,
-            "installed_apps": len(
-                settings.INSTALLED_APPS
-            ),
-        }
-
-        context.update(
-            {
-                "user_obj": user,
-                "users": users,
-                "sections": sections,
-                "groups": groups,
-                "permissions": permissions,
-                "sessions": sessions,
-                "user_sessions": user_sessions,
-                "audit_logs_list": audit_logs,
-                "ip_restrictions_list": ip_restrictions,
-                "password_history": password_history,
-                "configuration": configuration,
-                "fields": profile_fields,
-                "recent_users": users.order_by(
-                    "-date_joined"
-                )[:10],
-                "locked_accounts": users.filter(
-                    is_locked=True
-                )[:10],
-                "inactive_accounts": users.filter(
-                    is_active=False
-                )[:10],
-                "system_info": system_info,
-                **stats,
-            }
-        )
-
-        return context
 
 
 # ==========================================================
@@ -545,6 +553,9 @@ class UserListView(
     template_name = "accounts/dashboard.html"
     context_object_name = "users"
     paginate_by = 50
+
+    def get(self, request, *args, **kwargs):
+        return redirect(f"{reverse_lazy('accounts:dashboard')}#users-tab")
 
     def get_queryset(self):
         return (
@@ -852,6 +863,9 @@ class SystemConfigurationView(
     TemplateView,
 ):
     template_name = "accounts/dashboard.html"
+
+    def get(self, request, *args, **kwargs):
+        return redirect(f"{reverse_lazy('accounts:dashboard')}#config-tab")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

@@ -1,0 +1,116 @@
+{% load humanize %}
+<main id="analysis-dashboard-content" class="analysis-dashboard" data-analysis-dashboard data-app="{{ app.name }}" data-active-tab="{{ active_tab }}" data-live-url="{{ live_url }}" data-refresh-seconds="60">
+    {% if analysis_type_tabs %}<nav class="analysis-type-tabs" aria-label="Central Laboratory analysis types">{% for item in analysis_type_tabs %}<a class="analysis-type-tab{% if item.active %} is-active{% endif %}" href="?analysis_type={{ item.key }}&period={{ period_days }}&tab=overview" {% if item.active %}aria-current="page"{% endif %}><span>{{ item.label }}</span><strong>{{ item.count|intcomma }}</strong></a>{% endfor %}</nav>{% endif %}
+    <header class="analysis-hero">
+        <div class="analysis-hero__copy">
+            <span class="analysis-eyebrow"><i class="fas fa-wave-square" aria-hidden="true"></i> {{ domain_label }} · {% if show_plant_scope %}{{ plant.name|default:"ALL PLANTS" }}{% else %}{{ selected_analysis_type|default:"ALL ANALYSES"|upper }}{% endif %}</span>
+            <h1>{{ dashboard_title }}</h1>
+            <p>{{ dashboard_subtitle }}</p>
+            <div class="analysis-hero__meta">
+                <span><i class="fas fa-calendar-days" aria-hidden="true"></i> {{ period_label }}</span>
+                <span><i class="fas fa-layer-group" aria-hidden="true"></i> {{ available_analysis_types|length }} analysis types</span>
+                <span class="analysis-sync-state"><i class="fas fa-arrows-rotate" aria-hidden="true"></i> Live refresh · 60 sec</span>
+            </div>
+        </div>
+        <form method="get" class="analysis-scope-form" aria-label="Dashboard scope and analysis period">
+            <input type="hidden" name="tab" value="{{ active_tab }}" data-active-tab-input>
+            {% if selected_analysis_type %}<input type="hidden" name="analysis_type" value="{{ selected_analysis_type }}">{% endif %}
+            {% if show_plant_scope %}{% if can_select_all_plants %}
+                <label><span>Plant scope</span><select name="plant" aria-label="Treatment plant"><option value="all" {% if selected_plant_id == "all" %}selected{% endif %}>All treatment plants</option>{% for item in available_plants %}<option value="{{ item.id }}" {% if selected_plant_id == item.id|stringformat:"s" %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+            {% else %}
+                <label><span>Plant scope</span><strong class="analysis-fixed-scope">{{ plant.name|default:"No plant assigned" }}</strong></label>
+            {% endif %}{% endif %}
+            <label><span>Analysis window</span><select name="period" aria-label="Analysis window">{% for days in period_choices %}<option value="{{ days }}" {% if period_days == days %}selected{% endif %}>{{ days }} days</option>{% endfor %}</select></label>
+            <button type="submit" class="analysis-button analysis-button--primary"><i class="fas fa-sliders" aria-hidden="true"></i> Apply</button>
+            <button type="button" class="analysis-icon-button" data-refresh-now aria-label="Refresh now" title="Refresh now"><i class="fas fa-rotate-right" aria-hidden="true"></i></button>
+        </form>
+    </header>
+
+    {% if not has_plant_scope %}
+        <div class="analysis-scope-warning" role="status"><i class="fas fa-shield-halved" aria-hidden="true"></i><span><strong>No treatment plant is assigned to this account.</strong><small>Analysis and result data are withheld until plant access is configured.</small></span></div>
+    {% endif %}
+    {% if not has_analysis_permission %}
+        <div class="analysis-scope-warning" role="status"><i class="fas fa-lock" aria-hidden="true"></i><span><strong>No analysis view permissions are available.</strong><small>Ask an administrator to grant access to the applicable analysis models.</small></span></div>
+    {% endif %}
+
+    <section class="analysis-kpis" aria-label="Analysis key performance indicators">
+        {% for metric in summary_cards %}
+            <button type="button" class="analysis-kpi analysis-kpi--{{ metric.tone }}" data-open-tab="{{ metric.tab }}" {% if metric.filter %}data-dashboard-filter="{{ metric.filter }}"{% endif %}>
+                <span class="analysis-kpi__top"><span>{{ metric.label }}</span><i class="fas {{ metric.icon }}" aria-hidden="true"></i></span>
+                <strong>{{ metric.value|intcomma }}</strong>
+                <small>{{ metric.caption }}</small>
+                <span class="analysis-kpi__action">Open detail <i class="fas fa-arrow-right" aria-hidden="true"></i></span>
+            </button>
+        {% endfor %}
+    </section>
+
+    <nav class="analysis-tabs" role="tablist" aria-label="Analysis dashboard panels">
+        <button type="button" role="tab" id="analysis-tab-overview" aria-controls="analysis-panel-overview" aria-selected="{% if active_tab == 'overview' %}true{% else %}false{% endif %}" data-tab-target="overview"><i class="fas fa-gauge-high" aria-hidden="true"></i> Overview</button>
+        <button type="button" role="tab" id="analysis-tab-results" aria-controls="analysis-panel-results" aria-selected="{% if active_tab == 'results' %}true{% else %}false{% endif %}" data-tab-target="results"><i class="fas fa-vials" aria-hidden="true"></i> Result cards <span>{{ cards|length }}</span></button>
+        <button type="button" role="tab" id="analysis-tab-compliance" aria-controls="analysis-panel-compliance" aria-selected="{% if active_tab == 'compliance' %}true{% else %}false{% endif %}" data-tab-target="compliance"><i class="fas fa-shield-heart" aria-hidden="true"></i> Compliance</button>
+        <button type="button" role="tab" id="analysis-tab-trends" aria-controls="analysis-panel-trends" aria-selected="{% if active_tab == 'trends' %}true{% else %}false{% endif %}" data-tab-target="trends"><i class="fas fa-chart-line" aria-hidden="true"></i> Trends</button>
+        <button type="button" role="tab" id="analysis-tab-workflow" aria-controls="analysis-panel-workflow" aria-selected="{% if active_tab == 'workflow' %}true{% else %}false{% endif %}" data-tab-target="workflow"><i class="fas fa-diagram-project" aria-hidden="true"></i> Workflow</button>
+        <button type="button" role="tab" id="analysis-tab-models" aria-controls="analysis-panel-models" aria-selected="{% if active_tab == 'models' %}true{% else %}false{% endif %}" data-tab-target="models"><i class="fas fa-database" aria-hidden="true"></i> Models & exports</button>
+    </nav>
+
+    <section class="analysis-panel" id="analysis-panel-overview" role="tabpanel" aria-labelledby="analysis-tab-overview" data-tab-panel="overview" {% if active_tab != 'overview' %}hidden{% endif %}>
+        <div class="analysis-section-heading"><div><span class="analysis-kicker">Operations overview</span><h2>Analysis flow & result integrity</h2><p>Recorded samples and measured results for {{ plant.name|default:"all accessible plants" }}.</p></div><span class="analysis-period-pill"><i class="fas fa-calendar-days" aria-hidden="true"></i> {{ period_label }}</span></div>
+        <section class="analysis-entry-workbench" id="analysis-worksheets" aria-labelledby="analysis-worksheets-title">
+            <div class="analysis-section-heading analysis-entry-workbench__heading"><div><span class="analysis-kicker">Measurement entry</span><h2 id="analysis-worksheets-title">Result card worksheets</h2><p>Enter or review the latest plant-scoped measurements here. Parameter ranges and methods come from the active analysis configuration.</p></div><span class="analysis-period-pill"><i class="fas fa-table-cells-large" aria-hidden="true"></i> {{ worksheet_cards|length }} visible worksheets</span></div>
+            <div class="analysis-entry-workbench__list">
+                {% for card in worksheet_cards %}{% include "core/components/analysis_result_worksheet.html" with card=card %}
+                {% empty %}<div class="analysis-empty analysis-entry-workbench__empty"><i class="fas fa-clipboard-check" aria-hidden="true"></i><strong>No result worksheets are available for the current scope.</strong><span>New unreviewed analyses and accessible saved results will appear here when available.</span></div>{% endfor %}
+            </div>
+        </section>
+        <div class="analysis-grid analysis-grid--overview">
+            <article class="analysis-surface analysis-span-2"><div class="analysis-surface-heading"><div><span class="analysis-kicker">Sample cadence</span><h3>Analyses by sample date</h3><p>{{ workflow_description }}</p></div><span class="analysis-surface-icon"><i class="fas fa-wave-square" aria-hidden="true"></i></span></div><div class="analysis-chart-wrap"><canvas data-analysis-chart="analysis-trend" aria-label="Analysis count by sample date"></canvas><div class="analysis-tooltip" hidden></div></div></article>
+            <article class="analysis-surface"><div class="analysis-surface-heading"><div><span class="analysis-kicker">Quality outcome</span><h3>Measured readings</h3><p>{{ compliance_description }}</p></div><span class="analysis-surface-icon"><i class="fas fa-shield-check" aria-hidden="true"></i></span></div><div class="analysis-compliance-ring"><canvas data-analysis-chart="compliance-ring" aria-label="Compliant and out of range readings"></canvas><div><strong>{{ compliance_rate_display }}</strong><small>in range</small></div></div><div class="analysis-ring-legend"><span><i class="analysis-dot analysis-dot--good"></i>{{ compliant_readings|intcomma }} complying</span><span><i class="analysis-dot analysis-dot--bad"></i>{{ failed_readings|intcomma }} out of range</span><span>{{ unrated_readings|intcomma }} unrated</span></div></article>
+            <article class="analysis-surface"><div class="analysis-surface-heading"><div><span class="analysis-kicker">Analysis composition</span><h3>{{ composition_title|default:"Workload composition" }}</h3><p>Count of analysis records in the selected window.</p></div><span class="analysis-surface-icon"><i class="fas fa-layer-group" aria-hidden="true"></i></span></div><div class="analysis-chart-wrap analysis-chart-wrap--bars"><canvas data-analysis-chart="analysis-types" aria-label="Analysis counts by configured category"></canvas><div class="analysis-tooltip" hidden></div></div></article>
+            <article class="analysis-surface analysis-span-2"><div class="analysis-surface-heading"><div><span class="analysis-kicker">Workflow stage</span><h3>Approval pipeline</h3><p>Analysis status counts reflect each workflow state from the models.</p></div><button type="button" class="analysis-link-button" data-open-tab="workflow">Open workflow <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div><div class="analysis-stage-strip">{% for stage in stage_cards %}<button type="button" class="analysis-stage-card" data-open-tab="workflow" data-status-filter="{{ stage.key }}"><span>{{ stage.label }}</span><strong>{{ stage.count|intcomma }}</strong><i class="analysis-stage-line"></i></button>{% endfor %}</div></article>
+        </div>
+        <div class="analysis-section-heading analysis-section-heading--compact"><div><span class="analysis-kicker">Latest records</span><h2>Recent analysis result cards</h2></div><button type="button" class="analysis-link-button" data-open-tab="results">All result cards <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div>
+        {% include "core/components/analysis_workflow_cards.html" with cards=cards|slice:":4" %}
+    </section>
+
+    <section class="analysis-panel" id="analysis-panel-results" role="tabpanel" aria-labelledby="analysis-tab-results" data-tab-panel="results" {% if active_tab != 'results' %}hidden{% endif %}>
+        <div class="analysis-section-heading"><div><span class="analysis-kicker">Live result cards</span><h2>Samples, analyses & recorded measurements</h2><p>Cards update as due samples are linked to analyses and result readings are saved.</p></div><span class="analysis-period-pill"><i class="fas fa-arrows-rotate" aria-hidden="true"></i> Auto refresh every minute</span></div>
+        <div class="analysis-filterbar"><label class="analysis-search"><i class="fas fa-magnifying-glass" aria-hidden="true"></i><input type="search" placeholder="Search sample, site, analyst, parameter" data-card-search><kbd>Ctrl K</kbd></label><label><span>Workflow</span><select data-status-filter-select><option value="all">All statuses</option>{% for stage in stage_cards %}<option value="{{ stage.key }}">{{ stage.label }}</option>{% endfor %}</select></label><label><span>Result state</span><select data-result-filter-select><option value="all">All results</option><option value="failed">Out of range</option><option value="empty">No readings</option><option value="good">In range</option><option value="unrated">Needs standard review</option></select></label><span class="analysis-card-count">{{ cards|length }} visible cards</span></div>
+        {% include "core/components/analysis_workflow_cards.html" with cards=cards %}
+    </section>
+
+    <section class="analysis-panel" id="analysis-panel-compliance" role="tabpanel" aria-labelledby="analysis-tab-compliance" data-tab-panel="compliance" {% if active_tab != 'compliance' %}hidden{% endif %}>
+        <div class="analysis-section-heading"><div><span class="analysis-kicker">Regulatory performance</span><h2>Parameter compliance matrix</h2><p>{{ compliance_description }}</p></div><span class="analysis-period-pill">{{ total_readings|intcomma }} readings</span></div>
+        <div class="analysis-table-wrap"><table class="analysis-table" id="compliance-table"><thead><tr><th>Parameter</th><th>Readings</th><th>Complying</th><th>Out of range</th><th>Compliance</th><th>Risk signal</th></tr></thead><tbody>
+            {% for item in parameter_series %}<tr data-search-row data-parameter-failed="{% if item.failed %}failed{% elif item.unrated %}unrated{% else %}good{% endif %}"><td><strong>{{ item.label }}</strong><small>{{ item.unit|default:"Unit not configured" }}</small></td><td>{{ item.readings|intcomma }}</td><td>{{ item.compliant|intcomma }}</td><td>{% if item.failed %}<b class="analysis-negative">{{ item.failed|intcomma }}</b>{% else %}0{% endif %}</td><td><div class="analysis-progress"><span style="width:{{ item.compliance_percent }}%"></span></div><strong>{{ item.compliance_percent }}%</strong><small>{{ item.unrated|intcomma }} unrated</small></td><td>{% if item.failed %}<span class="analysis-badge analysis-badge--bad">Review readings</span>{% elif item.unrated %}<span class="analysis-badge">Limits unavailable</span>{% else %}<span class="analysis-badge analysis-badge--good">Within standard</span>{% endif %}</td></tr>
+            {% empty %}<tr><td colspan="6"><div class="analysis-empty"><i class="fas fa-flask" aria-hidden="true"></i><strong>No recorded parameter results in this scope and period.</strong><span>Compliance appears once readings are saved.</span></div></td></tr>{% endfor %}
+        </tbody></table></div>
+        <div class="analysis-footnote">Historical readings remain unchanged; the matrix derives compliance from the parameter standard and stored result value.</div>
+    </section>
+
+    <section class="analysis-panel" id="analysis-panel-trends" role="tabpanel" aria-labelledby="analysis-tab-trends" data-tab-panel="trends" {% if active_tab != 'trends' %}hidden{% endif %}>
+        <div class="analysis-section-heading"><div><span class="analysis-kicker">Period analytics</span><h2>Sampling & results telemetry</h2><p>Trends are based on actual sample dates and result-entry timestamps.</p></div><span class="analysis-period-pill">{{ period_days }} day window</span></div>
+        <div class="analysis-trend-kpis"><div><span>Analyses / day</span><strong>{{ analysis_per_day }}</strong><small>Average across selected window</small></div><div><span>Recorded readings</span><strong>{{ total_readings|intcomma }}</strong><small>Entered measurements with recorded date</small></div><div><span>Compliance rate</span><strong>{{ compliance_rate_display }}</strong><small>Rated readings only</small></div><div><span>Pending readings</span><strong>{{ pending_readings|intcomma }}</strong><small>Analysis records with no result rows</small></div></div>
+        <div class="analysis-grid analysis-grid--trends"><article class="analysis-surface"><div class="analysis-surface-heading"><div><span class="analysis-kicker">Sample throughput</span><h3>Analysis records by date</h3></div></div><div class="analysis-chart-wrap analysis-chart-wrap--large"><canvas data-analysis-chart="analysis-trend" aria-label="Analysis records per day"></canvas><div class="analysis-tooltip" hidden></div></div></article><article class="analysis-surface"><div class="analysis-surface-heading"><div><span class="analysis-kicker">Data entry</span><h3>Result readings by date</h3></div></div><div class="analysis-chart-wrap analysis-chart-wrap--large"><canvas data-analysis-chart="result-trend" aria-label="Result readings recorded per day"></canvas><div class="analysis-tooltip" hidden></div></div></article></div>
+        <article class="analysis-surface"><div class="analysis-surface-heading"><div><span class="analysis-kicker">Exception concentration</span><h3>Parameters needing review</h3><p>Ordered by out-of-range reading count.</p></div></div><div class="analysis-table-wrap"><table class="analysis-table"><thead><tr><th>Parameter</th><th>Unit</th><th>Readings</th><th>Exceptions</th><th>In-range</th></tr></thead><tbody>{% for item in parameter_series %}<tr><td><strong>{{ item.label }}</strong></td><td>{{ item.unit|default:"—" }}</td><td>{{ item.readings }}</td><td class="{% if item.failed %}analysis-negative{% endif %}">{{ item.failed }}</td><td>{{ item.compliance_percent }}%</td></tr>{% empty %}<tr><td colspan="5">No result data for this period.</td></tr>{% endfor %}</tbody></table></div></article>
+    </section>
+
+    <section class="analysis-panel" id="analysis-panel-workflow" role="tabpanel" aria-labelledby="analysis-tab-workflow" data-tab-panel="workflow" {% if active_tab != 'workflow' %}hidden{% endif %}>
+        <div class="analysis-section-heading"><div><span class="analysis-kicker">Review pipeline</span><h2>Analysis state and work queue</h2><p>Statuses follow the model transitions from New through Approved.</p></div><span class="analysis-period-pill">{{ total_analyses|intcomma }} analyses</span></div>
+        <div class="analysis-workflow-grid">{% for stage in stage_cards %}<button type="button" class="analysis-workflow-card analysis-workflow-card--{{ stage.key|lower }}" data-status-filter="{{ stage.key }}"><span class="analysis-workflow-index">0{{ forloop.counter }}</span><span>{{ stage.label }}</span><strong>{{ stage.count|intcomma }}</strong><small>Open matching result cards</small></button>{% endfor %}</div>
+        <div class="analysis-workflow-note"><i class="fas fa-circle-info" aria-hidden="true"></i><span>Scheduled generation links existing due sample records to analysis records. Analyst and review actions remain governed by each app's workflow permissions.</span></div>
+        <h3 class="analysis-subheading">Analyses without recorded readings</h3>
+        <div class="analysis-card-grid" data-analysis-cards data-card-filter="empty">{% for card in cards %}{% if card.result_state == "No readings" %}{% include "core/components/analysis_workflow_card.html" with card=card %}{% endif %}{% empty %}<div class="analysis-empty">No analysis cards in this window.</div>{% endfor %}</div>
+    </section>
+
+    <section class="analysis-panel" id="analysis-panel-models" role="tabpanel" aria-labelledby="analysis-tab-models" data-tab-panel="models" {% if active_tab != 'models' %}hidden{% endif %}>
+        <div class="analysis-section-heading"><div><span class="analysis-kicker">Model-driven access</span><h2>Analysis records & exports</h2><p>Browse data using the models registered by this application.</p></div><span class="analysis-period-pill">{{ models|length }} models</span></div>
+        <div class="analysis-model-grid">{% for model in models %}<article class="analysis-model-card"><span class="analysis-model-icon"><i class="fas fa-{{ model.icon }}" aria-hidden="true"></i></span><div><small>{{ model.group|title }}</small><h3>{{ model.label }}</h3><code>{{ model.key }}</code></div><div class="analysis-model-actions"><a href="{{ model.urls.list }}">Browse</a>{% if model.capabilities.create %}<a href="{{ model.urls.create }}">Create</a>{% endif %}{% if model.capabilities.export %}<a href="{{ model.urls.export }}">Export</a>{% endif %}</div></article>{% empty %}<div class="analysis-empty">No analysis models are available for this account.</div>{% endfor %}</div>
+    </section>
+
+    <footer class="analysis-footer"><span>{{ dashboard_title }} · {{ plant.name|default:"All accessible data" }}</span><span>Readings and compliance are based on saved values and the configured model standards.</span></footer>
+    {{ analysis_series|json_script:"analysis-daily-series" }}
+    {{ result_series|json_script:"result-daily-series" }}
+    {{ analysis_type_series|json_script:"analysis-type-series" }}
+    {{ parameter_series|json_script:"parameter-compliance-series" }}
+    {{ stage_cards|json_script:"analysis-stage-series" }}
+</main>

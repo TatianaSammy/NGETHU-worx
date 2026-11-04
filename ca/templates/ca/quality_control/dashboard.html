@@ -1,0 +1,59 @@
+{% extends "ca/base.html" %}
+{% load static %}
+
+{% block title %}Method QC Control Charts · Chemical Analysis{% endblock %}
+
+{% block extra_styles %}
+{{ block.super }}
+<style>
+    .qc-dashboard{--qc-ink:#123047;--qc-muted:#5d7184;--qc-line:#d9e5ee;--qc-bg:#f5f9fc;color:var(--qc-ink)}
+    .qc-dashboard__hero{display:flex;justify-content:space-between;align-items:end;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;padding:1.25rem;border:1px solid #b9d8e8;border-radius:1rem;background:linear-gradient(125deg,#effaff,#fff 52%,#f3f7ff)}
+    .qc-dashboard__hero h1{margin:.2rem 0;font-size:1.6rem;font-weight:800}.qc-eyebrow{color:#0786a6;font-size:.68rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase}.qc-subtitle{margin:0;color:var(--qc-muted);font-size:.9rem}
+    .qc-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin:0 0 1rem}.qc-kpi{padding:.9rem 1rem;background:#fff;border:1px solid var(--qc-line);border-radius:.8rem}.qc-kpi span{display:block;color:var(--qc-muted);font-size:.75rem}.qc-kpi strong{font-size:1.4rem}
+    .qc-card{margin-bottom:1rem;border:1px solid var(--qc-line);border-radius:.9rem;background:#fff;overflow:hidden}.qc-card__head{display:flex;justify-content:space-between;align-items:start;gap:1rem;padding:1rem 1.1rem;border-bottom:1px solid var(--qc-line)}.qc-card__head h2{margin:0;font-size:1rem}.qc-card__head p{margin:.2rem 0 0;color:var(--qc-muted);font-size:.8rem}.qc-signal{padding:.3rem .6rem;border-radius:1rem;font-size:.68rem;font-weight:800;background:#eef2f7;color:#475569}.qc-signal--IN_CONTROL{background:#dcfce7;color:#166534}.qc-signal--WARNING{background:#ffedd5;color:#9a3412}.qc-signal--OUT_OF_CONTROL{background:#fee2e2;color:#991b1b}
+    .qc-card__body{display:grid;grid-template-columns:minmax(0,2fr) minmax(210px,1fr);gap:1rem;padding:1rem}.qc-chart{width:100%;height:auto;min-height:150px;background:#f8fbfd;border:1px solid var(--qc-line);border-radius:.6rem}.qc-meta{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;align-content:start}.qc-meta div{padding:.65rem;border-radius:.5rem;background:#f4f8fb}.qc-meta span{display:block;color:var(--qc-muted);font-size:.7rem}.qc-meta strong{font-size:.9rem}.qc-latest{grid-column:1/-1;font-size:.78rem;color:var(--qc-muted)}
+    .qc-empty{padding:2rem;text-align:center;border:1px dashed #b8cad8;border-radius:1rem;color:var(--qc-muted);background:#fff}
+    @media(max-width:750px){.qc-kpis{grid-template-columns:1fr}.qc-card__body{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+
+{% block accounts_content %}
+<main class="ca-page qc-dashboard">
+    <header class="qc-dashboard__hero">
+        <div><p class="qc-eyebrow">Chemical analysis · measurement assurance</p><h1>Method QC control charts</h1><p class="qc-subtitle">Trend standards, duplicates, blanks, spikes and instrument checks by configured analytical method.</p></div>
+        <div class="ca-form-context"><span class="ca-context-chip">{% if plant_context %}{{ plant_context.name }}{% else %}All plants{% endif %}</span><span class="ca-context-chip">Last 30 control results</span></div>
+    </header>
+    <section class="qc-kpis" aria-label="QC summary">
+        <article class="qc-kpi"><span>Control checks in view</span><strong>{{ overall_checks }}</strong></article>
+        <article class="qc-kpi"><span>Failed checks in recent window</span><strong>{{ control_failures }}</strong></article>
+        <article class="qc-kpi"><span>Active 3σ drift signals</span><strong>{{ out_of_control }}</strong></article>
+    </section>
+    {% if control_cards %}
+        {% for card in control_cards %}
+            <article class="qc-card">
+                <header class="qc-card__head"><div><h2>{{ card.control.plan.method.method }} · {{ card.control.label }}</h2><p>{{ card.plant.name|default:"No plant scope" }} · {{ card.control.get_check_type_display }} · {{ card.control.get_evaluation_display }}</p></div><span class="qc-signal qc-signal--{{ card.chart.signal }}">{{ card.chart.signal|cut:"_"|lower }}</span></header>
+                <div class="qc-card__body">
+                    <svg class="qc-chart" viewBox="0 0 600 130" role="img" aria-label="Control chart for {{ card.control.label }}">
+                        <path d="M20 110 H580 M20 65 H580 M20 20 H580" stroke="#e2eaf0" stroke-width="1" fill="none" />
+                        {% if card.control_high_y != None %}<line x1="20" x2="580" y1="{{ card.control_high_y }}" y2="{{ card.control_high_y }}" stroke="#ef4444" stroke-dasharray="4 4" />{% endif %}
+                        {% if card.warning_high_y != None %}<line x1="20" x2="580" y1="{{ card.warning_high_y }}" y2="{{ card.warning_high_y }}" stroke="#f59e0b" stroke-dasharray="3 4" />{% endif %}
+                        {% if card.mean_y != None %}<line x1="20" x2="580" y1="{{ card.mean_y }}" y2="{{ card.mean_y }}" stroke="#64748b" stroke-dasharray="5 4" />{% endif %}
+                        {% if card.warning_low_y != None %}<line x1="20" x2="580" y1="{{ card.warning_low_y }}" y2="{{ card.warning_low_y }}" stroke="#f59e0b" stroke-dasharray="3 4" />{% endif %}
+                        {% if card.control_low_y != None %}<line x1="20" x2="580" y1="{{ card.control_low_y }}" y2="{{ card.control_low_y }}" stroke="#ef4444" stroke-dasharray="4 4" />{% endif %}
+                        <polyline points="{{ card.points }}" fill="none" stroke="#0891b2" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <div class="qc-meta">
+                        <div><span>Latest evaluated value</span><strong>{% if card.latest %}{{ card.latest.evaluated_value }}{% else %}No runs yet{% endif %}</strong></div>
+                        <div><span>Method acceptance</span><strong>{{ card.control.acceptance_min|default:"—" }} – {{ card.control.acceptance_max|default:"—" }}</strong></div>
+                        <div><span>Baseline mean</span><strong>{{ card.chart.mean|default:"Building baseline" }}</strong></div>
+                        <div><span>Baseline σ</span><strong>{{ card.chart.sd|default:"—" }}</strong></div>
+                        <p class="qc-latest">{% if card.latest %}Last result {{ card.latest.recorded_at|date:"Y-m-d H:i" }} by {{ card.latest.analyst|default:"Unknown analyst" }}{% else %}This control is configured and ready for its first recorded check.{% endif %} · {{ card.recent_failures }} failures among the visible checks.</p>
+                    </div>
+                </div>
+            </article>
+        {% endfor %}
+    {% else %}
+        <div class="qc-empty"><strong>No QC control-chart data is available for this scope.</strong><p>Configure an active method quality plan and record its first quality-control checks to start the trend.</p></div>
+    {% endif %}
+</main>
+{% endblock %}

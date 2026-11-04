@@ -29,6 +29,13 @@ function getJarPointsFromDOM() {
     return points;
 }
 
+function getPlantFrcTarget() {
+    const raw = document.querySelector(".cl-workspace-root")?.dataset?.targetResidual;
+    if (raw === undefined || raw === null || raw.trim() === "") return null;
+    const target = Number(raw);
+    return Number.isFinite(target) && target >= 0 ? target : null;
+}
+
 function initChlorineChart() {
     renderChlorineCurve();
 }
@@ -52,11 +59,27 @@ function renderChlorineCurve() {
     if (maxDose <= 0) maxDose = 4.0;
     let maxRes = Math.max(...points.map(p => p.residual), 0.6);
     if (maxRes <= 0) maxRes = 0.6;
-    maxRes = Math.max(maxRes, 0.4); // Ensure adequate headroom for 0.2 target
+    const targetResidual = getPlantFrcTarget();
+    maxRes = Math.max(maxRes, targetResidual ?? 0, 0.4);
 
     // Scale mappings
     const scaleX = (d) => xMin + ((d / maxDose) * (xMax - xMin));
     const scaleY = (r) => yMax - ((r / maxRes) * (yMax - yMin));
+
+    const targetLine = document.getElementById("clTargetLine");
+    const targetLabel = document.getElementById("clTargetLabel");
+    if (targetLine && targetLabel && targetResidual !== null) {
+        const targetY = scaleY(targetResidual);
+        targetLine.setAttribute("y1", targetY);
+        targetLine.setAttribute("y2", targetY);
+        targetLine.removeAttribute("display");
+        targetLabel.setAttribute("y", Math.max(yMin + 10, targetY - 5));
+        targetLabel.textContent = `PLANT F.R.C. TARGET ${targetResidual.toFixed(3)} mg/L`;
+        targetLabel.removeAttribute("display");
+    } else {
+        targetLine?.setAttribute("display", "none");
+        targetLabel?.setAttribute("display", "none");
+    }
 
     // Map screen points
     const mapped = points.map(p => ({
@@ -173,6 +196,7 @@ window.recalcChlorineJar = function(jarNum) {
     const retentionEl = document.getElementById(`retention-display-${jarNum}`);
     const gaugeEl = document.getElementById(`gauge-bar-${jarNum}`);
     const devEl = document.getElementById(`dev-display-${jarNum}`);
+        const statusEl = document.getElementById(`status-badge-${jarNum}`);
 
     if (doseInput && resInput) {
         const dose = parseFloat(doseInput.value) || 0;
@@ -182,16 +206,39 @@ window.recalcChlorineJar = function(jarNum) {
 
         if (consumedEl) consumedEl.textContent = `${consumed.toFixed(2)} mg/L`;
         if (retentionEl) retentionEl.textContent = `${retention.toFixed(1)}%`;
-        if (devEl) devEl.textContent = `${res.toFixed(3)} mg/L`;
+        const targetResidual = getPlantFrcTarget();
+        if (devEl) devEl.textContent = targetResidual === null
+            ? "—"
+            : `${Math.abs(res - targetResidual).toFixed(3)} mg/L`;
 
         // Update gauge bar width and color
         if (gaugeEl) {
-            const pct = Math.min(100, Math.max(5, (res / 0.4) * 100));
+            const gaugeRange = Math.max((targetResidual ?? 0) * 2, 0.4);
+            const pct = Math.min(100, Math.max(0, (res / gaugeRange) * 100));
             gaugeEl.style.width = `${pct}%`;
-            if (Math.abs(res - 0.2) <= 0.05) {
+            if (targetResidual === null) {
+                gaugeEl.className = "progress-indicator ind-neutral";
+            } else if (Math.abs(res - targetResidual) <= 0.05) {
                 gaugeEl.className = "progress-indicator ind-green";
             } else {
                 gaugeEl.className = "progress-indicator ind-amber";
+            }
+        }
+
+        if (statusEl) {
+            statusEl.classList.remove("status-optimal", "status-under", "status-over", "status-unconfigured");
+            if (targetResidual === null) {
+                statusEl.classList.add("status-unconfigured");
+                statusEl.textContent = "Treated F.R.C. Limit Missing";
+            } else if (Math.abs(res - targetResidual) <= 0.05) {
+                statusEl.classList.add("status-optimal");
+                statusEl.textContent = "Optimal Target";
+            } else if (res < targetResidual) {
+                statusEl.classList.add("status-under");
+                statusEl.textContent = "Sub-Breakpoint";
+            } else {
+                statusEl.classList.add("status-over");
+                statusEl.textContent = "Excess Residual";
             }
         }
     }
@@ -203,7 +250,7 @@ window.recalcChlorineJar = function(jarNum) {
 // 3. CONTACT TIME INCUBATION STOPWATCH
 // ==============================================================================
 let timerInterval = null;
-let timerSeconds = 30 * 60; // 30 minutes
+let timerSeconds = 10 * 60; // standard 10-minute contact time
 let isTimerRunning = false;
 
 window.toggleChlorineTimer = function() {
@@ -237,10 +284,10 @@ window.toggleChlorineTimer = function() {
     }
 };
 
-window.resetChlorineTimer = function(mins = 30) {
+window.resetChlorineTimer = function() {
     clearInterval(timerInterval);
     isTimerRunning = false;
-    timerSeconds = mins * 60;
+    timerSeconds = 10 * 60;
     updateTimerDisplay();
 
     const btn = document.getElementById("timerStartBtn");
@@ -248,11 +295,6 @@ window.resetChlorineTimer = function(mins = 30) {
     if (btn) btn.innerHTML = '<i class="fa-solid fa-play"></i> Start';
     if (badge) { badge.textContent = "STANDBY"; badge.className = "badge bg-dark border border-secondary text-light font-mono"; }
 
-    // Update active preset button
-    document.querySelectorAll(".preset-btn").forEach(b => {
-        b.classList.remove("active");
-        if (b.textContent.includes(`${mins}m`)) b.classList.add("active");
-    });
 };
 
 function updateTimerDisplay() {
@@ -396,9 +438,10 @@ function initChlorineReportAnalytics() {
             const response = data.dose_residual || {};
             const traces = [{ x: (response.points || []).map((point) => point.x), y: (response.points || []).map((point) => point.y), customdata: (response.points || []).map((point) => point.date), type: "scatter", mode: "markers", name: "Optimal jar", marker: { size: 8, color: "#22d3ee", line: { color: "#cffafe", width: 1 }, opacity: .82 }, hovertemplate: "Dose %{x:.2f} mg/L<br>Residual %{y:.3f} mg/L<br>%{customdata}<extra></extra>" }];
             if (response.fit?.length) traces.push({ x: response.fit.map((point) => point.x), y: response.fit.map((point) => point.y), type: "scatter", mode: "lines", name: "Theil–Sen fit", line: { color: "#a78bfa", width: 2, dash: "dot" } });
-            if (response.points?.length) {
+            const targetResidual = getPlantFrcTarget();
+            if (response.points?.length && targetResidual !== null) {
                 const extent = response.points.reduce((range, point) => [Math.min(range[0], point.x), Math.max(range[1], point.x)], [Infinity, -Infinity]);
-                traces.push({ x: extent, y: [.2, .2], type: "scatter", mode: "lines", name: "0.20 mg/L target", line: { color: "#34d399", width: 1, dash: "dash" } });
+                traces.push({ x: extent, y: [targetResidual, targetResidual], type: "scatter", mode: "lines", name: `Plant F.R.C. target (${targetResidual.toFixed(3)} mg/L)`, line: { color: "#34d399", width: 1, dash: "dash" } });
             }
             const chartLayout = { ...layout, xaxis: { ...layout.xaxis, title: "Established dose (mg/L)" }, yaxis: { ...layout.yaxis, title: "Residual (mg/L)" } };
             if (!response.points?.length) chartLayout.annotations = [{ text: "No dose / residual pairs match these filters", x: .5, y: .5, xref: "paper", yref: "paper", showarrow: false, font: { color: "#8193ae", size: 10 } }];

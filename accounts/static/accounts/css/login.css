@@ -1,6 +1,4 @@
-/* =========================================================
-   Global body & background
-   ========================================================= */
+
 body {
     margin: 0;
     padding: 0;
@@ -10,48 +8,85 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    height: 100vh;
-    overflow: hidden;
+    min-height: 100vh;
+    min-height: 100svh;
+    overflow-x: hidden;
+    overflow-y: auto;
     position: relative;
     transition: background 1s ease;
+    box-sizing: border-box;
+    padding: 1rem;
 }
 
-/* =========================================================
-   Floating error container
-   ========================================================= */
+
 #errorMessage {
-    position: absolute;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: color-mix(in srgb, var(--color-danger) 90%, var(--theme-text));
-    color: #fff;
-    padding: 0.6rem 1rem;
-    border-radius: 0.4rem;
+    position: relative;
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin: 0 0 0.9rem;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid transparent;
+    border-radius: 0.7rem;
     font-size: var(--font-size-md);
-    display: none;
-    opacity: 0;
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    line-height: 1.4;
+    text-align: left;
+    opacity: 1;
+    animation: feedback-in 180ms ease-out;
     z-index: 10;
 }
 
-#errorMessage.show {
-    display: block;
-    opacity: 1;
-    transform: translateX(-50%) translateY(-5px);
-    animation: shake 0.3s ease;
+#errorMessage[hidden] {
+    display: none;
 }
 
-/* Slight shake animation on error */
-@keyframes shake {
-    0%, 100% { transform: translateX(-50%) translateY(-5px); }
-    25% { transform: translateX(-48%) translateY(-5px); }
-    75% { transform: translateX(-52%) translateY(-5px); }
+#errorMessage.is-error {
+    color: color-mix(in srgb, var(--color-danger) 82%, var(--theme-text));
+    background: color-mix(in srgb, var(--color-danger) 12%, var(--theme-surface));
+    border-color: color-mix(in srgb, var(--color-danger) 32%, transparent);
 }
 
-/* =========================================================
-   Login container (card) — dynamic gradient
-   ========================================================= */
+#errorMessage.is-warning {
+    color: color-mix(in srgb, #d58b00 82%, var(--theme-text));
+    background: color-mix(in srgb, #d58b00 13%, var(--theme-surface));
+    border-color: color-mix(in srgb, #d58b00 34%, transparent);
+}
+
+#errorMessage.is-info {
+    color: var(--theme-text);
+    background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
+    border-color: color-mix(in srgb, var(--theme-accent) 32%, transparent);
+}
+
+.feedback-icon { flex: 0 0 auto; }
+#errorMessage.is-error .feedback-icon { color: var(--color-danger); }
+#errorMessage.is-warning .feedback-icon { color: #d58b00; }
+#errorMessage.is-info .feedback-icon { color: var(--theme-accent); }
+#feedbackText { flex: 1 1 auto; }
+
+.feedback-dismiss {
+    width: 2rem;
+    height: 2rem;
+    flex: 0 0 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.45rem;
+    background: transparent;
+    color: currentColor;
+    display: grid;
+    place-items: center;
+}
+
+.feedback-dismiss:hover { filter: none !important; box-shadow: none !important; transform: none !important; background: color-mix(in srgb, currentColor 10%, transparent); }
+
+@keyframes feedback-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+
 .login-container {
     position: relative;
     background: linear-gradient(145deg, var(--theme-surface), var(--theme-surface-muted));
@@ -61,6 +96,7 @@ body {
     box-shadow: 0 12px 35px rgba(0,0,0,0.35);
     width: 100%;
     max-width: 400px;
+    box-sizing: border-box;
     padding: 2rem 2rem;
     display: flex;
     flex-direction: column;
@@ -70,49 +106,13 @@ body {
     overflow: hidden;
 }
 
-/* Dynamic gradient animation */
-.login-container.dynamic-gradient {
-    background-size: 1000% 1000%;
-    animation: gradientShift 20s ease infinite;
+.login-container.is-transitioning {
+    opacity: 0;
+    transform: translateY(5px) scale(0.99);
+    pointer-events: none;
 }
 
-@keyframes gradientShift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
 
-/* =========================================================
-   Logo wrapper
-   ========================================================= */
-.logo-wrapper {
-    width: 120px;
-    height: 120px;
-    margin-bottom: 1rem;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    border-radius: 50%;
-    background: var(--theme-surface-muted);
-    box-shadow: 0 6px 18px rgba(0,0,0,0.25);
-    overflow: hidden;
-    transition: transform 0.4s ease, box-shadow 0.3s ease;
-}
-
-.logo-wrapper img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    transition: transform 0.3s ease;
-}
-
-.logo-wrapper:hover img {
-    transform: scale(1.08);
-}
-
-/* =========================================================
-   Company name
-   ========================================================= */
 .company-name {
     font-size: var(--font-size-2xl);
     font-weight: 700;
@@ -121,36 +121,14 @@ body {
     transition: color 0.3s ease;
 }
 
-/* =========================================================
-   Verified username
-   ========================================================= */
-.verified-username {
-    width: 100%;
-    margin-bottom: 1rem;
-    font-weight: 600;
-    font-size: var(--font-size-body);
-    color: var(--theme-accent);
-    text-align: center;
-    transition: all 0.3s ease;
-    opacity: 0;
-}
 
-/* Fade in for verified username */
-.verified-username.show {
-    opacity: 1;
-    transition: opacity 0.4s ease;
-}
-
-/* =========================================================
-   Form groups & inputs
-   ========================================================= */
 .form-group {
     position: relative;
     width: 100%;
     margin-bottom: 1rem;
 }
 
-/* Left icons */
+
 .form-group i.left-icon {
     position: absolute;
     top: 50%;
@@ -161,7 +139,7 @@ body {
     font-size: var(--font-size-body);
 }
 
-/* Input styling */
+
 input[type="text"],
 input[type="password"] {
     width: 100%;
@@ -182,30 +160,46 @@ input:focus {
     box-shadow: var(--theme-focus-ring);
 }
 
+.form-group input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 16%, transparent);
+}
+
 input::placeholder {
     color: var(--theme-muted);
 }
 
-/* Password toggle */
+
 .toggle-password {
     position: absolute;
     top: 50%;
     right: 0.75rem;
     transform: translateY(-50%);
-    cursor: pointer;
     color: var(--theme-muted);
-    font-size: 1rem;
+    font-size: var(--font-size-md);
     z-index: 3;
-    transition: color 0.3s ease;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    display: grid;
+    place-items: center;
+    transition: color 0.2s ease, background 0.2s ease;
 }
 
-.toggle-password:hover {
+.form-group .toggle-password:hover {
     color: var(--theme-accent);
+    background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
+    filter: none;
+    box-shadow: none;
+    transform: translateY(-50%);
 }
 
-/* =========================================================
-   Buttons
-   ========================================================= */
+.form-group .toggle-password:disabled { opacity: 1; cursor: pointer; }
+
+
 button {
     width: 100%;
     padding: 0.55rem 1rem;
@@ -233,22 +227,45 @@ button:disabled {
     opacity: 0.6;
 }
 
-/* Ripple effect */
-button span {
-    position: absolute;
+button:focus-visible, a:focus-visible, input:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--theme-accent) 70%, white);
+    outline-offset: 2px;
+}
+
+.auth-hint {
+    width: 100%;
+    margin: -0.55rem 0 0.75rem;
+    text-align: left;
+    font-size: var(--font-size-sm);
+    color: #a96700;
+}
+
+.auth-hint[hidden] { display: none; }
+
+.login-network-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    margin-top: 0.9rem;
+    color: var(--theme-muted);
+    font-size: var(--font-size-sm);
+}
+
+.login-network-status[hidden] { display: none; }
+
+.network-indicator {
+    width: 0.48rem;
+    height: 0.48rem;
     border-radius: 50%;
-    transform: scale(0);
-    animation: ripple 0.6s linear;
-    background-color: rgba(255,255,255,0.3);
 }
 
-@keyframes ripple {
-    to { transform: scale(2.5); opacity: 0; }
+.login-network-status.is-offline .network-indicator {
+    background: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15%, transparent);
 }
 
-/* =========================================================
-   Forgot password
-   ========================================================= */
+
 .forgot-password {
     margin-top: 0.5rem;
     font-size: var(--font-size-sm);
@@ -265,9 +282,7 @@ button span {
     color: var(--theme-accent-hover);
 }
 
-/* =========================================================
-   Password strength bar
-   ========================================================= */
+
 #passwordStrengthContainer {
     height: 6px;
     width: 100%;
@@ -285,22 +300,15 @@ button span {
     transition: width 0.3s ease, background 0.3s ease;
 }
 
-/* Gradient glow on strong password */
+
 #passwordStrengthBar.strong {
     box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 55%, transparent);
 }
 
-/* =========================================================
-   Responsive tweaks
-   ========================================================= */
+
 @media (max-width: 400px) {
     .login-container {
         padding: 1.5rem 1rem;
-    }
-
-    .logo-wrapper {
-        width: 100px;
-        height: 100px;
     }
 
     .company-name {
@@ -308,9 +316,7 @@ button span {
     }
 }
 
-/* =========================================================
-   Password reset status message (login page inline)
-   ========================================================= */
+
 .reset-status {
     width: 100%;
     text-align: center;
@@ -321,6 +327,8 @@ button span {
     transition: opacity 0.3s ease;
     line-height: 1.4;
 }
+
+.reset-status[hidden] { display: none; }
 
 .reset-status.success {
     background: color-mix(in srgb, var(--color-success, #00ff88) 12%, var(--theme-surface));
@@ -341,4 +349,13 @@ button span {
 .forgot-password a.disabled-link {
     pointer-events: none;
     opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
 }

@@ -4,8 +4,12 @@
     <div class="jt-matrix-header">
         <div class="d-flex align-items-center gap-2">
             <i class="fa-solid fa-flask-vial text-emerald"></i>
-            <h5 class="m-0 fw-bold">6-Jar Coagulation &amp; Flocculation Matrix</h5>
-            <span class="text-muted small">(Rapid Mix 120 RPM &bull; Slow Mix 30 RPM &bull; 30m Settling Standard)</span>
+            <h5 class="m-0 fw-bold">Lovibond 6-Jar Flocculator</h5>
+            <span class="jt-process-standard" aria-label="Jar test mixing protocol: rapid mix at 120 RPM for 5 minutes, then slow mix at 30 RPM for 15 minutes; settle for 30 minutes">
+                <span><b>Rapid</b> 120 RPM · 5 min</span>
+                <span><b>Slow</b> 30 RPM · 15 min</span>
+                <span><b>Settle</b> 30 min</span>
+            </span>
         </div>
 
         <div class="d-flex align-items-center gap-2">
@@ -195,16 +199,4 @@
         {% endfor %}
     </div>
 
-    <!-- JarTest.remarks — model-synced -->
-    <div class="jt-remarks-card">
-        <label for="jt-remarks" class="small fw-semibold text-muted mb-1 d-flex align-items-center gap-1">
-            <i class="fa-solid fa-comment-dots text-emerald"></i>
-            <span>Jar Test Observations &amp; Coagulation Notes</span>
-        </label>
-        <textarea id="jt-remarks"
-                  name="remarks"
-                  rows="2"
-                  class="jt-textarea"
-                  placeholder="Record floc character, settling clarity, odor, temperature, or coagulant grade notes...">{{ jartest.remarks }}</textarea>
-    </div>
 </div>

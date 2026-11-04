@@ -21,6 +21,7 @@
 
                 <a
                     href="#overview-tab"
+                    id="accounts-overview-link"
                     class="nav-link active"
                     data-bs-toggle="pill"
                     data-bs-target="#overview-tab"
@@ -59,6 +60,7 @@
 
                 <a
                     href="#profile-tab"
+                    id="profile-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#profile-tab"
@@ -97,6 +99,7 @@
 
                 <a
                     href="#users-tab"
+                    id="users-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#users-tab"
@@ -118,7 +121,7 @@
                     </span>
 
                     <span class="badge">
-                        {{ users|length }}
+                        {{ dashboard_counts.users|default:0 }}
                     </span>
                 </a>
 
@@ -129,6 +132,7 @@
 
                 <a
                     href="#sections-tab"
+                    id="sections-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#sections-tab"
@@ -150,7 +154,7 @@
                     </span>
 
                     <span class="badge">
-                        {{ sections|length }}
+                        {{ dashboard_counts.sections|default:0 }}
                     </span>
                 </a>
 
@@ -161,6 +165,7 @@
 
                 <a
                     href="#groups-tab"
+                    id="groups-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#groups-tab"
@@ -182,7 +187,7 @@
                     </span>
 
                     <span class="badge">
-                        {{ groups|length }}
+                        {{ dashboard_counts.groups|default:0 }}
                     </span>
                 </a>
 
@@ -193,6 +198,7 @@
 
                 <a
                     href="#permissions-tab"
+                    id="permissions-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#permissions-tab"
@@ -214,7 +220,7 @@
                     </span>
 
                     <span class="badge">
-                        {{ permissions|length }}
+                        {{ dashboard_counts.permissions|default:0 }}
                     </span>
                 </a>
 
@@ -225,6 +231,7 @@
 
                 <a
                     href="#plants-tab"
+                    id="plants-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#plants-tab"
@@ -253,6 +260,7 @@
 
                 <a
                     href="#labs-tab"
+                    id="labs-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#labs-tab"
@@ -281,6 +289,7 @@
 
                 <a
                     href="#sessions-tab"
+                    id="sessions-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#sessions-tab"
@@ -319,6 +328,7 @@
 
                 <a
                     href="#security-tab"
+                    id="security-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#security-tab"
@@ -347,6 +357,7 @@
 
                 <a
                     href="#password-tab"
+                    id="password-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#password-tab"
@@ -375,6 +386,7 @@
 
                 <a
                     href="#config-tab"
+                    id="config-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#config-tab"
@@ -403,6 +415,7 @@
 
                 <a
                     href="#system-tab"
+                    id="system-tab-link"
                     class="nav-link"
                     data-bs-toggle="pill"
                     data-bs-target="#system-tab"

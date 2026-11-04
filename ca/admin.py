@@ -26,6 +26,13 @@ from .models import (
     ChemicalCertApprover,
     ChemicalCoA,
     ChemicalCoAAuditEvent,
+    ChemicalLabComparisonResult,
+    ChemicalLabReferral,
+    ChemicalMethodQualityPlan,
+    ChemicalMethodQCControl,
+    ChemicalQCCheckResult,
+    ChemicalOOSInvestigation,
+    ChemicalKEBSReferral,
     ChemicalOutboxEvent,
     ChemicalSuperuserPurgeAudit,
     ChemicalLocation,
@@ -193,7 +200,7 @@ class AssignmentFilter(SimpleListFilter):
             ("unassigned", "Unassigned"),
             ("auto", "Automatically Assigned"),
             ("manual", "Manually Assigned"),
-            ("overdue", "Assignment Overdue"),
+            ("overdue", "Needs Assignment"),
         )
 
     def queryset(self, request, queryset):
@@ -219,9 +226,11 @@ class AssignmentFilter(SimpleListFilter):
 
         if self.value() == "overdue":
             return queryset.filter(
-                assignment_due_at__lt=timezone.now(),
                 assigned_analysts__isnull=True,
-                status=ChemicalAnalysisRequest.Status.PENDING,
+                status__in=(
+                    ChemicalAnalysisRequest.Status.PENDING,
+                    ChemicalAnalysisRequest.Status.IN_PROGRESS,
+                ),
             )
 
         return queryset
@@ -1335,7 +1344,7 @@ class ChemicalAnalysisRequestAdmin(
 
         if obj.assignment_overdue:
             return format_html(
-                '<span style="color:#b91c1c;font-weight:700;">OVERDUE</span>'
+                '<span style="color:#b91c1c;font-weight:700;">NEEDS ASSIGNMENT</span>'
             )
 
         if obj.assignment_pending:
@@ -1494,7 +1503,7 @@ class ChemicalAnalysisRequestAdmin(
             )
         )
 
-    @admin.action(description="Run automatic assignment for due requests")
+    @admin.action(description="Assign analysts to unassigned requests now")
     def run_due_auto_assignment(self, request, queryset):
         assigned = 0
         skipped = 0
@@ -1663,6 +1672,12 @@ class ChecklistAdmin(
             },
         ),
         (
+            "Container label evidence",
+            {
+                "fields": ("chemical_label_photo",),
+            },
+        ),
+        (
             "Storage & Handling",
             {
                 "fields": (
@@ -1819,6 +1834,7 @@ class BatchTestResultAdmin(
         "parameter",
         "value_display",
         "textual_result",
+        "inventory_equipment",
         "status_badge",
         "analyst",
         "tested_at",
@@ -1853,6 +1869,9 @@ class BatchTestResultAdmin(
         "auto_remark",
         "input_link",
         "batch_context",
+        "inventory_equipment",
+        "instrument",
+        "instrument_calibration",
         "instrument_snapshot",
         "specification_snapshot",
         "method_snapshot",
@@ -1902,6 +1921,9 @@ class BatchTestResultAdmin(
                 "fields": (
                     "analyst",
                     "tested_at",
+                    "inventory_equipment",
+                    "instrument",
+                    "instrument_calibration",
                     "instrument_snapshot",
                     "input_link",
                 )
@@ -2426,7 +2448,7 @@ class ChemicalAnalysisProcessAdmin(
             ("Checklist", obj.checklist_completed_at),
             ("Analysis", obj.analysis_started_at),
             ("Analysis Complete", obj.analysis_completed_at),
-            ("QA Review", obj.qa_reviewed_at),
+            ("Chemist Review", obj.qa_reviewed_at),
             ("Approval", obj.approved_at),
             ("Completion", obj.completed_at),
         ]
@@ -2997,6 +3019,24 @@ class ChemicalWorkflowAlertAdmin(PlantScopedAppendOnlyAdmin):
     search_fields = ("recipient__username", "title", "message", "batch__sample_id")
 
 
+@admin.register(ChemicalLabReferral)
+class ChemicalLabReferralAdmin(PlantScopedAppendOnlyAdmin):
+    plant_field = "treatment_plant"
+    plant_filter_field = "treatment_plant"
+    list_display = ("requested_at", "batch", "treatment_plant", "status", "requested_by", "submitted_by", "submitted_at")
+    list_filter = (PlantFilter, "status", "requested_at", "submitted_at")
+    search_fields = ("batch__sample_id", "batch__batch_number", "batch__chemical__name", "treatment_plant__name")
+
+
+@admin.register(ChemicalLabComparisonResult)
+class ChemicalLabComparisonResultAdmin(PlantScopedAppendOnlyAdmin):
+    plant_field = "treatment_plant"
+    plant_filter_field = "treatment_plant"
+    list_display = ("recorded_at", "batch", "treatment_plant", "parameter", "source", "run_number", "value", "status", "inventory_equipment", "analyst")
+    list_filter = (PlantFilter, "source", "status", "recorded_at")
+    search_fields = ("batch__sample_id", "batch__batch_number", "parameter__parameter_name", "remarks")
+
+
 @admin.register(ChemicalCorrectiveAction)
 class ChemicalCorrectiveActionAdmin(PlantScopedAppendOnlyAdmin):
     list_display = ("submitted_at", "batch", "status", "submitted_by", "reviewed_by", "reviewed_at")
@@ -3028,6 +3068,64 @@ class SuperuserOnlyAuditAdmin(CaSuperuserDeletionAdminMixin, admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         return tuple(field.name for field in self.model._meta.fields)
+
+
+class ChemicalMethodQCControlInline(admin.TabularInline):
+    model = ChemicalMethodQCControl
+    extra = 1
+    fields = (
+        "code", "label", "check_type", "evaluation", "required", "target_value",
+        "spike_amount", "acceptance_min", "acceptance_max", "warning_sigma",
+        "corrective_instruction", "is_active",
+    )
+
+
+@admin.register(ChemicalMethodQualityPlan)
+class ChemicalMethodQualityPlanAdmin(CaSuperuserDeletionAdminMixin, admin.ModelAdmin):
+    list_display = (
+        "method", "version", "treatment_plant", "consensus_rule", "interlab_tolerance_absolute",
+        "interlab_tolerance_percent", "require_measurement_uncertainty", "is_active", "created_at",
+    )
+    list_filter = ("is_active", "consensus_rule", "treatment_plant", "require_measurement_uncertainty")
+    search_fields = ("method__method", "method__kebs_reference", "treatment_plant__name", "change_reason")
+    readonly_fields = ("created_at",)
+    inlines = (ChemicalMethodQCControlInline,)
+    fieldsets = (
+        ("Method and scope", {"fields": ("method", "treatment_plant", "version", "is_active", "change_reason", "created_by", "created_at")}),
+        ("Interlaboratory decision", {"fields": ("consensus_rule", "interlab_tolerance_absolute", "interlab_tolerance_percent", "uncertainty_coverage_factor")}),
+        ("Measurement traceability requirements", {"fields": ("require_measurement_uncertainty", "require_reference_standard_lot", "require_reagent_lot_numbers")}),
+    )
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request).select_related("method", "treatment_plant")
+        if request.user.is_superuser:
+            return queryset
+        plant_id = getattr(request.user, "assigned_treatment_plant_id", None)
+        return queryset.filter(Q(treatment_plant_id=plant_id) | Q(treatment_plant__isnull=True)) if plant_id else queryset.none()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ChemicalQCCheckResult)
+class ChemicalQCCheckResultAdmin(PlantScopedAppendOnlyAdmin):
+    list_display = ("recorded_at", "batch", "control", "parameter", "run_number", "observed_value", "evaluated_value", "status", "inventory_equipment", "analyst")
+    list_filter = (PlantFilter, "status", "control__check_type", "control__plan__method", "recorded_at")
+    search_fields = ("batch__sample_id", "control__label", "parameter__parameter_name", "remarks")
+
+
+@admin.register(ChemicalOOSInvestigation)
+class ChemicalOOSInvestigationAdmin(PlantScopedAppendOnlyAdmin):
+    list_display = ("opened_at", "batch", "parameter", "status", "opened_by", "closed_by", "closed_at")
+    list_filter = (PlantFilter, "status", "opened_at", "closed_at")
+    search_fields = ("batch__sample_id", "parameter__parameter_name", "assignable_cause", "corrective_action", "final_disposition")
+
+
+@admin.register(ChemicalKEBSReferral)
+class ChemicalKEBSReferralAdmin(PlantScopedAppendOnlyAdmin):
+    list_display = ("dispatched_at", "batch", "destination", "kebs_reference", "dispatch_method", "shipment_reference", "dispatched_by")
+    list_filter = (PlantFilter, "status", "dispatch_method", "dispatched_at")
+    search_fields = ("batch__sample_id", "batch__batch_number", "kebs_reference", "shipment_reference", "remarks")
 
 
 @admin.register(ChemicalOutboxEvent)

@@ -4,7 +4,16 @@ from django.db.models.signals import pre_save, post_save, pre_delete, post_delet
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import TRACKED_MODELS, Status, ShiftAssignment, ShiftHandover, invalidate_status_cache
+from .models import (
+    TRACKED_MODELS,
+    MonthlyDutyRoster,
+    ShiftAssignment,
+    ShiftHandover,
+    ShiftSectionRequirement,
+    ShiftSupervisor,
+    Status,
+    invalidate_status_cache,
+)
 from .utils.audit import _store_snapshot, _pop_snapshot, _log_change, create_bulk_audit
 
 logger = logging.getLogger(__name__)
@@ -32,6 +41,7 @@ def log_post_save(sender, instance, created, **kwargs):
     Bulk audit optimization for ShiftHandover takeover.
     """
     if getattr(sender, '_meta', None) and sender._meta.model_name in TRACKED_MODELS:
+        audit_user = getattr(instance, "_audit_user", None)
         try:
             before = _pop_snapshot(instance)
             after = {f.name: getattr(instance, f.name) for f in instance._meta.concrete_fields}
@@ -48,7 +58,13 @@ def log_post_save(sender, instance, created, **kwargs):
                     shift=instance.shift,
                     date=instance.date,
                     is_deleted=False
-                ).values_list('id', flat=True)
+                )
+                if instance.incoming_supervisor and not instance.incoming_supervisor.is_superuser:
+                    assignments = assignments.filter(
+                        staff__assigned_treatment_plant_id=instance.shift.treatment_plant_id,
+                        staff__section_id=instance.incoming_supervisor.section_id,
+                    )
+                assignments = assignments.values_list('id', flat=True)
                 create_bulk_audit(
                     user=instance.incoming_supervisor,
                     instance=instance,
@@ -58,10 +74,13 @@ def log_post_save(sender, instance, created, **kwargs):
                     action='bulk_takeover'
                 )
             else:
-                _log_change(instance, action, before=before, after=None if action == 'delete' else after)
+                _log_change(instance, action, user=audit_user, before=before, after=None if action == 'delete' else after)
 
         except Exception as e:
             logger.debug(f"Skipping post_save audit for {instance}: {e}")
+        finally:
+            if hasattr(instance, "_audit_user"):
+                del instance._audit_user
 
 
 @receiver(pre_delete)
@@ -132,3 +151,56 @@ def auto_revert_temp_supervisor(sender, instance, **kwargs):
                 logger.info(f"Auto-reverted temp_supervisor for ShiftAssignment {instance.id}")
     except Exception as e:
         logger.debug(f"Failed auto-revert temp_supervisor for {instance}: {e}")
+
+
+def _queue_shift_allocation(plant_id, section_id=None, roster_id=None):
+    if roster_id:
+        callback = lambda: _run_roster_allocation(roster_id)
+    else:
+        callback = lambda: _run_scope_allocation(plant_id, section_id)
+    from django.db import transaction
+
+    transaction.on_commit(callback)
+
+
+def _run_roster_allocation(roster_id):
+    try:
+        from .services.auto_assignment import assign_for_new_roster
+
+        assign_for_new_roster(roster_id)
+    except Exception:
+        logger.exception("Automatic shift allocation failed for roster %s", roster_id)
+
+
+def _run_scope_allocation(plant_id, section_id):
+    try:
+        from .services.auto_assignment import assign_for_shift_scope
+
+        assign_for_shift_scope(plant_id, section_id)
+    except Exception:
+        logger.exception(
+            "Automatic shift allocation failed for treatment plant %s and section %s",
+            plant_id,
+            section_id,
+        )
+
+
+@receiver(post_save, sender=MonthlyDutyRoster)
+def assign_new_roster(sender, instance, created, raw=False, **kwargs):
+    if created and not raw:
+        _queue_shift_allocation(instance.treatment_plant_id, roster_id=instance.pk)
+
+
+@receiver(post_save, sender=ShiftSectionRequirement)
+def assign_after_shift_requirement_change(sender, instance, raw=False, **kwargs):
+    if not raw:
+        _queue_shift_allocation(
+            instance.shift.treatment_plant_id,
+            instance.section_id,
+        )
+
+
+@receiver(post_save, sender=ShiftSupervisor)
+def refresh_supervisor_assignments(sender, instance, raw=False, **kwargs):
+    if not raw and instance.section_id:
+        _queue_shift_allocation(instance.treatment_plant_id, instance.section_id)

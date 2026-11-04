@@ -1,10 +1,18 @@
 {% extends "kstw/base.html" %}
 {% load static %}
 
+{% block title %}KSTW · Wastewater & Effluent Quality{% endblock %}
+
 {% block extra_styles %}
-    <link rel="stylesheet" href="{% static 'core/css/result-dashboard-cards.css' %}?v=20261019-result-cards">
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'core/css/analysis-workflow-dashboard.css' %}?v=20261031-overview-entry-workbench">
+    <link rel="stylesheet" href="{% static 'core/css/analysis-result-entry.css' %}?v=20261031-overview-worksheets">
 {% endblock %}
 
-{% block content %}
-    {% include "core/components/result_dashboard_cards.html" %}
+{% block page_content %}
+    {% include "core/components/analysis_workflow_dashboard.html" %}
+{% endblock %}
+
+{% block extra_scripts %}
+    <script src="{% static 'core/js/analysis-workflow-dashboard.js' %}?v=20261031-overview-entry-workbench" defer></script>
 {% endblock %}

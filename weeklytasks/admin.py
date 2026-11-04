@@ -9,6 +9,7 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from core.models import Section
+from core.plant_section_scope import object_in_scope, scoped_queryset, user_plant_section
 from sc.models import Shift, ShiftAssignment, ShiftSectionRequirement
 from t.models import TreatmentPlant
 
@@ -25,51 +26,29 @@ User = get_user_model()
 
 
 class PlantScopedAdminMixin:
+    scoped_filter_tokens = ("treatment_plant", "section", "shift", "schedule", "week", "task")
+
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
+        return scoped_queryset(super().get_queryset(request), request.user)
 
+    def get_list_filter(self, request):
+        configured = super().get_list_filter(request)
         if request.user.is_superuser:
-            return qs
-
-        if not hasattr(qs.model, "treatment_plant"):
-            return qs
-
-        plant_id = getattr(
-            request.user,
-            "assigned_treatment_plant_id",
-            None,
+            return configured
+        return tuple(
+            item for item in configured
+            if not any(
+                token in str(item[0] if isinstance(item, tuple) else item)
+                for token in self.scoped_filter_tokens
+            )
         )
 
-        if not plant_id:
-            return qs.none()
-
-        return qs.filter(
-            treatment_plant_id=plant_id,
-        )
+    def get_autocomplete_fields(self, request):
+        return super().get_autocomplete_fields(request) if request.user.is_superuser else ()
 
     def save_model(self, request, obj, form, change):
-        if (
-            not request.user.is_superuser
-            and hasattr(obj, "treatment_plant_id")
-        ):
-            plant_id = getattr(
-                request.user,
-                "assigned_treatment_plant_id",
-                None,
-            )
-
-            if not plant_id:
-                raise ValidationError(
-                    "Your account is not assigned to a treatment plant."
-                )
-
-            if (
-                obj.treatment_plant_id
-                and obj.treatment_plant_id != plant_id
-            ):
-                raise ValidationError(
-                    "You cannot save records for another treatment plant."
-                )
+        if not object_in_scope(obj, request.user):
+            raise ValidationError("This record must belong to your assigned treatment plant and section.")
 
         super().save_model(
             request,
@@ -77,6 +56,12 @@ class PlantScopedAdminMixin:
             form,
             change,
         )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if formfield and hasattr(formfield, "queryset") and not request.user.is_superuser:
+            formfield.queryset = scoped_queryset(formfield.queryset, request.user)
+        return formfield
 
 
 class SectionScopedFormMixin:
@@ -173,10 +158,35 @@ class StandardWeeklyTaskAdmin(admin.ModelAdmin):
 
     @admin.display(
         description="Weekly tasks",
-        ordering="weekly_task_count",
+        ordering="_weekly_task_count",
     )
     def weekly_task_count(self, obj):
-        return obj.weekly_duty_tasks.count()
+        return getattr(obj, "_weekly_task_count", 0)
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        if request.user.is_superuser:
+            return queryset.annotate(_weekly_task_count=Count("weekly_duty_tasks", distinct=True))
+        plant_id, section_id = user_plant_section(request.user)
+        return queryset.annotate(
+            _weekly_task_count=Count(
+                "weekly_duty_tasks",
+                filter=Q(
+                    weekly_duty_tasks__treatment_plant_id=plant_id,
+                    weekly_duty_tasks__section_id=section_id,
+                ),
+                distinct=True,
+            )
+        )
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 
 @admin.register(MonthlyDutySchedule)
@@ -300,7 +310,7 @@ class MonthlyDutyScheduleAdmin(PlantScopedAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(DutyWeek)
-class DutyWeekAdmin(admin.ModelAdmin):
+class DutyWeekAdmin(PlantScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "date_range",
         "schedule",
@@ -417,7 +427,7 @@ class DutyWeekAdmin(admin.ModelAdmin):
 
 
 @admin.register(WeeklyDutyTask)
-class WeeklyDutyTaskAdmin(admin.ModelAdmin):
+class WeeklyDutyTaskAdmin(PlantScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "task_template",
         "week",
@@ -587,11 +597,17 @@ class WeeklyDutyTaskAdmin(admin.ModelAdmin):
                     "daily_assignments__user",
                     filter=Q(
                         daily_assignments__user__is_active=True,
+                        daily_assignments__user__assigned_treatment_plant_id=models.F("treatment_plant_id"),
+                        daily_assignments__user__section_id=models.F("section_id"),
                     ),
                     distinct=True,
                 ),
                 _daily_assignment_count=Count(
                     "daily_assignments",
+                    filter=Q(
+                        daily_assignments__user__assigned_treatment_plant_id=models.F("treatment_plant_id"),
+                        daily_assignments__user__section_id=models.F("section_id"),
+                    ),
                     distinct=True,
                 ),
             )
@@ -613,7 +629,7 @@ class WeeklyDutyTaskAdmin(admin.ModelAdmin):
 
 
 @admin.register(DailyTaskAssignment)
-class DailyTaskAssignmentAdmin(admin.ModelAdmin):
+class DailyTaskAssignmentAdmin(PlantScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "user",
         "task",

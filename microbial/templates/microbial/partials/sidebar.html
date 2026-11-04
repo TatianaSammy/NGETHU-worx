@@ -9,7 +9,7 @@
             {# DASHBOARD #}
             {# ====================================================== #}
 
-            <li class="sidebar-item {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+            <li class="sidebar-item {% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'result-cards' %}active{% endif %}">
                 <a
                     href="{% url 'microbial:dashboard' %}"
                     class="nav-link"

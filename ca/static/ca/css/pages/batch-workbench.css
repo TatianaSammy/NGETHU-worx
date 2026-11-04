@@ -4,6 +4,7 @@
 .ca-batch-workbench__identity{display:flex;align-items:center;gap:.9rem;min-width:0}
 .ca-workbench-back,.ca-workbench-icon-link{display:grid;place-items:center;flex:none;width:2.5rem;height:2.5rem;border:1px solid var(--wb-line);border-radius:12px;color:var(--wb-ink);background:#fff;text-decoration:none;transition:transform .18s ease,border-color .18s ease,color .18s ease}
 .ca-workbench-back:hover,.ca-workbench-icon-link:hover{transform:translateY(-1px);border-color:var(--wb-accent);color:var(--wb-accent-strong)}
+.ca-workbench-icon-link--delete{color:#dc2626;border-color:#fecaca}.ca-workbench-icon-link--delete:hover{border-color:#dc2626;background:#dc2626;color:#fff}
 .ca-workbench-eyebrow{display:flex;align-items:center;gap:.45rem;margin:0 0 .35rem;color:var(--wb-accent-strong);font-size:.66rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
 .ca-workbench-eyebrow>span{width:.42rem;height:.42rem;border-radius:50%;background:#14b8a6;box-shadow:0 0 0 4px #14b8a61c}
 .ca-batch-workbench__header h1{margin:0;color:var(--wb-ink);font-size:clamp(1.3rem,2vw,1.8rem);letter-spacing:-.035em}

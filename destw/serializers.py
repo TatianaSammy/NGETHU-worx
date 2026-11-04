@@ -36,6 +36,9 @@ class CustomUserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'first_name', 'last_name']
 
 class WWQParameterSerializer(serializers.ModelSerializer):
+    nema_min_std = serializers.DecimalField(source='min_standard', max_digits=8, decimal_places=3, read_only=True)
+    nema_max_std = serializers.DecimalField(source='max_standard', max_digits=8, decimal_places=3, read_only=True)
+
     class Meta:
         model = WWQParameter_qad
         fields = ['id', 'name', 'nema_min_std', 'nema_max_std']
@@ -94,10 +97,10 @@ class WasteWaterParameterResultSerializer(serializers.ModelSerializer):
         parameter = validated_data.get('parameter')
         analysis_method = validated_data.get('analysis_method')
 
-        validated_data['effluent_standard'] = f"{parameter.nema_min_std} - {parameter.nema_max_std} mg/L"
+        validated_data['effluent_standard'] = f"{parameter.min_standard} - {parameter.max_standard} {parameter.unit}"
         validated_data['kebs_reference'] = analysis_method.reference
 
-        if parameter.nema_min_std <= result <= parameter.nema_max_std:
+        if parameter.min_standard <= result <= parameter.max_standard:
             validated_data['quality_compliance'] = "Complying"
         else:
             validated_data['quality_compliance'] = "Not Complying"
@@ -184,10 +187,10 @@ class WasteWaterPondParameterResultSerializer(serializers.ModelSerializer):
         parameter = validated_data.get('parameter')
         analysis_method = validated_data.get('analysis_method')
 
-        validated_data['effluent_standard'] = f"{parameter.nema_min_std} - {parameter.nema_max_std} mg/L"
+        validated_data['effluent_standard'] = f"{parameter.min_standard} - {parameter.max_standard} {parameter.unit}"
         validated_data['kebs_reference'] = analysis_method.reference
 
-        if parameter.nema_min_std <= result <= parameter.nema_max_std:
+        if parameter.min_standard <= result <= parameter.max_standard:
             validated_data['quality_compliance'] = "Complying"
         else:
             validated_data['quality_compliance'] = "Not Complying"

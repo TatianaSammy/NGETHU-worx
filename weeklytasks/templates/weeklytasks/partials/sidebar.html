@@ -4,7 +4,7 @@
       <li class="sidebar-section-title"><span class="label">WEEKLY PLANNING</span></li>
       {% for item in nav_items %}
         <li class="sidebar-item {% if selected_section == item.id %}active{% endif %}">
-          <a href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}section={{ item.id }}#{{ item.id }}"
+          <a href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ month }}&amp;year={{ year }}&amp;section={{ item.id }}#{{ item.id }}"
              class="nav-link" title="{{ item.label }}" aria-label="{{ item.label }}">
             <i class="fas fa-{{ item.icon }} sidebar-icon" aria-hidden="true"></i>
             <span class="label">{{ item.label }}</span>
@@ -12,8 +12,8 @@
         </li>
       {% endfor %}
       <li class="sidebar-section-title"><span class="label">PLANNING FOCUS</span></li>
-      <li class="sidebar-item"><a href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}section=weekly-plans#weekly-plans" class="nav-link" title="Tasks without assignees"><i class="fas fa-user-slash sidebar-icon"></i><span class="label">Tasks without assignees</span></a></li>
-      <li class="sidebar-item"><a href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}section=shift-gaps#shift-gaps" class="nav-link" title="Shift setup gaps"><i class="fas fa-triangle-exclamation sidebar-icon"></i><span class="label">Shift setup gaps</span></a></li>
+      <li class="sidebar-item"><a href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ month }}&amp;year={{ year }}&amp;section=weekly-plans#weekly-plans" class="nav-link" title="Tasks without assignees"><i class="fas fa-user-slash sidebar-icon"></i><span class="label">Tasks without assignees</span></a></li>
+      <li class="sidebar-item"><a href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ month }}&amp;year={{ year }}&amp;section=shift-gaps#shift-gaps" class="nav-link" title="Shift setup gaps"><i class="fas fa-triangle-exclamation sidebar-icon"></i><span class="label">Shift setup gaps</span></a></li>
     </ul>
   </nav>
 </aside>

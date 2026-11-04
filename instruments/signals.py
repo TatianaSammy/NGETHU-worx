@@ -1,6 +1,7 @@
 # instruments/signals.py
 import logging
 from datetime import timedelta
+from django.db.models import Avg
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -33,7 +34,7 @@ def async_process_measurement(measurement_id):
             sensor=measurement.sensor,
             measured_at__gte=timezone.now() - timedelta(hours=1)
         )
-        avg_val = recent.aggregate(avg_val=('value'))['avg_val'] or measurement.value
+        avg_val = recent.aggregate(avg_val=Avg('value'))['avg_val'] or measurement.value
         derived_metric = DerivedMetric.objects.create(
             sensor=measurement.sensor,
             value=avg_val,

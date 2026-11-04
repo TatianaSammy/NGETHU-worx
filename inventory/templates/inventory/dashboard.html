@@ -1,138 +1,270 @@
 {% extends "inventory/base.html" %}
-{% load static %}
+{% load static humanize %}
 
-{% block content %}
+{% block title %}Inventory Operations | NCWSCwaterLAB{% endblock %}
 
-<div class="container-fluid mt-3">
+{% block extra_styles %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'inventory/css/dashboard.css' %}?v=20261031-inventory-command">
+{% endblock %}
 
-    <!-- ================= HEADER ================= -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h3 class="mb-0">
-                📊 {{ app.label }}
-            </h3>
-            <small class="text-muted">
-                Registry-driven overview for "{{ app.name }}"
-            </small>
-        </div>
-
-        <div class="text-muted small">
-            Total: {{ stats.total_models }} models
-        </div>
-    </div>
-
-
-    <!-- ================= STATS ================= -->
-    <div class="row g-3 mb-4">
-
-        {% for key, value in stats.items %}
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0">
-                <div class="card-body">
-                    <small class="text-muted">{{ key|title }}</small>
-                    <h3 class="mb-0">{{ value }}</h3>
-                </div>
+{% block page_content %}
+<section class="inventory-dashboard" data-inventory-dashboard data-active-tab="{{ active_tab }}">
+    <header class="inventory-hero">
+        <div class="inventory-hero__copy">
+            <div class="inventory-eyebrow"><span class="inventory-live-dot"></span> Inventory intelligence · {{ scope.scope_label }}</div>
+            <h1>Inventory <span>command center</span></h1>
+            <p>Stock integrity, supply movement and asset readiness from the inventory records.</p>
+            <div class="inventory-hero__meta">
+                <span><i class="fas fa-cubes" aria-hidden="true"></i> {{ item_count|intcomma }} item records</span>
+                <span><i class="fas fa-clock" aria-hidden="true"></i> {{ period_label }}</span>
+                <span><i class="fas fa-diagram-project" aria-hidden="true"></i> {{ models|length }} inventory models</span>
             </div>
         </div>
+        <form method="get" class="inventory-scope-form" aria-label="Dashboard scope and time range">
+            <input type="hidden" name="tab" value="{{ active_tab }}">
+            <label>
+                <span>Plant scope</span>
+                {% if scope.plants %}
+                    <select name="plant" aria-label="Treatment plant">
+                        {% if scope.can_select_all %}<option value="all" {% if scope.selected_plant_id == "all" %}selected{% endif %}>All plants</option>{% endif %}
+                        {% for plant in scope.plants %}
+                            <option value="{{ plant.id }}" {% if scope.selected_plant_id == plant.id|stringformat:"s" %}selected{% endif %}>{{ plant.name }}</option>
+                        {% endfor %}
+                    </select>
+                {% else %}
+                    <span class="inventory-scope-fixed">{{ scope.scope_label }}</span>
+                {% endif %}
+            </label>
+            <label>
+                <span>Analysis window</span>
+                <select name="period" aria-label="Analysis window">
+                    {% for days in period_choices %}
+                        <option value="{{ days }}" {% if period_days == days %}selected{% endif %}>{{ days }} days</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <button class="inventory-button inventory-button--primary" type="submit"><i class="fas fa-sliders" aria-hidden="true"></i> Apply</button>
+            <button class="inventory-icon-button" type="button" data-refresh-dashboard aria-label="Refresh dashboard" title="Refresh"><i class="fas fa-rotate-right" aria-hidden="true"></i></button>
+        </form>
+    </header>
+
+    {% if not sections_have_scope %}
+        <div class="inventory-empty-scope" role="status">
+            <i class="fas fa-shield-halved" aria-hidden="true"></i>
+            <div><strong>No inventory section is assigned to this account.</strong><span>Ask an administrator to assign a treatment plant or section.</span></div>
+        </div>
+    {% endif %}
+
+    <section class="inventory-kpis" aria-label="Inventory key performance indicators">
+        {% for kpi in kpis %}
+            <button type="button" class="inventory-kpi inventory-kpi--{{ kpi.tone }}" data-open-tab="{{ kpi.tab }}" {% if kpi.filter %}data-risk-filter="{{ kpi.filter }}"{% endif %}>
+                <span class="inventory-kpi__top"><span>{{ kpi.label }}</span><i class="fas fa-{{ kpi.icon }}" aria-hidden="true"></i></span>
+                <strong>{{ kpi.value }}</strong>
+                <span class="inventory-kpi__detail">{{ kpi.detail }}</span>
+                <span class="inventory-kpi__action">Open detail <i class="fas fa-arrow-right" aria-hidden="true"></i></span>
+            </button>
         {% endfor %}
+    </section>
 
-    </div>
+    <nav class="inventory-tabs" role="tablist" aria-label="Inventory dashboard sections">
+        <button type="button" role="tab" id="inventory-tab-overview" aria-controls="inventory-panel-overview" aria-selected="{% if active_tab == 'overview' %}true{% else %}false{% endif %}" data-tab-target="overview"><i class="fas fa-gauge-high" aria-hidden="true"></i> Overview</button>
+        <button type="button" role="tab" id="inventory-tab-stock" aria-controls="inventory-panel-stock" aria-selected="{% if active_tab == 'stock' %}true{% else %}false{% endif %}" data-tab-target="stock"><i class="fas fa-boxes-stacked" aria-hidden="true"></i> Stock control</button>
+        <button type="button" role="tab" id="inventory-tab-movements" aria-controls="inventory-panel-movements" aria-selected="{% if active_tab == 'movements' %}true{% else %}false{% endif %}" data-tab-target="movements"><i class="fas fa-arrow-right-arrow-left" aria-hidden="true"></i> Movements</button>
+        <button type="button" role="tab" id="inventory-tab-assets" aria-controls="inventory-panel-assets" aria-selected="{% if active_tab == 'assets' %}true{% else %}false{% endif %}" data-tab-target="assets"><i class="fas fa-screwdriver-wrench" aria-hidden="true"></i> Equipment</button>
+        <button type="button" role="tab" id="inventory-tab-supplies" aria-controls="inventory-panel-supplies" aria-selected="{% if active_tab == 'supplies' %}true{% else %}false{% endif %}" data-tab-target="supplies"><i class="fas fa-flask" aria-hidden="true"></i> Supplies</button>
+        <button type="button" role="tab" id="inventory-tab-controls" aria-controls="inventory-panel-controls" aria-selected="{% if active_tab == 'controls' %}true{% else %}false{% endif %}" data-tab-target="controls"><i class="fas fa-shield-halved" aria-hidden="true"></i> Controls & reports</button>
+    </nav>
 
-
-    <!-- ================= MODELS ================= -->
-    <div class="card shadow-sm border-0">
-
-        <div class="card-header bg-light">
-            <strong>Registered Models</strong>
+    <section class="inventory-panel inventory-panel--page" id="inventory-panel-overview" role="tabpanel" aria-labelledby="inventory-tab-overview" data-tab-panel="overview" {% if active_tab != 'overview' %}hidden{% endif %}>
+        <div class="inventory-section-heading">
+            <div><span class="inventory-section-kicker">Operational overview</span><h2>Stock posture & activity</h2><p>Recorded inventory events and ledger balances for {{ scope.scope_label }}.</p></div>
+            <span class="inventory-range-pill"><i class="fas fa-calendar-days" aria-hidden="true"></i> {{ period_label }}</span>
         </div>
 
-        <div class="card-body p-0">
-
-            {% for m in models %}
-
-                <div class="d-flex justify-content-between align-items-center px-3 py-3 border-bottom">
-
-                    <!-- LEFT -->
-                    <div class="d-flex align-items-center">
-
-                        <div class="me-3">
-                            <i class="fas fa-{{ m.icon|default:'cube' }} fa-lg text-primary"></i>
-                        </div>
-
-                        <div>
-                            <div class="fw-semibold">
-                                {{ m.label }}
-                            </div>
-
-                            <small class="text-muted">
-                                {{ m.key }}
-                            </small>
-
-                            <!-- TAGS (pure registry-driven) -->
-                            <div class="mt-1">
-                                {% for tag in m.tags %}
-                                    <span class="badge bg-secondary">{{ tag }}</span>
-                                {% empty %}
-                                    <span class="text-muted small">No tags</span>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-
-
-                    <!-- RIGHT ACTIONS (registry-driven ONLY) -->
-                    <div class="d-flex align-items-center gap-2">
-
-                        {% with r=m.routes c=m.capabilities %}
-
-                            <a href="{{ r.list }}"
-                               class="btn btn-sm btn-outline-primary">
-                                <i class="fas fa-list"></i>
-                                List
-                            </a>
-
-                            {% if c.create %}
-                                <a href="{{ r.create }}"
-                                   class="btn btn-sm btn-outline-success">
-                                    <i class="fas fa-plus"></i>
-                                    Create
-                                </a>
-                            {% endif %}
-
-                            {% if c.export %}
-                                <a href="{{ r.export }}"
-                                   class="btn btn-sm btn-outline-warning">
-                                    <i class="fas fa-file-export"></i>
-                                    Export
-                                </a>
-                            {% endif %}
-
-                            {% if c.inline %}
-                                <a href="{{ r.update }}"
-                                   class="btn btn-sm btn-outline-info">
-                                    <i class="fas fa-edit"></i>
-                                    Inline
-                                </a>
-                            {% endif %}
-
-                        {% endwith %}
-
-                    </div>
-
+        <div class="inventory-grid inventory-grid--charts">
+            <article class="inventory-panel inventory-chart-panel inventory-span-2">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Movement stream</span><h3>Daily transaction activity</h3><p>Event counts by transaction type; quantities are not combined across units.</p></div><span class="inventory-panel-icon"><i class="fas fa-wave-square" aria-hidden="true"></i></span></div>
+                <div class="inventory-chart-wrap"><canvas data-inventory-chart="movements" aria-label="Daily additions, removals and adjustments"></canvas><div class="inventory-chart-tooltip" hidden></div></div>
+                <div class="inventory-legend"><span><i class="legend-dot legend-dot--add"></i> Additions</span><span><i class="legend-dot legend-dot--remove"></i> Removals</span><span><i class="legend-dot legend-dot--adjust"></i> Adjustments</span></div>
+            </article>
+            <article class="inventory-panel inventory-chart-panel">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Stock ledger</span><h3>Ledger allocation</h3><p>Available, reserved and issued totals from ledger records only.</p></div><span class="inventory-panel-icon"><i class="fas fa-chart-pie" aria-hidden="true"></i></span></div>
+                <div class="inventory-donut-wrap"><canvas data-inventory-chart="allocation" aria-label="Available, reserved and issued stock totals"></canvas><div class="inventory-chart-tooltip" hidden></div></div>
+                <div class="inventory-legend inventory-legend--stacked">
+                    {% for segment in allocation_series %}<span><i class="legend-dot" style="--legend-color:{{ segment.color }}"></i>{{ segment.label }} <b>{{ segment.value|floatformat:2|intcomma }}</b></span>{% endfor %}
                 </div>
-
-            {% empty %}
-
-                <div class="text-center text-muted py-5">
-                    <i class="fas fa-database fa-2x mb-2"></i>
-                    <div>No models registered for this app</div>
+            </article>
+            <article class="inventory-panel inventory-chart-panel">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Classification</span><h3>Items by category</h3><p>Counts, not quantities, across categories.</p></div><span class="inventory-panel-icon"><i class="fas fa-layer-group" aria-hidden="true"></i></span></div>
+                <div class="inventory-chart-wrap inventory-chart-wrap--bars"><canvas data-inventory-chart="categories" aria-label="Inventory item records by category"></canvas><div class="inventory-chart-tooltip" hidden></div></div>
+                <ul class="inventory-visually-hidden">{% for category in category_series %}<li>{{ category.label }}: {{ category.value }} item records</li>{% endfor %}</ul>
+            </article>
+            <article class="inventory-panel inventory-watch-panel inventory-span-2">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Attention queue</span><h3>Priority signals</h3><p>Derived from configured restock limits, expiry dates and equipment schedules.</p></div><button class="inventory-text-button" type="button" data-open-tab="stock">Review all <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div>
+                <div class="inventory-signal-grid">
+                    <button type="button" class="inventory-signal inventory-signal--amber" data-open-tab="stock" data-risk-filter="low-stock"><span class="inventory-signal__icon"><i class="fas fa-box-open" aria-hidden="true"></i></span><span><b>{{ low_stock_count }} below restock level</b><small>Active section/category thresholds</small></span><i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></button>
+                    <button type="button" class="inventory-signal inventory-signal--rose" data-open-tab="stock" data-risk-filter="expiry"><span class="inventory-signal__icon"><i class="fas fa-hourglass-half" aria-hidden="true"></i></span><span><b>{{ expired_count }} expired · {{ expiring_count }} due soon</b><small>Expiry date watch · next 30 days</small></span><i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></button>
+                    <button type="button" class="inventory-signal inventory-signal--violet" data-open-tab="assets"><span class="inventory-signal__icon"><i class="fas fa-screwdriver-wrench" aria-hidden="true"></i></span><span><b>{{ maintenance_overdue|add:calibration_overdue }} equipment checks overdue</b><small>{{ maintenance_due|add:calibration_due }} checks due within {{ period_days }} days</small></span><i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></button>
+                    <button type="button" class="inventory-signal inventory-signal--blue" data-open-tab="controls"><span class="inventory-signal__icon"><i class="fas fa-bell" aria-hidden="true"></i></span><span><b>{{ active_alert_count }} active alert rules</b><small>Configured by section and alert type</small></span><i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i></button>
                 </div>
-
-            {% endfor %}
-
+            </article>
         </div>
-    </div>
 
-</div>
+        <div class="inventory-grid inventory-grid--lower">
+            <article class="inventory-panel inventory-span-2">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Latest records</span><h3>Recent stock movements</h3></div><button type="button" class="inventory-text-button" data-open-tab="movements">Movement history <i class="fas fa-arrow-right" aria-hidden="true"></i></button></div>
+                {% include "inventory/partials/_transaction_table.html" with rows=recent_transactions compact=True %}
+            </article>
+            <article class="inventory-panel inventory-readiness-panel">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Asset readiness</span><h3>Equipment schedule</h3></div><span class="inventory-readiness-score">{{ equipment_current }}<small>/ {{ equipment_count }}</small></span></div>
+                <div class="inventory-readiness-track"><span style="width:{{ equipment_ready_percent }}%"></span></div>
+                <p>{{ equipment_current }} equipment records have no overdue maintenance or calibration date.</p>
+                <div class="inventory-readiness-breakdown"><span><b>{{ maintenance_overdue }}</b> maint. overdue</span><span><b>{{ calibration_overdue }}</b> calibration overdue</span></div>
+                <button type="button" class="inventory-button inventory-button--quiet" data-open-tab="assets">Open equipment readiness <i class="fas fa-arrow-right" aria-hidden="true"></i></button>
+            </article>
+        </div>
+    </section>
 
+    <section class="inventory-panel inventory-panel--page" id="inventory-panel-stock" role="tabpanel" aria-labelledby="inventory-tab-stock" data-tab-panel="stock" {% if active_tab != 'stock' %}hidden{% endif %}>
+        <div class="inventory-section-heading">
+            <div><span class="inventory-section-kicker">Stock control</span><h2>Items, levels & expiry</h2><p>Available quantities use the stock ledger when present and the item quantity field otherwise.</p></div>
+            {% for model in models %}{% if model.model_name == "inventoryitem" %}<a class="inventory-button inventory-button--primary" href="{{ model.urls.create }}"><i class="fas fa-plus" aria-hidden="true"></i> Add inventory item</a>{% endif %}{% endfor %}
+        </div>
+        <div class="inventory-metric-strip">
+            <div><span>Item records</span><strong>{{ item_count|intcomma }}</strong></div>
+            <div><span>Available quantity*</span><strong>{{ available_total|floatformat:2|intcomma }}</strong></div>
+            <div><span>Reservation locked</span><strong>{{ locked_item_count|intcomma }}</strong></div>
+            <div class="is-risk"><span>Without restock threshold</span><strong>{{ unconfigured_restock_count|intcomma }}</strong></div>
+        </div>
+        <div class="inventory-filterbar">
+            <label class="inventory-search"><i class="fas fa-magnifying-glass" aria-hidden="true"></i><input type="search" placeholder="Search item, category, section or supplier" data-table-search="stock-table"><kbd>⌘ K</kbd></label>
+            <label class="inventory-filter-select"><span>Show</span><select data-risk-select="stock-table"><option value="all">All stock records</option><option value="low-stock">Below restock limit</option><option value="expiry">Expiry watch</option><option value="locked">Reservation locked</option></select></label>
+            <span class="inventory-result-count">{{ item_count|intcomma }} records</span>
+        </div>
+        <div class="inventory-table-scroll">
+            <table class="inventory-table inventory-table--stock" id="stock-table">
+                <thead><tr><th>Item</th><th>Category / type</th><th>Section</th><th>Supplier</th><th>Purchased</th><th>Available qty*</th><th>Expiry</th><th>Stock signal</th><th></th></tr></thead>
+                <tbody>
+                {% for item in inventory_rows %}
+                    <tr data-search-row data-risk="{% if item.dashboard_low_stock %}low-stock{% else %}normal{% endif %}{% if item.dashboard_expiry_watch %} expiry{% endif %}{% if item.is_locked %} locked{% endif %}">
+                        <td title="{{ item.notes|default:'' }}"><strong>{{ item.name }}</strong><small>{{ item.storage_conditions|default:"Storage conditions not recorded"|truncatechars:34 }}</small></td>
+                        <td>{{ item.category.name|default:"—" }}<small>{{ item.item_type.name|default:"Unclassified" }}</small></td>
+                        <td>{{ item.section.name }}<small>{{ item.section.treatment_plant.name|default:"Plant unassigned" }}</small></td>
+                        <td>{{ item.supplier.name|default:"No supplier" }}</td>
+                        <td>{{ item.purchase_date|date:"d M Y" }}</td>
+                        <td class="inventory-number">{{ item.available_stock|floatformat:2|intcomma }}</td>
+                        <td>{% if item.expiry_date %}{{ item.expiry_date|date:"d M Y" }}{% else %}<span class="inventory-muted">Not recorded</span>{% endif %}</td>
+                        <td>{% if item.dashboard_low_stock %}<span class="inventory-badge inventory-badge--warning">Restock watch</span>{% elif item.dashboard_expiry_watch %}<span class="inventory-badge inventory-badge--warning">Expiry watch</span>{% elif item.is_locked %}<span class="inventory-badge inventory-badge--info">Reservation locked</span>{% else %}<span class="inventory-badge inventory-badge--muted">No active alert</span>{% endif %}</td>
+                        <td>{% for model in models %}{% if model.model_name == "inventoryitem" %}<a class="inventory-table-link" href="{{ model.urls.list }}" aria-label="Open inventory items">Open</a>{% endif %}{% endfor %}</td>
+                    </tr>
+                {% empty %}<tr><td colspan="9"><div class="inventory-empty-state"><i class="fas fa-box-open" aria-hidden="true"></i><b>No inventory records in this scope</b><span>Adjust plant scope or create an inventory item.</span></div></td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="inventory-footnote">* The inventory models do not define a unit of measure or item value; quantities are shown as recorded and are not converted or monetized. Showing the first {{ inventory_rows|length }} records. Totals may include the legacy item quantity where no ledger exists; the allocation chart shows ledger entries only. <a href="{% for model in models %}{% if model.model_name == 'inventoryitem' %}{{ model.urls.list }}{% endif %}{% endfor %}">Open full item register</a>.</div>
+        <div class="inventory-grid inventory-grid--lower">
+            <article class="inventory-panel">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Configured thresholds</span><h3>Restock watchlist</h3><p>Items at or below the active configured threshold.</p></div><span class="inventory-count-pill">{{ low_stock_count }}</span></div>
+                <div class="inventory-compact-list">
+                    {% for item in low_stock_rows %}<div class="inventory-compact-row"><span class="inventory-avatar inventory-avatar--amber"><i class="fas fa-box" aria-hidden="true"></i></span><span><b>{{ item.name }}</b><small>{{ item.category.name }} · {{ item.section.name }}</small></span><strong>{{ item.available_stock|floatformat:2 }} <small>/ {{ item.restock_limit|floatformat:2 }}</small></strong></div>
+                    {% empty %}<div class="inventory-empty-inline">No items are below configured restock limits.</div>{% endfor %}
+                </div>
+            </article>
+            <article class="inventory-panel">
+                <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Expiry dates</span><h3>Expiry watch · 30 days</h3><p>Expired items remain visible with their original recorded dates.</p></div><span class="inventory-count-pill inventory-count-pill--rose">{{ expired_count|add:expiring_count }}</span></div>
+                <div class="inventory-compact-list">
+                    {% for item in expiring_rows %}<div class="inventory-compact-row"><span class="inventory-avatar inventory-avatar--rose"><i class="fas fa-hourglass-half" aria-hidden="true"></i></span><span><b>{{ item.name }}</b><small>{{ item.category.name }} · {{ item.supplier.name|default:"No supplier" }}</small></span><strong>{{ item.expiry_date|date:"d M Y" }}</strong></div>
+                    {% empty %}<div class="inventory-empty-inline">No expired or near-expiry dates in this scope.</div>{% endfor %}
+                </div>
+            </article>
+        </div>
+    </section>
+
+    <section class="inventory-panel inventory-panel--page" id="inventory-panel-movements" role="tabpanel" aria-labelledby="inventory-tab-movements" data-tab-panel="movements" {% if active_tab != 'movements' %}hidden{% endif %}>
+        <div class="inventory-section-heading"><div><span class="inventory-section-kicker">Inventory transaction ledger</span><h2>Movement analytics</h2><p>Transaction event counts by recorded type for {{ period_label }}.</p></div>{% for model in models %}{% if model.model_name == "inventorytransaction" and model.capabilities.export %}<a class="inventory-button inventory-button--quiet" href="{{ model.urls.export }}"><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Export movements</a>{% endif %}{% endfor %}</div>
+        <div class="inventory-movement-summary">
+            <div><span>Additions</span><strong>{{ movement_totals.addition|default:0|intcomma }}</strong><small>transaction events</small></div>
+            <div><span>Removals</span><strong>{{ movement_totals.removal|default:0|intcomma }}</strong><small>transaction events</small></div>
+            <div><span>Adjustments</span><strong>{{ movement_totals.adjustment|default:0|intcomma }}</strong><small>transaction events</small></div>
+            <div><span>All events</span><strong>{{ period_transactions_count|intcomma }}</strong><small>within selected window</small></div>
+        </div>
+        <article class="inventory-panel inventory-chart-panel inventory-chart-panel--wide">
+            <div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Movement stream</span><h3>Transactions per day</h3><p>Counts avoid combining quantities from different, unspecified units.</p></div><span class="inventory-range-pill">{{ period_days }} day window</span></div>
+            <div class="inventory-chart-wrap inventory-chart-wrap--large"><canvas data-inventory-chart="movements" aria-label="Daily inventory transaction events"></canvas><div class="inventory-chart-tooltip" hidden></div></div>
+            <div class="inventory-legend"><span><i class="legend-dot legend-dot--add"></i> Additions</span><span><i class="legend-dot legend-dot--remove"></i> Removals</span><span><i class="legend-dot legend-dot--adjust"></i> Adjustments</span></div>
+        </article>
+        <article class="inventory-panel"><div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Ledger details</span><h3>Recent transactions</h3></div><label class="inventory-search inventory-search--compact"><i class="fas fa-magnifying-glass" aria-hidden="true"></i><input type="search" placeholder="Filter transactions" data-table-search="movement-table"></label></div>
+            {% include "inventory/partials/_transaction_table.html" with rows=recent_transactions compact=False table_id="movement-table" %}
+        </article>
+    </section>
+
+    <section class="inventory-panel inventory-panel--page" id="inventory-panel-assets" role="tabpanel" aria-labelledby="inventory-tab-assets" data-tab-panel="assets" {% if active_tab != 'assets' %}hidden{% endif %}>
+        <div class="inventory-section-heading"><div><span class="inventory-section-kicker">Equipment integrity</span><h2>Maintenance & calibration</h2><p>Readiness is derived from the next scheduled dates stored on equipment records.</p></div>{% for model in models %}{% if model.model_name == "equipment" %}<a class="inventory-button inventory-button--primary" href="{{ model.urls.list }}"><i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i> Manage equipment</a>{% endif %}{% endfor %}</div>
+        <div class="inventory-metric-strip">
+            <div><span>Equipment records</span><strong>{{ equipment_count|intcomma }}</strong></div>
+            <div class="is-risk"><span>Maintenance overdue</span><strong>{{ maintenance_overdue|intcomma }}</strong></div>
+            <div class="is-risk"><span>Calibration overdue</span><strong>{{ calibration_overdue|intcomma }}</strong></div>
+            <div><span>Maintenance due in window</span><strong>{{ maintenance_due|intcomma }}</strong></div>
+            <div><span>Calibration due in window</span><strong>{{ calibration_due|intcomma }}</strong></div>
+        </div>
+        <article class="inventory-panel"><div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Service schedule</span><h3>Equipment readiness register</h3></div><label class="inventory-search inventory-search--compact"><i class="fas fa-magnifying-glass" aria-hidden="true"></i><input type="search" placeholder="Search equipment" data-table-search="equipment-table"></label></div>
+            <div class="inventory-table-scroll"><table class="inventory-table" id="equipment-table"><thead><tr><th>Equipment</th><th>Serial</th><th>Category / section</th><th>Next maintenance</th><th>Next calibration</th><th>Derived schedule</th></tr></thead><tbody>
+            {% for item in equipment_rows %}<tr data-search-row><td><strong>{{ item.name }}</strong></td><td>{{ item.serial_number }}</td><td>{{ item.category.name }}<small>{{ item.section.name }}</small></td><td>{% if item.next_maintenance_date %}{{ item.next_maintenance_date|date:"d M Y" }}{% else %}<span class="inventory-muted">Not set</span>{% endif %}</td><td>{% if item.next_calibration_date %}{{ item.next_calibration_date|date:"d M Y" }}{% else %}<span class="inventory-muted">Not set</span>{% endif %}</td><td><span class="inventory-badge inventory-badge--{{ item.dashboard_state }}">{{ item.dashboard_state_label }}</span></td></tr>
+            {% empty %}<tr><td colspan="6"><div class="inventory-empty-state"><i class="fas fa-screwdriver-wrench" aria-hidden="true"></i><b>No equipment records in this scope</b><span>Equipment records are managed by section.</span></div></td></tr>{% endfor %}
+            </tbody></table></div>
+        </article>
+        <div class="inventory-footnote">“On schedule” means no stored next maintenance or calibration date is overdue. Equipment without a schedule is shown as “No date set”; no separate operational status field exists on the Equipment model.</div>
+    </section>
+
+    <section class="inventory-panel inventory-panel--page" id="inventory-panel-supplies" role="tabpanel" aria-labelledby="inventory-tab-supplies" data-tab-panel="supplies" {% if active_tab != 'supplies' %}hidden{% endif %}>
+        <div class="inventory-section-heading"><div><span class="inventory-section-kicker">Supply operations</span><h2>Reagents & work reservations</h2><p>LaboratoryReagent has no plant or section field. Shared reagent records are shown only in an all-plants view to preserve plant scope.</p></div><span class="inventory-range-pill"><i class="fas fa-link" aria-hidden="true"></i> Maintenance-linked stock</span></div>
+        <div class="inventory-supply-cards">
+            <article class="inventory-panel"><div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Laboratory reagents · shared scope</span><h3>Reagent records</h3></div>{% if reagent_is_unscoped %}{% for model in models %}{% if model.model_name == "laboratoryreagent" %}<a class="inventory-text-button" href="{{ model.urls.list }}">Open <i class="fas fa-arrow-right" aria-hidden="true"></i></a>{% endif %}{% endfor %}{% endif %}</div>
+                {% if reagent_is_unscoped %}
+                    <div class="inventory-inline-stats"><div><span>Records</span><b>{{ reagent_summary.records|intcomma }}</b></div><div><span>Recorded quantity*</span><b>{{ reagent_summary.quantity|default:0|floatformat:2|intcomma }}</b></div></div>
+                    <div class="inventory-compact-list">{% for reagent in reagent_rows %}<div class="inventory-compact-row"><span class="inventory-avatar inventory-avatar--cyan"><i class="fas fa-flask" aria-hidden="true"></i></span><span><b>{{ reagent.rname }}</b><small>{{ reagent.category.name|default:"No category" }}</small></span><strong>{{ reagent.quantity|floatformat:2|intcomma }}</strong></div>{% empty %}<div class="inventory-empty-inline">No reagent records are configured.</div>{% endfor %}</div>
+                    <div class="inventory-footnote">* Reagent quantity has no unit field in the model.</div>
+                {% else %}
+                    <div class="inventory-empty-inline">Reagent details are withheld in this plant-scoped view because the model cannot associate records with a treatment plant.</div>
+                {% endif %}
+            </article>
+            <article class="inventory-panel"><div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Maintenance integration</span><h3>Material reservations</h3></div>{% for model in models %}{% if model.model_name == "workmaterialreservation" %}<a class="inventory-text-button" href="{{ model.urls.list }}">Open <i class="fas fa-arrow-right" aria-hidden="true"></i></a>{% endif %}{% endfor %}</div>
+                <div class="inventory-reservation-state"><span><b>{{ reservation_counts.reserved|default:0 }}</b> Reserved</span><span><b>{{ reservation_counts.issued|default:0 }}</b> Issued</span><span><b>{{ reservation_counts.released|default:0 }}</b> Released</span></div>
+                <div class="inventory-compact-list">{% for reservation in reservation_rows %}<div class="inventory-compact-row"><span class="inventory-avatar inventory-avatar--blue"><i class="fas fa-cart-flatbed" aria-hidden="true"></i></span><span><b>{{ reservation.inventory_item.name }}</b><small>Work order {{ reservation.work_order_id|truncatechars:14 }} · {{ reservation.created_at|date:"d M, H:i" }}</small></span><strong>{{ reservation.quantity|floatformat:2 }} <small>{{ reservation.status|title }}</small></strong></div>{% empty %}<div class="inventory-empty-inline">No material reservations in this plant scope.</div>{% endfor %}</div>
+            </article>
+        </div>
+    </section>
+
+    <section class="inventory-panel inventory-panel--page" id="inventory-panel-controls" role="tabpanel" aria-labelledby="inventory-tab-controls" data-tab-panel="controls" {% if active_tab != 'controls' %}hidden{% endif %}>
+        <div class="inventory-section-heading"><div><span class="inventory-section-kicker">Governance & reporting</span><h2>Controls, audit & data access</h2><p>Threshold rules, recorded item audit activity and model registry actions.</p></div><span class="inventory-range-pill">{{ active_alert_count }} active controls</span></div>
+        <div class="inventory-grid inventory-grid--lower">
+            <article class="inventory-panel"><div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Alert configuration</span><h3>Configured rule coverage</h3><p>Rule counts by alert type in the selected section scope.</p></div>{% for model in models %}{% if model.model_name == "alertconfig" %}<a class="inventory-text-button" href="{{ model.urls.list }}">Manage <i class="fas fa-arrow-right" aria-hidden="true"></i></a>{% endif %}{% endfor %}</div>
+                <div class="inventory-rule-grid"><div><i class="fas fa-boxes-stacked" aria-hidden="true"></i><span>Restock</span><b>{{ alert_type_counts.restock|default:0 }}</b></div><div><i class="fas fa-hourglass-half" aria-hidden="true"></i><span>Expiry</span><b>{{ alert_type_counts.expiry|default:0 }}</b></div><div><i class="fas fa-screwdriver-wrench" aria-hidden="true"></i><span>Maintenance</span><b>{{ alert_type_counts.maintenance_due|default:0 }}</b></div><div><i class="fas fa-ruler-combined" aria-hidden="true"></i><span>Calibration</span><b>{{ alert_type_counts.calibration_due|default:0 }}</b></div><div><i class="fas fa-sliders" aria-hidden="true"></i><span>Custom</span><b>{{ alert_type_counts.custom|default:0 }}</b></div></div>
+                <div class="inventory-compact-list">{% for rule in config_rows %}<div class="inventory-compact-row"><span class="inventory-avatar inventory-avatar--blue"><i class="fas fa-bell" aria-hidden="true"></i></span><span><b>{{ rule.name }}</b><small>{{ rule.section.name }}{% if rule.category %} · {{ rule.category.name }}{% endif %} · {{ rule.get_alert_type_display }} · {{ rule.threshold_days }}d · min {{ rule.min_quantity|default:"—" }} · {{ rule.users_to_notify.all|length }} recipients</small></span><strong><span class="inventory-badge inventory-badge--{% if rule.active %}good{% else %}muted{% endif %}">{% if rule.active %}Active{% else %}Paused{% endif %}</span></strong></div>{% empty %}<div class="inventory-empty-inline">No alert rules configured for this scope.</div>{% endfor %}</div>
+            </article>
+            <article class="inventory-panel"><div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Audit trail</span><h3>Recent item audit events</h3><p>Limited to inventory item records visible in this scope.</p></div>{% for model in models %}{% if model.model_name == "auditlog" %}<a class="inventory-text-button" href="{{ model.urls.list }}">Audit log <i class="fas fa-arrow-right" aria-hidden="true"></i></a>{% endif %}{% endfor %}</div>
+                <div class="inventory-compact-list">{% for row in audit_rows %}<div class="inventory-compact-row"><span class="inventory-avatar inventory-avatar--violet"><i class="fas fa-clock-rotate-left" aria-hidden="true"></i></span><span><b>{{ row.action|title }} · Inventory item #{{ row.object_id }}</b><small>{{ row.user.username|default:"System" }} · {{ row.timestamp|date:"d M Y, H:i" }}</small></span><span class="inventory-muted">{{ row.notes|default:"—"|truncatechars:36 }}</span></div>{% empty %}<div class="inventory-empty-inline">No audit records are linked to visible inventory items.</div>{% endfor %}</div>
+            </article>
+        </div>
+
+        <article class="inventory-panel inventory-model-panel"><div class="inventory-panel-heading"><div><span class="inventory-section-kicker">Model-driven data access</span><h3>Inventory records & actions</h3><p>All registered inventory models with the actions exposed by the registry.</p></div><span class="inventory-count-pill">{{ models|length }} models</span></div>
+            <div class="inventory-model-grid">
+                {% for model in models %}<article class="inventory-model-card"><span class="inventory-model-icon"><i class="fas fa-{{ model.icon }}" aria-hidden="true"></i></span><div class="inventory-model-card__body"><span class="inventory-model-group">{{ model.group|title }}</span><h4>{{ model.label }}</h4><code>{{ model.key }}</code></div><div class="inventory-model-actions"><a href="{{ model.urls.list }}">Browse</a>{% if model.capabilities.create %}<a href="{{ model.urls.create }}">Create</a>{% endif %}{% if model.capabilities.export %}<a href="{{ model.urls.export }}">Export</a>{% endif %}</div></article>
+                {% empty %}<div class="inventory-empty-inline">No inventory models are registered.</div>{% endfor %}
+            </div>
+            <div class="inventory-model-footnote">Reference catalogs · {{ category_count }} categories · {{ item_type_count }} item types · {{ status_count }} statuses (global catalogs) · {{ supplier_count }} suppliers represented by items in this plant scope.</div>
+        </article>
+    </section>
+
+    <footer class="inventory-footer"><span>Inventory intelligence · {{ scope.scope_label }}</span><span>Ledger quantities are recorded without unit conversion or cost estimation.</span></footer>
+</section>
+
+{{ movement_series|json_script:"inventory-movement-data" }}
+{{ allocation_series|json_script:"inventory-allocation-data" }}
+{{ category_series|json_script:"inventory-category-data" }}
+{% endblock %}
+
+{% block extra_scripts %}
+    <script src="{% static 'inventory/js/dashboard.js' %}?v=20261031-inventory-command" defer></script>
 {% endblock %}

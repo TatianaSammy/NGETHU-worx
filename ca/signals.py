@@ -29,6 +29,8 @@ from .models import (
     ChemicalBatchHold,
     ChemicalInventoryMovement,
     ChemicalAnalysisProcess,
+    ChemicalLabComparisonResult,
+    ChemicalLabReferral,
     ChemicalWorkflowEvent,
     ChemicalWorkflowAlert,
     ChecklistForWaterTreatmentChemicalAnalysis,
@@ -50,6 +52,8 @@ def persist_domain_invalidation(sender, instance, created=False, raw=False, **kw
         ChecklistForWaterTreatmentChemicalAnalysis,
         ChemicalCoA,
         ChemicalWorkflowAlert,
+        ChemicalLabReferral,
+        ChemicalLabComparisonResult,
         ChemicalBatchHold,
         ChemicalInventoryMovement,
     }:
@@ -721,7 +725,13 @@ def _generate_coa_assets(instance: ChemicalCoA, *, force=False):
             if update_fields:
                 instance._ca_asset_write = True
                 try:
-                    instance.save(update_fields=update_fields)
+                    # CoA generation runs inside the workflow transaction. Keep
+                    # this write behind a savepoint so a database constraint
+                    # failure can be logged below without poisoning the whole
+                    # workflow transaction (which otherwise fails at commit
+                    # with PostgreSQL's misleading InFailedSqlTransaction).
+                    with transaction.atomic():
+                        instance.save(update_fields=update_fields)
                 finally:
                     instance.__dict__.pop("_ca_asset_write", None)
 
@@ -901,21 +911,9 @@ def log_test_result_save(
         def notify_quality_exception(result_id=instance.pk, batch_id=instance.batch_id):
             try:
                 result = BatchTestResult.objects.select_related("batch", "parameter").get(pk=result_id)
-                flags = ", ".join(result.quality_flags or [])
-                parameter = result.parameter.parameter_name if result.parameter_id else "Chemical analysis"
-                from .services.workflow_notifications import create_workflow_alert
+                from .inventory_instruments import trigger_result_quality_alert
 
-                create_workflow_alert(
-                    batch=result.batch,
-                    alert_type="ca_quality_exception",
-                    title=f"Chemical analysis quality exception: {parameter}",
-                    message=(f"Result for {parameter} is {result.get_status_display() or result.status}. "
-                             f"{('Quality flags: ' + flags) if flags else 'Review the recorded result.'}"),
-                    url=f"/ca/results/{result.pk}/",
-                    severity="critical" if flags else "high",
-                    dedupe_key=f"quality-result:{result.pk}:revision:{result.revision_number}",
-                    permissions=("ca.review_chemical_analysis", "ca.perform_chemical_retest", "ca.record_chemical_result"),
-                )
+                trigger_result_quality_alert(result)
             except Exception:
                 logger.exception("Failed to notify reviewers about chemical result %s", result_id)
         transaction.on_commit(notify_quality_exception)
@@ -926,6 +924,36 @@ def log_test_result_save(
             dedupe_key__startswith=f"quality-result:{instance.pk}:",
             acknowledged_at__isnull=True,
         ).update(acknowledged_at=timezone.now())
+
+
+@receiver(
+    post_save,
+    sender=ChemicalLabComparisonResult,
+    dispatch_uid="ca.alert_inventory_equipment_for_lab_comparison",
+)
+def alert_lab_comparison_equipment(sender, instance, created, raw=False, **kwargs):
+    if raw or not instance.inventory_equipment_id:
+        return
+
+    def notify_equipment_use(result_id=instance.pk):
+        try:
+            result = ChemicalLabComparisonResult.objects.select_related(
+                "batch", "process", "parameter", "inventory_equipment__section__treatment_plant",
+                "inventory_equipment__category",
+            ).get(pk=result_id)
+            from .inventory_instruments import trigger_equipment_alerts
+
+            trigger_equipment_alerts(
+                result.inventory_equipment,
+                batch=result.batch,
+                process=result.process,
+                parameter=result.parameter,
+                source="interlaboratory_comparison",
+            )
+        except Exception:
+            logger.exception("Unable to evaluate Inventory equipment alerts for comparison result %s", result_id)
+
+    transaction.on_commit(notify_equipment_use)
 
 
 @receiver(

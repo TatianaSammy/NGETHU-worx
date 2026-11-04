@@ -9,7 +9,7 @@ from .models import (
     DailyTaskAssignment,
     DutyConfirmation,
 )
-from sc.models import Shift
+from sc.models import AnnualLeave, Shift
 from t.models import TreatmentPlant
 from django.contrib.auth import get_user_model
 
@@ -113,6 +113,11 @@ class DailyTaskAssignmentSerializer(serializers.ModelSerializer):
         user = request.user if request else data.get('user')
         shift = data.get('shift')
         date = data.get('date')
+
+        if user and date and AnnualLeave.is_unavailable(user.pk, date):
+            raise serializers.ValidationError({
+                'date': 'You are marked on annual leave or off duty on this date and cannot be assigned a task.'
+            })
 
         if shift and getattr(shift, 'is_night_shift', False):
             raise serializers.ValidationError("Only day shifts are allowed for task assignments.")

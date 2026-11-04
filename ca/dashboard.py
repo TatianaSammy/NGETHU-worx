@@ -36,7 +36,7 @@ from .models import (
 )
 
 
-DASHBOARD_SCHEMA_VERSION = "7.2"
+DASHBOARD_SCHEMA_VERSION = "7.5"
 
 
 CHEMICAL_PERMISSIONS = {
@@ -49,6 +49,7 @@ CHEMICAL_PERMISSIONS = {
     "complete": "ca.complete_chemical_analysis",
     "retest": "ca.perform_chemical_retest",
     "qa": "ca.review_chemical_analysis",
+    "quality_control": "ca.record_chemical_result",
     "approve_batch": "ca.approve_chemical_batch",
     "reject_batch": "ca.reject_chemical_batch",
     "generate_coa": "ca.approve_chemical_coa",
@@ -117,12 +118,13 @@ RESULT_TASK_NODES = {
     "record_result",
     "record_input",
     "complete_analysis",
+    "record_method_qc",
     "retest",
     "retest_result",
     "retest_input",
     "complete_retest",
 }
-COA_TASK_NODES = {"generate_coa", "approve_coa", "batch_disposition"}
+COA_TASK_NODES = {"generate_coa", "approve_coa", "refer_kebs", "batch_disposition"}
 
 
 BATCH_STATUSES = {
@@ -235,9 +237,27 @@ FLOW_NODE_DEFINITIONS = OrderedDict(
             },
         ),
         (
+            "quality_control_gate",
+            {
+                "label": "Method QC Gate",
+                "status": "QA",
+                "queue": "qa",
+                "permission": CHEMICAL_PERMISSIONS["quality_control"],
+            },
+        ),
+        (
+            "record_method_qc",
+            {
+                "label": "Record Method QC",
+                "status": "QA",
+                "queue": "qa",
+                "permission": CHEMICAL_PERMISSIONS["quality_control"],
+            },
+        ),
+        (
             "qa_review",
             {
-                "label": "QA Review",
+                "label": "Chemist Review",
                 "status": "QA",
                 "queue": "qa",
                 "permission": CHEMICAL_PERMISSIONS["qa"],
@@ -246,7 +266,43 @@ FLOW_NODE_DEFINITIONS = OrderedDict(
         (
             "qa_decision",
             {
-                "label": "QA Decision",
+                "label": "Chemist Decision",
+                "status": "QA",
+                "queue": "qa",
+                "permission": CHEMICAL_PERMISSIONS["qa"],
+            },
+        ),
+        (
+            "qa_interlaboratory_decision",
+            {
+                "label": "Interlaboratory Routing",
+                "status": "QA",
+                "queue": "qa",
+                "permission": CHEMICAL_PERMISSIONS["qa"],
+            },
+        ),
+        (
+            "interlaboratory_review",
+            {
+                "label": "Interlaboratory Comparison",
+                "status": "QA",
+                "queue": "qa",
+                "permission": CHEMICAL_PERMISSIONS["qa"],
+            },
+        ),
+        (
+            "qa_capa_decision",
+            {
+                "label": "CAPA Routing",
+                "status": "QA",
+                "queue": "qa",
+                "permission": CHEMICAL_PERMISSIONS["qa"],
+            },
+        ),
+        (
+            "qa_reject_decision",
+            {
+                "label": "Failure Disposition Routing",
                 "status": "QA",
                 "queue": "qa",
                 "permission": CHEMICAL_PERMISSIONS["qa"],
@@ -298,19 +354,19 @@ FLOW_NODE_DEFINITIONS = OrderedDict(
             },
         ),
         (
-            "approval",
-            {
-                "label": "Analysis Approval",
-                "status": "QA",
-                "queue": "approval",
-                "permission": CHEMICAL_PERMISSIONS["approve_batch"],
-            },
-        ),
-        (
             "generate_coa",
             {
                 "label": "Generate CoA",
                 "status": "APPROVED",
+                "queue": "coa",
+                "permission": CHEMICAL_PERMISSIONS["generate_coa"],
+            },
+        ),
+        (
+            "coa_generation_decision",
+            {
+                "label": "Certificate Disposition",
+                "status": "QA",
                 "queue": "coa",
                 "permission": CHEMICAL_PERMISSIONS["generate_coa"],
             },
@@ -361,6 +417,15 @@ FLOW_NODE_DEFINITIONS = OrderedDict(
             },
         ),
         (
+            "refer_kebs",
+            {
+                "label": "Forward Failed Chemical to KEBS",
+                "status": "QA",
+                "queue": "coa",
+                "permission": CHEMICAL_PERMISSIONS["reject_batch"],
+            },
+        ),
+        (
             "return_rejected",
             {
                 "label": "Return Rejected Batch",
@@ -396,20 +461,30 @@ FLOW_EDGES = [
     ("record_input", "check_analysis_progress"),
     ("check_analysis_progress", "record_result"),
     ("check_analysis_progress", "complete_analysis"),
-    ("complete_analysis", "qa_review"),
+    ("complete_analysis", "quality_control_gate"),
+    ("quality_control_gate", "record_method_qc"),
+    ("quality_control_gate", "qa_review"),
+    ("record_method_qc", "qa_review"),
     ("qa_review", "qa_decision"),
     ("qa_decision", "retest"),
-    ("qa_decision", "capa"),
-    ("qa_decision", "reject"),
-    ("qa_decision", "approval"),
+    ("qa_decision", "qa_interlaboratory_decision"),
+    ("qa_interlaboratory_decision", "interlaboratory_review"),
+    ("qa_interlaboratory_decision", "qa_capa_decision"),
+    ("interlaboratory_review", "generate_coa"),
+    ("qa_capa_decision", "capa"),
+    ("qa_capa_decision", "qa_reject_decision"),
+    ("qa_reject_decision", "reject"),
+    ("qa_reject_decision", "generate_coa"),
     ("retest", "retest_result"),
     ("retest_result", "retest_input"),
     ("retest_result", "complete_retest"),
     ("retest_input", "complete_retest"),
-    ("complete_retest", "qa_review"),
+    ("complete_retest", "quality_control_gate"),
     ("capa", "qa_review"),
-    ("approval", "generate_coa"),
-    ("generate_coa", "approve_coa"),
+    ("generate_coa", "coa_generation_decision"),
+    ("coa_generation_decision", "refer_kebs"),
+    ("coa_generation_decision", "approve_coa"),
+    ("refer_kebs", "completed"),
     ("approve_coa", "batch_disposition"),
     ("batch_disposition", "utilize"),
     ("batch_disposition", "return"),
@@ -1014,15 +1089,25 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                     "record_result": "ANALYSIS",
                     "record_input": "ANALYSIS",
                     "complete_analysis": "ANALYSIS",
+                    "quality_control_gate": "QA",
+                    "record_method_qc": "QA",
                     "retest": "RETEST",
                     "retest_result": "RETEST",
                     "retest_input": "RETEST",
                     "complete_retest": "RETEST",
+                    "qa_interlaboratory_decision": "QA",
+                    "interlaboratory_review": "QA",
+                    "qa_capa_decision": "QA",
+                    "qa_reject_decision": "QA",
                     "qa_review": "QA",
                     "capa": "QA",
-                    "approval": "APPROVAL",
+                    # Legacy approval tasks are presented under certificate
+                    # progress while those older processes finish.
+                    "approval": "COA",
                     "reject": "REJECTED",
                     "generate_coa": "COA",
+                    "coa_generation_decision": "COA",
+                    "refer_kebs": "COA",
                     "approve_coa": "COA_APPROVAL",
                     "batch_disposition": "DISPOSITION",
                     "utilize": "UTILIZED",
@@ -1691,7 +1776,8 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             "systematic_sampling": False,
             "manual_analyst_assignment": True,
             "automatic_analyst_assignment": True,
-            "automatic_assignment_delay_minutes": 30,
+            "automatic_assignment_delay_minutes": 0,
+            "analyst_reassignment_allowed": True,
             "stages": [
                 "REGISTER",
                 "RECEIVE",
@@ -1702,14 +1788,13 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 "RECORD_RESULT",
                 "RECORD_METHOD_INPUT",
                 "COMPLETE_ANALYSIS",
-                "QA_REVIEW",
+                "CHEMIST_REVIEW",
                 "QA_DECISION",
                 "RETEST",
                 "RETEST_RESULT",
                 "RETEST_METHOD_INPUT",
                 "COMPLETE_RETEST",
                 "CAPA",
-                "APPROVAL",
                 "COA_GENERATION",
                 "COA_APPROVAL",
                 "DISPOSITION",
@@ -1728,7 +1813,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 "analysis",
                 "retest",
                 "qa",
-                "approval",
                 "coa",
                 "coa_approval",
                 "disposition",
@@ -1742,9 +1826,9 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             "assignment": {
                 "manual_allowed": True,
                 "automatic_allowed": True,
-                "automatic_after_minutes": 30,
-                "manual_before_deadline": True,
-                "automatic_after_deadline": True,
+                "automatic_after_minutes": 0,
+                "automatic_immediately": True,
+                "manual_reassignment_allowed": True,
             },
             "result_inputs": {
                 "dynamic_method_inputs": True,
@@ -2156,7 +2240,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             "analysis": 0,
             "retest": 0,
             "qa": 0,
-            "approval": 0,
             "coa": 0,
             "coa_approval": 0,
             "disposition": 0,
@@ -2240,10 +2323,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 queues["retest"] += 1
 
             elif status == "QA":
-                if self._process_requires_approval(process):
-                    queues["approval"] += 1
-                else:
-                    queues["qa"] += 1
+                queues["qa"] += 1
 
             elif status == "APPROVED":
                 if not self._process_has_coa(process):
@@ -2268,8 +2348,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 queues["completed"] += 1
 
         now = timezone.now()
-        assignment_deadline = timedelta(minutes=30)
-
         for request in requests:
             status = self._normalize_status(
                 getattr(request, "status", None)
@@ -2284,26 +2362,8 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             assigned = self._request_has_assigned_analysts(request)
 
             if not assigned:
-                deadline = self._request_assignment_deadline(request)
-
-                if deadline:
-                    if deadline <= now:
-                        queues["assignment_overdue"] += 1
-                    else:
-                        queues["assignment_pending"] += 1
-                else:
-                    created_at = (
-                        getattr(request, "created_at", None)
-                        or getattr(request, "requested_at", None)
-                    )
-
-                    if created_at:
-                        deadline = created_at + assignment_deadline
-
-                        if deadline <= now:
-                            queues["assignment_overdue"] += 1
-                        else:
-                            queues["assignment_pending"] += 1
+                # Any unassigned active request is actionable immediately.
+                queues["assignment_overdue"] += 1
 
             deadline = self._request_deadline(request)
 
@@ -2337,7 +2397,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 "analysis",
                 "retest",
                 "qa",
-                "approval",
                 "coa",
                 "coa_approval",
                 "disposition",
@@ -3283,7 +3342,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             "analysis",
             "retest",
             "qa",
-            "approval",
             "coa",
             "coa_approval",
             "disposition",
@@ -3303,7 +3361,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             "analysis",
             "retest",
             "qa",
-            "approval",
             "coa",
             "coa_approval",
             "disposition",
@@ -3961,7 +4018,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                     "HIGH",
                     "ANALYST_ASSIGNMENT_OVERDUE",
                     "Analyst assignment overdue",
-                    "No analyst has been assigned within the 30-minute assignment window.",
+                    "The analysis request has no assigned analyst and needs immediate assignment.",
                     request,
                     self._request_assignment_deadline(
                         request
@@ -4181,7 +4238,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             ),
             (
                 "qa",
-                "QA review queue",
+                "Chemist review queue",
                 "HIGH",
                 "ca:process-list",
             ),
@@ -4190,12 +4247,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 "CAPA awaiting independent verification",
                 "HIGH",
                 "ca:my-tasks",
-            ),
-            (
-                "approval",
-                "Approval queue",
-                "HIGH",
-                "ca:process-list",
             ),
             (
                 "coa",
@@ -4248,10 +4299,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 0,
             ),
             "capa_open": queue_counts.get("capa_open", 0),
-            "approval": queue_counts.get(
-                "approval",
-                0,
-            ),
             "coa": queue_counts.get(
                 "coa",
                 0,
@@ -4489,10 +4536,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                     0,
                 )
                 + queue_counts.get(
-                    "approval",
-                    0,
-                )
-                + queue_counts.get(
                     "coa",
                     0,
                 )
@@ -4609,7 +4652,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 "CHECKLIST": "Receiving checklist stage",
                 "ANALYSIS": "Chemical analysis in progress",
                 "RETEST": "Chemical retest in progress",
-                "QA": "QA review in progress",
+                "QA": "Chemist review in progress",
                 "APPROVED": "Analysis approved",
                 "REJECTED": "Analysis rejected",
                 "UTILIZED": "Batch utilized",
@@ -4781,15 +4824,22 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                     "record_result": "Analysis",
                     "record_input": "Analysis",
                     "complete_analysis": "Analysis",
-                    "qa_review": "Quality review",
-                    "qa_decision": "Quality review",
+                    "quality_control_gate": "Method QC",
+                    "record_method_qc": "Method QC",
+                    "qa_review": "Chemist review",
+                    "qa_decision": "Chemist review",
+                    "qa_interlaboratory_decision": "Interlaboratory review",
+                    "interlaboratory_review": "Interlaboratory review",
+                    "qa_capa_decision": "Chemist review",
+                    "qa_reject_decision": "Chemist review",
                     "retest": "Retest",
                     "retest_result": "Retest",
                     "retest_input": "Retest",
                     "complete_retest": "Retest",
                     "capa": "Corrective action",
-                    "approval": "Approval",
                     "generate_coa": "Certificate of analysis",
+                    "coa_generation_decision": "Certificate of analysis",
+                    "refer_kebs": "KEBS dispatch",
                     "approve_coa": "Certificate approval",
                     "utilize": "Disposition",
                     "return_to_supplier": "Supplier return",
@@ -5015,19 +5065,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
         request,
     ):
         for field_name in (
-            "assignment_deadline",
-            "manual_assignment_deadline",
-        ):
-            value = getattr(
-                request,
-                field_name,
-                None,
-            )
-
-            if value:
-                return self._aware(value)
-
-        for field_name in (
             "created_at",
             "requested_at",
         ):
@@ -5038,10 +5075,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             )
 
             if value:
-                return (
-                    self._aware(value)
-                    + timedelta(minutes=30)
-                )
+                return self._aware(value)
 
         return None
 
@@ -5115,30 +5149,6 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 return value
 
         return None
-
-    def _process_requires_approval(
-        self,
-        process,
-    ):
-        for field_name in (
-            "approval_required",
-            "requires_approval",
-            "ready_for_approval",
-            "analysis_approved",
-        ):
-            value = getattr(
-                process,
-                field_name,
-                None,
-            )
-
-            if value is not None:
-                if field_name == "analysis_approved":
-                    return not bool(value)
-
-                return bool(value)
-
-        return False
 
     def _process_has_coa(
         self,

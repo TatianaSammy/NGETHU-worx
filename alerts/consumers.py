@@ -81,6 +81,7 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
             "title": event.get("title") or "System Notification",
             "message": event.get("message"),
             "voice_url": event.get("voice_url"),
+            "voice_profile": event.get("voice_profile"),
             "priority": event.get("priority", "medium"),
             "alert_type": event.get("alert_type", "general"),
             "instance_ref": event.get("instance_ref"),
@@ -102,6 +103,8 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
             "instance_ref": event.get("instance_ref"),
             "state": event.get("state"),
             "auto_voice": event.get("auto_voice", True),
+            "repeat_voice": event.get("repeat_voice", False),
+            "voice_profile": event.get("voice_profile"),
             "timestamp": event.get("timestamp") or timezone.now().isoformat(),
         })
 
@@ -116,6 +119,7 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
             "message": event.get("message"),
             "title": event.get("title") or "Voice Alert",
             "speaker": event.get("speaker"),
+            "voice_profile": event.get("voice_profile"),
             "auto_voice": event.get("auto_voice", True),
             "repeat_voice": event.get("repeat_voice", False),
             "timestamp": event.get("timestamp") or timezone.now().isoformat(),

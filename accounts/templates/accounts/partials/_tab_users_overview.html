@@ -1,346 +1,46 @@
-<!-- accounts/templates/accounts/partials/_tab_users_overview.html -->
-{% load static %}
-
-<!-- ==========================================================================
-     ACCOUNTS USER REGISTRY TELEMETRY STRIP (KPIS)
-     ========================================================================== -->
-<div class="ca-mt-kpis mb-3">
-    <div class="ca-mt-kpi">
-        <div class="ca-mt-kpi__label"><i class="fa fa-users"></i> Total Users in Scope</div>
-        <div class="ca-mt-kpi__value">{{ stats.total_users|default:users|length|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Registered accounts</div>
-    </div>
-    <div class="ca-mt-kpi">
-        <div class="ca-mt-kpi__label"><i class="fa fa-circle-check"></i> Active & Authenticated</div>
-        <div class="ca-mt-kpi__value ca-val--emerald">{{ stats.active_users|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Full platform access</div>
-    </div>
-    <div class="ca-mt-kpi">
-        <div class="ca-mt-kpi__label"><i class="fa fa-user-gear"></i> Technical Staff</div>
-        <div class="ca-mt-kpi__value ca-val--cyan">{{ stats.staff_users|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Analysts, operators, chemists</div>
-    </div>
-    <div class="ca-mt-kpi">
-        <div class="ca-mt-kpi__label"><i class="fa fa-shield-halved"></i> 2FA / MFA Enforced</div>
-        <div class="ca-mt-kpi__value ca-val--purple">{{ stats.mfa_users|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Two-factor authenticated</div>
-    </div>
-    <div class="ca-mt-kpi">
-        <div class="ca-mt-kpi__label"><i class="fa fa-user-shield"></i> System Administrators</div>
-        <div class="ca-mt-kpi__value ca-val--indigo">{{ stats.superusers|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Full privilege scope</div>
-    </div>
-    <div class="ca-mt-kpi">
-        <div class="ca-mt-kpi__label"><i class="fa fa-triangle-exclamation"></i> Locked / Quarantined</div>
-        <div class="ca-mt-kpi__value ca-val--crimson">{{ stats.locked_users|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Security locked / inactive</div>
-    </div>
-</div>
-
-<!-- ==========================================================================
-     ADVANCED USER REGISTRY CONTROLS & BATCHLIST-STYLE TABLE
-     ========================================================================== -->
-<div class="ca-mt-panel">
-    <div class="ca-mt-panel__head">
-        <div class="ca-panel-title-group">
-            <span class="ca-mt-panel__title">
-                <i class="fa fa-address-book"></i> User Directory & Access Control Registry
-            </span>
-            <span class="ca-badge ca-badge--glass" id="user-count-badge">{{ users|length }} In-View</span>
+<section aria-labelledby="accounts-overview-title">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3 mb-3">
+        <div>
+            <p class="text-uppercase small fw-bold text-primary mb-1">Account operations</p>
+            <h1 class="h3 mb-1" id="accounts-overview-title">Accounts overview</h1>
+            <p class="text-muted mb-0">User access and security at a glance.</p>
         </div>
+        <a class="btn btn-primary" href="#users-tab" data-bs-toggle="pill" data-bs-target="#users-tab">
+            <i class="fa fa-users me-1" aria-hidden="true"></i> Open user directory
+        </a>
+    </div>
 
-        <div class="ca-toolbar-actions">
-            <!-- INSTANT LIVE SEARCH -->
-            <div class="ca-search-input-wrap">
-                <i class="fa fa-search ca-search-icon"></i>
-                <input type="text" id="accounts-user-filter-input" class="ca-input-search" placeholder="Search name, PF number, email, section..." onkeyup="filterAccountsUsersTable()">
-            </div>
+    <div class="ca-mt-kpis mb-4">
+        <div class="ca-mt-kpi"><div class="ca-mt-kpi__label"><i class="fa fa-users"></i> Total users</div><div class="ca-mt-kpi__value">{{ stats.total_users|default:0 }}</div><div class="ca-mt-kpi__sub">Registered accounts</div></div>
+        <div class="ca-mt-kpi"><div class="ca-mt-kpi__label"><i class="fa fa-circle-check"></i> Active</div><div class="ca-mt-kpi__value ca-val--emerald">{{ stats.active_users|default:0 }}</div><div class="ca-mt-kpi__sub">Enabled accounts</div></div>
+        <div class="ca-mt-kpi"><div class="ca-mt-kpi__label"><i class="fa fa-user-gear"></i> Technical staff</div><div class="ca-mt-kpi__value ca-val--cyan">{{ stats.staff_users|default:0 }}</div><div class="ca-mt-kpi__sub">Staff accounts</div></div>
+        <div class="ca-mt-kpi"><div class="ca-mt-kpi__label"><i class="fa fa-shield-halved"></i> MFA enabled</div><div class="ca-mt-kpi__value ca-val--purple">{{ stats.mfa_users|default:0 }}</div><div class="ca-mt-kpi__sub">Two-factor protection</div></div>
+        <div class="ca-mt-kpi"><div class="ca-mt-kpi__label"><i class="fa fa-user-shield"></i> Administrators</div><div class="ca-mt-kpi__value ca-val--indigo">{{ stats.superusers|default:0 }}</div><div class="ca-mt-kpi__sub">Elevated access</div></div>
+        <div class="ca-mt-kpi"><div class="ca-mt-kpi__label"><i class="fa fa-triangle-exclamation"></i> Locked</div><div class="ca-mt-kpi__value ca-val--crimson">{{ stats.locked_users|default:0 }}</div><div class="ca-mt-kpi__sub">Require administrator review</div></div>
+    </div>
 
-            <!-- EXPORT TO MULTIPLE FORMATS DROPDOWN -->
-            <div class="dropdown d-inline-block">
-                <button class="ca-mt-btn dropdown-toggle" type="button" id="userExportDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="fa fa-file-export"></i> Export Registry
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end shadow-lg" aria-labelledby="userExportDropdown">
-                    <li><h6 class="dropdown-header text-uppercase font-monospace small"><i class="fa fa-download me-1"></i> Multi-Format Export</h6></li>
-                    <li><a class="dropdown-item" href="?export=csv"><i class="fa fa-file-csv text-success me-2"></i> CSV Spreadsheet (.csv)</a></li>
-                    <li><a class="dropdown-item" href="?export=xlsx"><i class="fa fa-file-excel text-success me-2"></i> Excel Workbook (.xlsx)</a></li>
-                    <li><a class="dropdown-item" href="?export=pdf"><i class="fa fa-file-pdf text-danger me-2"></i> PDF Document (.pdf)</a></li>
-                    <li><a class="dropdown-item" href="?export=docx"><i class="fa fa-file-word text-primary me-2"></i> Word Dossier (.docx)</a></li>
-                    <li><a class="dropdown-item" href="?export=json"><i class="fa fa-code text-warning me-2"></i> JSON Data (.json)</a></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.print()"><i class="fa fa-print text-secondary me-2"></i> Print View</a></li>
-                </ul>
-            </div>
-
-            {% if request.user.is_superuser %}
-            <a class="ca-mt-btn ca-mt-btn--primary" href="{% url 'accounts:user_create' %}">
-                <i class="fa fa-user-plus"></i> Intake New User
-            </a>
-            {% endif %}
+    <div class="ca-mt-panel">
+        <div class="ca-mt-panel__head d-flex align-items-center justify-content-between gap-3">
+            <div><span class="ca-mt-panel__title"><i class="fa fa-clock-rotate-left me-1"></i> Recently added accounts</span><div class="small text-muted mt-1">Most recent eight records</div></div>
+            <a class="btn btn-sm btn-outline-primary" href="#users-tab" data-bs-toggle="pill" data-bs-target="#users-tab">Manage users</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead><tr><th>User</th><th>Section</th><th>Plant</th><th>Status</th><th>Joined</th></tr></thead>
+                <tbody>
+                    {% for account in recent_users %}
+                    <tr>
+                        <td><a href="{% url 'accounts:user_detail' account.pk %}">{{ account.full_name|default:account.username }}</a><small class="d-block text-muted">{{ account.username }}</small></td>
+                        <td>{{ account.section|default:"—" }}</td>
+                        <td>{{ account.assigned_treatment_plant|default:"—" }}</td>
+                        <td>{% if account.is_locked %}<span class="badge text-bg-danger">Locked</span>{% elif account.is_active %}<span class="badge text-bg-success">Active</span>{% else %}<span class="badge text-bg-secondary">Inactive</span>{% endif %}</td>
+                        <td>{{ account.date_joined|date:"d M Y" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-center text-muted py-4">No accounts found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
-
-    <!-- QUICK FILTER STATUS CHIPS -->
-    <div class="ca-table-filters-bar">
-        <button class="ca-filter-chip is-active" onclick="filterUsersByStatus('ALL', this)">All Users ({{ users|length }})</button>
-        <button class="ca-filter-chip" onclick="filterUsersByStatus('ACTIVE', this)">Active ({{ stats.active_users|default:0 }})</button>
-        <button class="ca-filter-chip" onclick="filterUsersByStatus('STAFF', this)">Staff / Operators ({{ stats.staff_users|default:0 }})</button>
-        <button class="ca-filter-chip" onclick="filterUsersByStatus('SUPERUSER', this)">Superusers ({{ stats.superusers|default:0 }})</button>
-        <button class="ca-filter-chip" onclick="filterUsersByStatus('MFA', this)">MFA Active ({{ stats.mfa_users|default:0 }})</button>
-        <button class="ca-filter-chip" onclick="filterUsersByStatus('LOCKED', this)">Locked ({{ stats.locked_users|default:0 }})</button>
-        <button class="ca-filter-chip" onclick="filterUsersByStatus('INACTIVE', this)">Inactive ({{ stats.inactive_users|default:0 }})</button>
-    </div>
-
-    <!-- RESPONSIVE USER DIRECTORY TABLE -->
-    <div class="ca-mt-panel__body ca-table-responsive">
-        <table class="ca-mt-table" id="accounts-users-table">
-            <thead>
-                <tr>
-                    <th>User & Identity</th>
-                    <th>Role & Scope</th>
-                    <th>Contact & Phone</th>
-                    <th>Section & Unit</th>
-                    <th>Assigned Plant / Lab</th>
-                    <th>Security (2FA)</th>
-                    <th>Last Active</th>
-                    <th>Account Status</th>
-                    <th style="text-align: right;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-            {% for u in users %}
-                <tr class="accounts-user-row"
-                    data-status="{% if u.is_locked %}LOCKED{% elif u.is_active %}ACTIVE{% else %}INACTIVE{% endif %}"
-                    data-role="{% if u.is_superuser %}SUPERUSER{% elif u.is_staff %}STAFF{% else %}USER{% endif %}"
-                    data-mfa="{% if u.mfa_enabled %}MFA{% else %}NO_MFA{% endif %}"
-                    data-search="{{ u.get_full_name }} {{ u.username }} {{ u.email }} {{ u.mobile_number }} {{ u.section.name }} {{ u.assigned_treatment_plant.name }} {{ u.assigned_lab.name }}">
-                    
-                    <!-- USER IDENTITY & AVATAR -->
-                    <td>
-                        <div class="ca-user-identity-cell">
-                            <div class="ca-user-avatar-wrap">
-                                {% if u.profile_picture %}
-                                <img src="{{ u.profile_picture.url }}" alt="{{ u.username }}" class="ca-user-avatar-img">
-                                {% else %}
-                                <div class="ca-user-avatar-initials {% if u.is_superuser %}ca-avatar--purple{% elif u.is_staff %}ca-avatar--cyan{% else %}ca-avatar--slate{% endif %}">
-                                    {{ u.first_name|slice:":1"|default:u.username|slice:":1"|upper }}{{ u.last_name|slice:":1"|upper }}
-                                </div>
-                                {% endif %}
-                            </div>
-                            <div class="ca-user-info-text">
-                                <a href="{% url 'accounts:user_detail' u.pk %}" class="ca-user-name">
-                                    {{ u.get_full_name|default:u.username }}
-                                </a>
-                                <span class="ca-user-pf">
-                                    <i class="fa fa-barcode"></i> @{{ u.username }}
-                                </span>
-                            </div>
-                        </div>
-                    </td>
-
-                    <!-- ROLE & SCOPE -->
-                    <td>
-                        <div class="ca-role-cell">
-                            {% if u.is_superuser %}
-                            <span class="ca-status-pill ca-status-pill--purple ca-glow-purple">
-                                <i class="fa fa-crown"></i> Superuser
-                            </span>
-                            {% elif u.is_staff %}
-                            <span class="ca-status-pill ca-status-pill--cyan">
-                                <i class="fa fa-user-gear"></i> Staff Member
-                            </span>
-                            {% else %}
-                            <span class="ca-status-pill ca-status-pill--slate">
-                                <i class="fa fa-user"></i> General User
-                            </span>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- CONTACT -->
-                    <td>
-                        <div class="ca-contact-cell">
-                            <a href="mailto:{{ u.email }}" class="ca-contact-link text-truncate" title="{{ u.email }}">
-                                <i class="fa fa-envelope text-muted"></i> {{ u.email }}
-                            </a>
-                            {% if u.mobile_number %}
-                            <span class="ca-sub-note">
-                                <i class="fa fa-phone text-muted"></i> {{ u.mobile_number }}
-                            </span>
-                            {% else %}
-                            <span class="ca-sub-note text-muted">—</span>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- SECTION -->
-                    <td>
-                        <div class="ca-org-cell">
-                            {% if u.section %}
-                            <span class="ca-section-badge">
-                                <i class="fa fa-sitemap"></i> {{ u.section.name }}
-                            </span>
-                            {% else %}
-                            <span class="text-muted small">—</span>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- PLANT / LAB -->
-                    <td>
-                        <div class="ca-facility-cell">
-                            {% if u.assigned_treatment_plant %}
-                            <span class="ca-plant-tag" title="Assigned Treatment Plant">
-                                <i class="fa fa-industry"></i> {{ u.assigned_treatment_plant.name }}
-                            </span>
-                            {% else %}
-                            <span class="ca-plant-tag ca-plant-tag--global" title="Global Scope">
-                                <i class="fa fa-globe"></i> All Plants
-                            </span>
-                            {% endif %}
-                            {% if u.assigned_lab %}
-                            <span class="ca-sub-note" title="Assigned Laboratory">
-                                <i class="fa fa-flask"></i> {{ u.assigned_lab.name }}
-                            </span>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- SECURITY / MFA -->
-                    <td>
-                        <div class="ca-security-cell">
-                            {% if u.mfa_enabled %}
-                            <span class="ca-status-pill ca-status-pill--emerald ca-glow-emerald">
-                                <i class="fa fa-shield-halved"></i> 2FA Enforced
-                            </span>
-                            {% else %}
-                            <span class="ca-status-pill ca-status-pill--slate">
-                                <i class="fa fa-shield"></i> Standard
-                            </span>
-                            {% endif %}
-                            {% if u.failed_login_attempts > 0 %}
-                            <span class="ca-warning-badge" title="{{ u.failed_login_attempts }} failed login attempts">
-                                <i class="fa fa-triangle-exclamation"></i> {{ u.failed_login_attempts }} fails
-                            </span>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- LAST LOGIN -->
-                    <td>
-                        <div class="ca-date-cell">
-                            {% if u.last_login %}
-                            <span class="ca-date-text">{{ u.last_login|date:"M d, Y" }}</span>
-                            <span class="ca-sub-note">{{ u.last_login|time:"H:i" }}</span>
-                            {% else %}
-                            <span class="text-muted small">Never</span>
-                            {% endif %}
-                        </div>
-                    </td>
-
-                    <!-- ACCOUNT STATUS -->
-                    <td>
-                        {% if u.is_locked %}
-                        <span class="ca-status-pill ca-status-pill--crimson ca-glow-crimson">
-                            <i class="fa fa-lock"></i> Locked
-                        </span>
-                        {% elif u.is_active %}
-                        <span class="ca-status-pill ca-status-pill--emerald ca-glow-emerald">
-                            <i class="fa fa-circle-check"></i> Active
-                        </span>
-                        {% else %}
-                        <span class="ca-status-pill ca-status-pill--amber ca-glow-amber">
-                            <i class="fa fa-circle-pause"></i> Inactive
-                        </span>
-                        {% endif %}
-                    </td>
-
-                    <!-- ACTIONS -->
-                    <td style="text-align: right;">
-                        <div class="ca-btn-group">
-                            <a class="ca-mt-btn ca-mt-btn--sm" href="{% url 'accounts:user_detail' u.pk %}" title="Open User Dossier">
-                                <i class="fa fa-folder-open"></i> Dossier
-                            </a>
-                            <a class="ca-mt-btn ca-mt-btn--sm ca-mt-btn--ghost" href="{% url 'accounts:user_update' u.pk %}" title="Edit User Account">
-                                <i class="fa fa-pencil"></i>
-                            </a>
-                        </div>
-                    </td>
-                </tr>
-            {% empty %}
-                <tr>
-                    <td colspan="9">
-                        <div class="ca-empty-state text-center py-5">
-                            <i class="fa fa-users-slash ca-empty-state__icon fa-3x text-muted mb-3"></i>
-                            <h4>No Users Found</h4>
-                            <p class="text-muted">No accounts match the selected filter criteria.</p>
-                            {% if request.user.is_superuser %}
-                            <a class="ca-mt-btn ca-mt-btn--primary" href="{% url 'accounts:user_create' %}">
-                                <i class="fa fa-user-plus"></i> Intake First User
-                            </a>
-                            {% endif %}
-                        </div>
-                    </td>
-                </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<!-- ==========================================================================
-     CLIENT-SIDE REAL-TIME FILTERING & EXPORT UTILITIES
-     ========================================================================== -->
-<script>
-function filterAccountsUsersTable() {
-    const input = document.getElementById('accounts-user-filter-input');
-    const filter = (input ? input.value : '').toUpperCase();
-    const rows = document.querySelectorAll('.accounts-user-row');
-    let visibleCount = 0;
-    rows.forEach(row => {
-        const text = (row.getAttribute('data-search') || '').toUpperCase();
-        const matches = text.indexOf(filter) > -1;
-        row.style.display = matches ? '' : 'none';
-        if (matches) visibleCount++;
-    });
-    const badge = document.getElementById('user-count-badge');
-    if (badge) badge.textContent = `${visibleCount} In-View`;
-}
-
-function filterUsersByStatus(status, btn) {
-    document.querySelectorAll('.ca-table-filters-bar .ca-filter-chip').forEach(b => b.classList.remove('is-active'));
-    if (btn) btn.classList.add('is-active');
-
-    const rows = document.querySelectorAll('.accounts-user-row');
-    let visibleCount = 0;
-    rows.forEach(row => {
-        const rowStatus = row.getAttribute('data-status');
-        const rowRole = row.getAttribute('data-role');
-        const rowMfa = row.getAttribute('data-mfa');
-
-        let show = false;
-        if (status === 'ALL') {
-            show = true;
-        } else if (status === 'ACTIVE' && rowStatus === 'ACTIVE') {
-            show = true;
-        } else if (status === 'INACTIVE' && rowStatus === 'INACTIVE') {
-            show = true;
-        } else if (status === 'LOCKED' && rowStatus === 'LOCKED') {
-            show = true;
-        } else if (status === 'STAFF' && (rowRole === 'STAFF' || rowRole === 'SUPERUSER')) {
-            show = true;
-        } else if (status === 'SUPERUSER' && rowRole === 'SUPERUSER') {
-            show = true;
-        } else if (status === 'MFA' && rowMfa === 'MFA') {
-            show = true;
-        }
-
-        row.style.display = show ? '' : 'none';
-        if (show) visibleCount++;
-    });
-
-    const badge = document.getElementById('user-count-badge');
-    if (badge) badge.textContent = `${visibleCount} In-View`;
-}
-</script>
+</section>

@@ -38,23 +38,42 @@ class DashboardNotificationsView(LoginRequiredMixin, View):
             # create voice jobs on every poll; alert lifecycle hooks queue
             # idempotent audio generation when the event is first created.
             alert["voice_url"] = None
+            alert["voice_profile"] = ""
+            alert["auto_voice"] = False
             try:
                 from alerts.models import VoiceAlert
 
+                voices = VoiceAlert.objects.select_related(
+                    "voice_over",
+                    "alert_config",
+                    "alert_config__template",
+                )
                 if alert_type == "alert_state" and alert.get("db_id"):
-                    voice = VoiceAlert.objects.filter(
+                    voice = voices.filter(
                         alert_state_id=alert["db_id"],
                     ).exclude(audio_file="").order_by("-created_at").first()
                 elif alert_type == "ca_workflow_alert":
                     alert_id = str(alert.get("id", ""))
                     source_id = alert_id.removeprefix("ca_workflow_alert_")
-                    voice = VoiceAlert.objects.filter(
+                    voice = voices.filter(
                         source_key=f"ca-workflow:{source_id}",
                     ).exclude(audio_file="").first()
                 else:
                     voice = None
-                if voice and voice.audio_file:
+                if voice and voice.profile_audio_ready:
                     alert["voice_url"] = voice.audio_file.url
+                    alert["voice_profile"] = voice.voice_over.name
+                    config = voice.alert_config
+                    alert["auto_voice"] = bool(
+                        not config
+                        or (
+                            config.active
+                            and (
+                                not config.template_id
+                                or config.template.active and config.template.auto_voice_enabled
+                            )
+                        )
+                    )
             except Exception:
                 pass
 

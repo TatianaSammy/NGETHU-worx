@@ -12,6 +12,8 @@ from .dashboard import (
     ChemicalReportPreviewView,
 )
 from .dashboard_home import ChemicalAnalysisDashboardView, ChemicalBatchRegisterExportView
+from .interlaboratory import InterlaboratoryReferralDetailView, InterlaboratoryReferralListView
+from .quality_control_views import ChemicalQCControlChartView
 from .chemical_flow import ChemicalAnalysisFlow
 from .views import (
     ChemicalAnalysisInputDetailView,
@@ -21,6 +23,7 @@ from .views import (
     ChemicalBatchCustodyRecordView,
     ChemicalBatchHoldResolutionView,
     ChemicalBatchCreateView,
+    ChemicalBatchDeleteView,
     ChemicalBatchDetailView,
     ChemicalBatchListView,
     ChemicalBatchUpdateView,
@@ -35,7 +38,6 @@ from .views import (
     MyChemicalTasksView,
     OverdueAnalysisView,
     PendingAnalysisView,
-    PendingApprovalView,
     PendingCoAApprovalView,
     PendingQAReviewView,
     ProcessDetailView,
@@ -70,6 +72,7 @@ urlpatterns = [
     path("batches/", ChemicalBatchListView.as_view(), name="batch-list"),
     path("batches/register-export/", ChemicalBatchRegisterExportView.as_view(), name="batch-register-export"),
     path("batches/add/", ChemicalBatchCreateView.as_view(), name="batch-create"),
+    path("batches/<int:pk>/delete/", ChemicalBatchDeleteView.as_view(), name="batch-delete"),
     path(
         "batches/<int:pk>/workflow/<str:node_name>/",
         ChemicalBatchWorkflowActionView.as_view(),
@@ -124,6 +127,10 @@ urlpatterns = [
     path("results/", ResultListView.as_view(), name="result-list"),
     path("results/<int:pk>/", ResultDetailView.as_view(), name="result-detail"),
 
+    path("interlaboratory/referrals/", InterlaboratoryReferralListView.as_view(), name="interlaboratory-referral-list"),
+    path("interlaboratory/referrals/<int:pk>/", InterlaboratoryReferralDetailView.as_view(), name="interlaboratory-referral-detail"),
+    path("quality-control/", ChemicalQCControlChartView.as_view(), name="quality-control-dashboard"),
+
     path("checklists/<int:pk>/", ChecklistDetailView.as_view(), name="checklist-detail"),
     path(
         "checklists/<int:pk>/reopen/",
@@ -155,11 +162,6 @@ urlpatterns = [
         "tasks/pending-analysis/",
         PendingAnalysisView.as_view(),
         name="pending-analysis",
-    ),
-    path(
-        "tasks/pending-approval/",
-        PendingApprovalView.as_view(),
-        name="pending-approval",
     ),
     path(
         "tasks/pending-qa/",

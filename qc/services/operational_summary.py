@@ -147,7 +147,7 @@ def get_filter_sidebar_groups(treatment_plant, user=None):
     filters = list(
         WaterFilter.objects.filter(phase_id__in=phase_ids)
         .filter(Q(treatment_plant=treatment_plant) | Q(treatment_plant__isnull=True))
-        .select_related("phase", "filter_type")
+        .select_related("phase", "filter_type", "filter_status")
         .order_by("phase__name", "name")
     )
     filter_ids = [water_filter.pk for water_filter in filters]

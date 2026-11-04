@@ -1,5 +1,5 @@
 <div class="cl-side-bench">
-    <!-- 1. 30-Minute Disinfection Contact Time Timer -->
+    <!-- 1. Standard 10-Minute Disinfection Contact Time Timer -->
     <div class="cl-card timer-card">
         <div class="cl-card-header">
             <div class="d-flex align-items-center gap-2">
@@ -10,8 +10,8 @@
         </div>
 
         <div class="timer-display-wrap">
-            <div class="timer-digits font-mono" id="timerDisplay">30:00</div>
-            <div class="timer-subtext text-muted small">Standard 30-min bactericidal contact period</div>
+            <div class="timer-digits font-mono" id="timerDisplay">10:00</div>
+            <div class="timer-subtext text-muted small">Standard 10-minute chlorine contact period</div>
         </div>
 
         <!-- Timer Controls -->
@@ -19,17 +19,11 @@
             <button type="button" class="btn-timer-action btn-start" id="timerStartBtn" onclick="toggleChlorineTimer();">
                 <i class="fa-solid fa-play"></i> Start
             </button>
-            <button type="button" class="btn-timer-action btn-reset" onclick="resetChlorineTimer(30);">
+            <button type="button" class="btn-timer-action btn-reset" onclick="resetChlorineTimer();">
                 <i class="fa-solid fa-rotate-left"></i> Reset
             </button>
         </div>
 
-        <!-- Quick Presets -->
-        <div class="timer-presets">
-            <button type="button" class="preset-btn" onclick="resetChlorineTimer(15);">15m Flash</button>
-            <button type="button" class="preset-btn active" onclick="resetChlorineTimer(30);">30m Standard</button>
-            <button type="button" class="preset-btn" onclick="resetChlorineTimer(45);">45m Peak</button>
-        </div>
     </div>
 
     <!-- 2. Plant Chemical Dosage Scaler Calculator -->

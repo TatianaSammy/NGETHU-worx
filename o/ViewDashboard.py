@@ -1,18 +1,29 @@
 """Plant-scoped operations cockpit for the Chemical Operations app."""
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from math import sqrt
 
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db.models import Count, Q, Sum
+from django.db import connection
+from django.db.models import Avg, Count, F, Q, Sum, Window
+from django.db.models.functions import RowNumber, TruncDate
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.views import View
 
+from alerts.models import AlertState
 from core.engine.super_user import SuperUserEngine
 from core.mixins import WanjalaMixin
 from chlorinedemand.models import ChlorineDemandTest
+from instruments.models import (
+    InstrumentCalibration,
+    OnlineMeasurement,
+    QualityFlag,
+    Sensor,
+    SensorHealthSnapshot,
+    TreatmentStage,
+)
 from jartest.models import JarTest
 from PHadjustment.models import PHAdjustmentTest
 from qc.models import (
@@ -65,6 +76,57 @@ def _number(value, places=1):
         return round(float(value or 0), places)
     except (TypeError, ValueError):
         return 0
+
+
+def _trend_projection(values, horizons=(1, 3), window=14):
+    points = [(index, float(value)) for index, value in enumerate(values) if value is not None]
+    points = points[-window:]
+    if len(points) < 5:
+        return None
+
+    count = len(points)
+    x_mean = sum(point[0] for point in points) / count
+    y_mean = sum(point[1] for point in points) / count
+    x_sum_squares = sum((point[0] - x_mean) ** 2 for point in points)
+    if not x_sum_squares:
+        return None
+
+    slope = sum((x - x_mean) * (y - y_mean) for x, y in points) / x_sum_squares
+    intercept = y_mean - slope * x_mean
+    residual_sum_squares = sum((y - (intercept + slope * x)) ** 2 for x, y in points)
+    residual_error = sqrt(residual_sum_squares / max(count - 2, 1))
+    latest_index, latest_value = points[-1]
+    projections = {}
+    for horizon in horizons:
+        x_value = latest_index + horizon
+        value = intercept + slope * x_value
+        interval = 1.96 * residual_error * sqrt(1 + (1 / count) + ((x_value - x_mean) ** 2 / x_sum_squares))
+        projections[horizon] = {
+            "value": round(value, 3),
+            "low": round(value - interval, 3),
+            "high": round(value + interval, 3),
+        }
+
+    return {
+        "observations": count,
+        "latest_index": latest_index,
+        "latest_value": round(latest_value, 3),
+        "daily_slope": round(slope, 4),
+        "direction": "Rising" if slope > 0 else "Falling" if slope < 0 else "Stable",
+        "projections": projections,
+    }
+
+
+def _latest_per_group(queryset, group_field, order_fields):
+    if connection.vendor == "postgresql":
+        return queryset.order_by(group_field, *[f"-{field}" for field in order_fields]).distinct(group_field)
+    return queryset.annotate(
+        group_rank=Window(
+            expression=RowNumber(),
+            partition_by=[F(group_field)],
+            order_by=[F(field).desc() for field in order_fields],
+        ),
+    ).filter(group_rank=1)
 
 
 class DashboardView(WanjalaMixin, View):
@@ -132,10 +194,12 @@ class DashboardView(WanjalaMixin, View):
         quality_stats = {}
         quality_daily_values = defaultdict(list)
         quality_parameters = {}
+        quality_limit_ranges = {}
         quality_stage_measurements = {
             key: {"count": 0, "compared": 0, "within": 0, "latest": None}
             for key, _label, _model, _color in quality_stage_definitions
         }
+        quality_plant_required = bool(is_superuser and plant is None)
         for stage_key, _stage_label, result_model, _color in quality_stage_definitions:
             results = scope(
                 result_model.objects.filter(analysis__analysis_date__range=(start_date, today)),
@@ -143,6 +207,9 @@ class DashboardView(WanjalaMixin, View):
             ).select_related(
                 "analysis", "analysis__analysis_time", "phase", "parameter", "parameter__parameter"
             ).order_by("analysis__analysis_date", "analysis__analysis_time__time", "pk")
+            if quality_plant_required:
+                quality_stage_measurements[stage_key]["count"] = results.filter(value__isnull=False).count()
+                results = results.none()
             for result in results.iterator(chunk_size=2000):
                 if result.value is None:
                     continue
@@ -183,6 +250,9 @@ class DashboardView(WanjalaMixin, View):
                         "time": sample_time,
                         "reference": result.analysis.reference_id,
                         "phase": phase_name,
+                        "limit_min": _number(limit_min, 3) if limit_min is not None else None,
+                        "limit_max": _number(limit_max, 3) if limit_max is not None else None,
+                        "within": within if has_limit else None,
                     }
                 stage_latest = quality_stage_measurements[stage_key]["latest"]
                 if stage_latest is None or stamp_key > stage_latest["stamp"]:
@@ -193,6 +263,246 @@ class DashboardView(WanjalaMixin, View):
                         "reference": result.analysis.reference_id,
                     }
                 quality_daily_values[(stage_key, parameter_id, sample_date)].append(value)
+
+        if plant:
+            for stage_key, _stage_label, result_model, _color in quality_stage_definitions:
+                limit_model = result_model._meta.get_field("parameter").remote_field.model
+                for limit in limit_model.objects.filter(treatment_plant=plant).select_related("parameter"):
+                    parameter_id = limit.parameter_id
+                    quality_parameters.setdefault(parameter_id, {
+                        "name": limit.parameter.name,
+                        "unit": limit.parameter.unit,
+                    })
+                    quality_limit_ranges[(stage_key, parameter_id)] = {
+                        "minimum": _number(limit.min_value, 3) if limit.min_value is not None else None,
+                        "maximum": _number(limit.max_value, 3) if limit.max_value is not None else None,
+                    }
+
+        current_qc_by_stage_parameter = {}
+        current_qc_stage_latest = {key: None for key, _label, _model, _color in quality_stage_definitions}
+        if plant:
+            for stage_key, _stage_label, result_model, _color in quality_stage_definitions:
+                current_results = scope(
+                    result_model.objects.filter(value__isnull=False),
+                    field="analysis__treatment_plant",
+                )
+                current_results = _latest_per_group(
+                    current_results,
+                    "parameter_id",
+                    ("analysis__analysis_date", "analysis__analysis_time__time", "pk"),
+                ).select_related(
+                    "analysis", "analysis__analysis_time", "parameter", "parameter__parameter", "phase"
+                )
+                if quality_plant_required:
+                    current_results = current_results.none()
+                for result in current_results:
+                    limit_min = result.parameter.min_value
+                    limit_max = result.parameter.max_value
+                    value = float(result.value)
+                    has_limit = limit_min is not None or limit_max is not None
+                    within = (limit_min is None or value >= float(limit_min)) and (limit_max is None or value <= float(limit_max))
+                    current_row = {
+                        "value": _number(value, 3),
+                        "date": result.analysis.analysis_date,
+                        "time": result.analysis.analysis_time.time,
+                        "reference": result.analysis.reference_id,
+                        "phase": result.phase.name if result.phase_id else "—",
+                        "limit_min": _number(limit_min, 3) if limit_min is not None else None,
+                        "limit_max": _number(limit_max, 3) if limit_max is not None else None,
+                        "within": within if has_limit else None,
+                    }
+                    current_qc_by_stage_parameter[(stage_key, result.parameter.parameter_id)] = current_row
+                    stage_latest = current_qc_stage_latest[stage_key]
+                    stamp = (current_row["date"], current_row["time"], result.pk)
+                    if stage_latest is None or stamp > stage_latest["stamp"]:
+                        current_qc_stage_latest[stage_key] = {"stamp": stamp, **current_row}
+
+        instrument_stage_map = {
+            TreatmentStage.RAW_WATER: SamplingSchedule.RAW,
+            TreatmentStage.COAGULATED: SamplingSchedule.COAGULATED,
+            TreatmentStage.CLARIFIED: SamplingSchedule.CLARIFIED,
+            TreatmentStage.TREATED: SamplingSchedule.TREATED,
+        }
+        instrument_sensors = []
+        if plant:
+            instrument_sensors = list(
+                Sensor.objects.filter(
+                    treatment_plant=plant,
+                    instrument__treatment_plant=plant,
+                    instrument__is_active=True,
+                    is_active=True,
+                    stage__in=instrument_stage_map,
+                ).select_related("parameter", "instrument", "instrument__phase")
+                .order_by("stage", "parameter__name", "-is_primary", "name")
+            )
+        sensor_ids = [sensor.pk for sensor in instrument_sensors]
+        instrument_ids = {sensor.instrument_id for sensor in instrument_sensors}
+        sensor_stage_pairs = {
+            (instrument_stage_map[sensor.stage], sensor.parameter_id)
+            for sensor in instrument_sensors
+        }
+        sensor_counts_by_pair = defaultdict(int)
+        for sensor in instrument_sensors:
+            sensor_counts_by_pair[(instrument_stage_map[sensor.stage], sensor.parameter_id)] += 1
+            quality_parameters.setdefault(sensor.parameter_id, {
+                "name": sensor.parameter.name,
+                "unit": sensor.unit,
+            })
+
+        latest_measurements = {}
+        if sensor_ids:
+            ranked_measurements = _latest_per_group(
+                OnlineMeasurement.objects.filter(sensor_id__in=sensor_ids),
+                "sensor_id",
+                ("measured_at", "pk"),
+            ).select_related("sensor", "sensor__instrument", "sensor__parameter")
+            latest_measurements = {
+                item.sensor_id: item for item in ranked_measurements
+            }
+
+        latest_health = {}
+        if sensor_ids:
+            ranked_health = _latest_per_group(
+                SensorHealthSnapshot.objects.filter(sensor_id__in=sensor_ids),
+                "sensor_id",
+                ("assessed_at", "pk"),
+            )
+            latest_health = {item.sensor_id: item for item in ranked_health}
+
+        latest_calibrations = {}
+        if instrument_ids:
+            ranked_calibrations = _latest_per_group(
+                InstrumentCalibration.objects.filter(instrument_id__in=instrument_ids),
+                "instrument_id",
+                ("performed_at", "pk"),
+            )
+            latest_calibrations = {item.instrument_id: item for item in ranked_calibrations}
+
+        current_time = timezone.now()
+        current_date = timezone.localdate()
+        online_by_stage_parameter = defaultdict(list)
+        online_stage_summaries = {
+            key: {"sensors": 0, "fresh": 0, "issues": 0, "latest": None}
+            for key, _label, _model, _color in quality_stage_definitions
+        }
+        online_sensor_rows = []
+        for sensor in instrument_sensors:
+            stage_key = instrument_stage_map[sensor.stage]
+            stage_summary = online_stage_summaries[stage_key]
+            stage_summary["sensors"] += 1
+            measurement = latest_measurements.get(sensor.pk)
+            calibration = latest_calibrations.get(sensor.instrument_id)
+            health = latest_health.get(sensor.pk)
+            if measurement:
+                age_seconds = max(0, (current_time - measurement.measured_at).total_seconds())
+                freshness_limit = max(sensor.instrument.expected_heartbeat_sec * 3, 180)
+                is_fresh = age_seconds <= freshness_limit
+                flag = measurement.quality_flag
+                health_percent = None
+                if health:
+                    health_value = float(health.health_score)
+                    health_percent = health_value * 100 if health_value <= 1 else health_value
+                    health_percent = max(0.0, min(100.0, health_percent))
+                calibration_expired = bool(calibration and calibration.valid_until < current_date)
+                limit_range = quality_limit_ranges.get((stage_key, sensor.parameter_id), {})
+                limit_min = limit_range.get("minimum")
+                limit_max = limit_range.get("maximum")
+                has_treatment_limit = limit_min is not None or limit_max is not None
+                reading_value = float(measurement.value)
+                within_treatment_limits = (
+                    (limit_min is None or reading_value >= limit_min)
+                    and (limit_max is None or reading_value <= limit_max)
+                ) if has_treatment_limit and is_fresh and flag not in (QualityFlag.INVALID, QualityFlag.STALE) else None
+                if not is_fresh:
+                    state_key, state_label = "unknown", "Stale"
+                elif calibration_expired or flag == QualityFlag.CALIBRATION:
+                    state_key, state_label = "maintenance", "Calibration due"
+                elif calibration is None:
+                    state_key, state_label = "maintenance", "Calibration untracked"
+                elif flag == QualityFlag.INVALID:
+                    state_key, state_label = "faulty", "Invalid"
+                elif flag == QualityFlag.SUSPECT:
+                    state_key, state_label = "maintenance", "Suspect"
+                elif health_percent is not None and health_percent < 70:
+                    state_key, state_label = "maintenance", "Low sensor health"
+                elif sensor.instrument.status != "online":
+                    state_key, state_label = "unknown", sensor.instrument.get_status_display()
+                else:
+                    state_key, state_label = "working", "Current"
+                if within_treatment_limits is False:
+                    state_key, state_label = "faulty", "Outside plant limit"
+                if is_fresh:
+                    stage_summary["fresh"] += 1
+                if state_key != "working":
+                    stage_summary["issues"] += 1
+                if stage_summary["latest"] is None or measurement.measured_at > stage_summary["latest"]:
+                    stage_summary["latest"] = measurement.measured_at
+                pair = (stage_key, sensor.parameter_id)
+                online_by_stage_parameter[pair].append({
+                    "value": _number(measurement.value, 3),
+                    "limit_min": limit_min,
+                    "limit_max": limit_max,
+                    "within_treatment_limits": within_treatment_limits,
+                    "measured_at": measurement.measured_at,
+                    "received_at": measurement.received_at,
+                    "quality_flag": flag,
+                    "quality_label": measurement.get_quality_flag_display(),
+                    "state_key": state_key,
+                    "state_label": state_label,
+                    "is_fresh": is_fresh,
+                    "is_primary": sensor.is_primary,
+                    "sensor": sensor.name,
+                    "instrument": sensor.instrument.name,
+                    "instrument_status": sensor.instrument.get_status_display(),
+                    "source": measurement.source,
+                    "signal_strength": measurement.signal_strength,
+                    "latency_ms": measurement.latency_ms,
+                    "anomaly_score": _number(measurement.anomaly_score, 3),
+                    "drift_score": _number(measurement.drift_score, 3),
+                    "health_score": _number(health_percent, 1) if health_percent is not None else None,
+                    "health_assessed_at": health.assessed_at if health else None,
+                    "calibration_valid_until": calibration.valid_until if calibration else None,
+                    "calibration_status": "Expired" if calibration_expired else "Valid" if calibration else "No calibration record",
+                    "stage_key": stage_key,
+                    "parameter_id": sensor.parameter_id,
+                })
+            else:
+                stage_summary["issues"] += 1
+                online_sensor_rows.append({
+                    "stage_key": stage_key,
+                    "parameter_id": sensor.parameter_id,
+                    "parameter": sensor.parameter.name,
+                    "sensor": sensor.name,
+                    "instrument": sensor.instrument.name,
+                    "status": "No measurement",
+                })
+
+        selected_online_by_stage_parameter = {}
+        for pair, candidates in online_by_stage_parameter.items():
+            candidates.sort(key=lambda item: (
+                not item["is_fresh"],
+                item["quality_flag"] != QualityFlag.OK,
+                not item["is_primary"],
+                -item["measured_at"].timestamp(),
+            ))
+            selected_online_by_stage_parameter[pair] = candidates[0]
+
+        online_daily_values = defaultdict(list)
+        if sensor_ids:
+            window_start = timezone.make_aware(datetime.combine(start_date, time.min), timezone.get_current_timezone())
+            window_end = timezone.make_aware(datetime.combine(today + timedelta(days=1), time.min), timezone.get_current_timezone())
+            online_daily_rows = OnlineMeasurement.objects.filter(
+                sensor_id__in=sensor_ids,
+                quality_flag=QualityFlag.OK,
+                measured_at__gte=window_start,
+                measured_at__lt=window_end,
+            ).annotate(day=TruncDate("measured_at", tzinfo=timezone.get_current_timezone())).values(
+                "sensor__stage", "sensor__parameter_id", "day",
+            ).annotate(mean=Avg("value"), readings=Count("pk")).order_by("day")
+            for row in online_daily_rows.iterator(chunk_size=1000):
+                stage_key = instrument_stage_map.get(row["sensor__stage"])
+                if stage_key:
+                    online_daily_values[(stage_key, row["sensor__parameter_id"], row["day"])].append(float(row["mean"]))
 
         quality_parameter_options = sorted(
             ({"id": parameter_id, **parameter} for parameter_id, parameter in quality_parameters.items()),
@@ -208,10 +518,14 @@ class DashboardView(WanjalaMixin, View):
         for stage_key, stage_label, _result_model, stage_color in quality_stage_definitions:
             stage_measurement = quality_stage_measurements[stage_key]
             compared = stage_measurement["compared"]
-            latest = stage_measurement["latest"]
+            latest = current_qc_stage_latest[stage_key] or stage_measurement["latest"]
             stage_parameter_ids = sorted(
-                parameter_id for (candidate_stage, parameter_id) in quality_stats if candidate_stage == stage_key
+                {parameter_id for (candidate_stage, parameter_id) in quality_stats if candidate_stage == stage_key}
+                | {parameter_id for candidate_stage, parameter_id in current_qc_by_stage_parameter if candidate_stage == stage_key}
+                | {parameter_id for candidate_stage, parameter_id in quality_limit_ranges if candidate_stage == stage_key}
+                | {parameter_id for candidate_stage, parameter_id in sensor_stage_pairs if candidate_stage == stage_key}
             )
+            online_summary = online_stage_summaries[stage_key]
             quality_stage_rows.append({
                 "key": stage_key,
                 "label": stage_label,
@@ -225,41 +539,67 @@ class DashboardView(WanjalaMixin, View):
                 "latest_date": latest["date"] if latest else None,
                 "latest_time": latest["time"].strftime("%H:%M") if latest else None,
                 "latest_reference": latest["reference"] if latest else None,
+                "online_sensors": online_summary["sensors"],
+                "online_fresh": online_summary["fresh"],
+                "online_issues": online_summary["issues"],
+                "latest_online": online_summary["latest"],
             })
             for parameter_id in stage_parameter_ids:
-                stats = quality_stats[(stage_key, parameter_id)]
+                stats = quality_stats.get((stage_key, parameter_id), {
+                    "sum": 0.0, "count": 0, "minimum": None, "maximum": None,
+                    "within": 0, "compared": 0, "latest": None,
+                })
                 parameter = quality_parameters[parameter_id]
                 latest_value = stats["latest"]
+                current_qc = current_qc_by_stage_parameter.get((stage_key, parameter_id)) or latest_value
+                online_value = selected_online_by_stage_parameter.get((stage_key, parameter_id))
+                online_sensor_count = sensor_counts_by_pair[(stage_key, parameter_id)]
                 quality_rows.append({
                     "stage": stage_label,
                     "stage_key": stage_key,
                     "parameter_id": parameter_id,
                     "parameter": parameter["name"],
                     "unit": parameter["unit"],
-                    "phase": latest_value["phase"] if latest_value else "—",
+                    "phase": current_qc["phase"] if current_qc else "—",
                     "mean": round(stats["sum"] / stats["count"], 3) if stats["count"] else None,
                     "minimum": round(stats["minimum"], 3) if stats["minimum"] is not None else None,
                     "maximum": round(stats["maximum"], 3) if stats["maximum"] is not None else None,
-                    "latest": latest_value["value"] if latest_value else None,
-                    "latest_date": latest_value["date"] if latest_value else None,
-                    "latest_time": latest_value["time"].strftime("%H:%M") if latest_value else None,
-                    "latest_reference": latest_value["reference"] if latest_value else None,
+                    "latest": current_qc["value"] if current_qc else None,
+                    "latest_date": current_qc["date"] if current_qc else None,
+                    "latest_time": current_qc["time"].strftime("%H:%M") if current_qc else None,
+                    "latest_reference": current_qc["reference"] if current_qc else None,
+                    "latest_age_days": (today - current_qc["date"]).days if current_qc else None,
+                    "limit_min": current_qc["limit_min"] if current_qc else None,
+                    "limit_max": current_qc["limit_max"] if current_qc else None,
+                    "latest_within": current_qc["within"] if current_qc else None,
                     "samples": stats["count"],
                     "compared": stats["compared"],
                     "within": stats["within"],
                     "compliance": round(stats["within"] * 100 / stats["compared"], 1) if stats["compared"] else None,
+                    "online": online_value,
+                    "online_sensor_count": online_sensor_count,
                 })
+                current_limits = quality_limit_ranges.get((stage_key, parameter_id), {})
+                quality_rows[-1]["limit_min"] = current_limits.get("minimum", quality_rows[-1]["limit_min"])
+                quality_rows[-1]["limit_max"] = current_limits.get("maximum", quality_rows[-1]["limit_max"])
         quality_rows.sort(key=lambda row: (stage_order[row["stage_key"]], row["parameter"].casefold(), row["phase"].casefold()))
+        forecast_labels = [(today + timedelta(days=offset)).isoformat() for offset in range(1, 4)]
+        chart_date_axis = [start_date + timedelta(days=offset) for offset in range(period_days + 3)]
         quality_chart = {
-            "labels": [(start_date + timedelta(days=offset)).isoformat() for offset in range(period_days)],
+            "labels": [day.isoformat() for day in chart_date_axis],
             "stages": [
                 {"key": key, "label": label, "color": color}
                 for key, label, _model, color in quality_stage_definitions
             ],
             "parameters": quality_parameter_options,
             "series": {},
+            "online_series": {},
+            "projection_series": {},
+            "projections": {},
+            "limits": {},
+            "forecast_labels": forecast_labels,
+            "plant_required": quality_plant_required,
         }
-        # This chart shares the exact selected date axis used by the O trends.
         for option in quality_parameter_options:
             parameter_id = option["id"]
             quality_chart["series"][str(parameter_id)] = {
@@ -269,9 +609,57 @@ class DashboardView(WanjalaMixin, View):
                         quality_daily_values.get((key, parameter_id, start_date + timedelta(days=offset)), [])
                         for offset in range(period_days)
                     )
-                ]
+                ] + [None, None, None]
                 for key, _label, _model, _color in quality_stage_definitions
             }
+            quality_chart["online_series"][str(parameter_id)] = {
+                key: [
+                    round(sum(values) / len(values), 3) if values else None
+                    for values in (
+                        online_daily_values.get((key, parameter_id, start_date + timedelta(days=offset)), [])
+                        for offset in range(period_days)
+                    )
+                ] + [None, None, None]
+                for key, _label, _model, _color in quality_stage_definitions
+            }
+            quality_chart["projection_series"][str(parameter_id)] = {}
+            quality_chart["projections"][str(parameter_id)] = {}
+            quality_chart["limits"][str(parameter_id)] = {
+                stage_key: quality_limit_ranges.get((stage_key, parameter_id), {"minimum": None, "maximum": None})
+                for stage_key, _stage_label, _model, _color in quality_stage_definitions
+            }
+            for stage_key, _stage_label, _model, _color in quality_stage_definitions:
+                daily_means = [
+                    sum(values) / len(values) if values else None
+                    for values in (
+                        quality_daily_values.get((stage_key, parameter_id, start_date + timedelta(days=offset)), [])
+                        for offset in range(period_days)
+                    )
+                ]
+                forecast = _trend_projection(daily_means)
+                populated = [(index, value) for index, value in enumerate(daily_means) if value is not None]
+                latest_qc_date = start_date + timedelta(days=populated[-1][0]) if populated else None
+                forecast_is_current = bool(latest_qc_date and latest_qc_date >= today - timedelta(days=2))
+                projection_row = {
+                    "available": bool(forecast and forecast_is_current and plant),
+                    "observations": forecast["observations"] if forecast else len(populated),
+                    "as_of": latest_qc_date.isoformat() if latest_qc_date else None,
+                    "direction": forecast["direction"] if forecast else "Insufficient history",
+                    "daily_slope": forecast["daily_slope"] if forecast else None,
+                    "horizons": forecast["projections"] if forecast and forecast_is_current and plant else {},
+                    "reason": "Select a treatment plant to view isolated projections." if quality_plant_required else "Latest QC observation is older than 48 hours." if forecast and not forecast_is_current else "At least five daily QC observations are required." if not forecast else "",
+                }
+                quality_chart["projections"][str(parameter_id)][stage_key] = projection_row
+                forecast_values = [None] * len(chart_date_axis)
+                if projection_row["available"] and latest_qc_date:
+                    origin_index = (latest_qc_date - start_date).days
+                    forecast_values[origin_index] = round(daily_means[origin_index], 3)
+                    for horizon, result in forecast["projections"].items():
+                        forecast_day = latest_qc_date + timedelta(days=int(horizon))
+                        forecast_index = (forecast_day - start_date).days
+                        if 0 <= forecast_index < len(forecast_values):
+                            forecast_values[forecast_index] = result["value"]
+                quality_chart["projection_series"][str(parameter_id)][stage_key] = forecast_values
 
         # The dashboard shows only approved, established values as the current
         # operating recommendation while retaining each app's own source record.
@@ -535,7 +923,7 @@ class DashboardView(WanjalaMixin, View):
             })
 
         filter_queryset = WaterFilter.objects.select_related(
-            "filter_type", "treatment_plant", "phase", "phase__treatment_plant"
+            "filter_type", "treatment_plant", "phase", "phase__treatment_plant", "filter_status"
         )
         if plant:
             filter_queryset = filter_queryset.filter(
@@ -547,15 +935,18 @@ class DashboardView(WanjalaMixin, View):
         filters = list(filter_queryset.order_by("phase__name", "name"))
         filter_status_counts = {key: 0 for key, _label in WaterFilter.STATUS_CHOICES}
         filter_rows = []
-        filter_flow_total = filter_design_total = 0.0
+        filter_flow_total = filter_capacity_total = 0.0
         filter_maintenance_due = 0
         for water_filter in filters:
             plant_for_filter = water_filter.treatment_plant or (water_filter.phase.treatment_plant if water_filter.phase_id else None)
-            utilization = round(water_filter.flow_rate * 100 / water_filter.design_capacity, 1) if water_filter.design_capacity > 0 else None
-            overdue = (today - water_filter.last_maintenance_date).days >= 180
+            filter_status = getattr(water_filter, "filter_status", None)
+            capacity = float(water_filter.capacity) if water_filter.capacity is not None else 0
+            utilization = round(water_filter.flow_rate * 100 / capacity, 1) if capacity > 0 and water_filter.flow_rate is not None else None
+            last_maintenance_date = filter_status.last_maintenance_date if filter_status else None
+            overdue = bool(filter_status and filter_status.maintenance_due)
             filter_status_counts[water_filter.status] = filter_status_counts.get(water_filter.status, 0) + 1
             filter_flow_total += max(0, _number(water_filter.flow_rate, 2))
-            filter_design_total += max(0, _number(water_filter.design_capacity, 2))
+            filter_capacity_total += max(0, _number(capacity, 2))
             filter_maintenance_due += int(overdue)
             filter_rows.append({
                 "name": water_filter.name,
@@ -565,17 +956,16 @@ class DashboardView(WanjalaMixin, View):
                 "status": water_filter.status,
                 "status_label": water_filter.get_status_display(),
                 "flow_rate": _number(water_filter.flow_rate, 2),
-                "design_capacity": _number(water_filter.design_capacity, 2),
+                "capacity": _number(capacity, 2),
                 "utilization": utilization,
-                "volume": _number(water_filter.volume, 2) if water_filter.volume is not None else 0,
-                "dimensions": f"{_number(water_filter.length, 1)} × {_number(water_filter.width, 1)} × {_number(water_filter.depth, 1)} m",
                 "location": water_filter.location,
-                "installed": water_filter.installation_date,
-                "last_maintenance": water_filter.last_maintenance_date,
+                "installed": filter_status.installation_date if filter_status else None,
+                "last_maintenance": last_maintenance_date,
+                "next_maintenance": filter_status.effective_next_maintenance_date if filter_status else None,
                 "maintenance_due": overdue,
-                "days_since_maintenance": max(0, (today - water_filter.last_maintenance_date).days),
+                "days_since_maintenance": max(0, (today - last_maintenance_date).days) if last_maintenance_date else None,
             })
-        filter_overall_utilization = round(filter_flow_total * 100 / filter_design_total, 1) if filter_design_total else None
+        filter_overall_utilization = round(filter_flow_total * 100 / filter_capacity_total, 1) if filter_capacity_total else None
         filter_status_rows = [{
             "key": key,
             "label": label,
@@ -746,15 +1136,21 @@ class DashboardView(WanjalaMixin, View):
         total_dosing = sum(dosing_counts.values())
         qc_sample_total = sum(row["samples"] for row in quality_stage_rows)
         qc_measurement_total = sum(row["measurements"] for row in quality_stage_rows)
+        online_sensor_total = sum(row["online_sensors"] for row in quality_stage_rows)
+        online_sensor_fresh = sum(row["online_fresh"] for row in quality_stage_rows)
+        online_sensor_issues = sum(row["online_issues"] for row in quality_stage_rows)
+        treated_quality = next((row for row in quality_stage_rows if row["key"] == SamplingSchedule.TREATED), None)
         kpis = [
             {"label": "Raw water inflow", "value": f"{avg_flow_today if avg_flow_today is not None else avg_flow:,.1f}" if avg_flow_today is not None or avg_flow is not None else "—", "unit": "m³/h avg", "icon": "fa-water", "tone": "cyan", "target": "Raw-water feed · O dosing records" if avg_flow_today is not None else f"{period_days}-day mean · raw-water feed", "href": "#water-quality-telemetry"},
             {"label": "QC water samples", "value": f"{qc_sample_total:,}", "unit": "stage samples", "icon": "fa-flask-vial", "tone": "blue", "target": f"{qc_measurement_total:,} measured parameter results · {period_days} days", "href": "#water-quality-telemetry"},
+            {"label": "Treated water compliance", "value": f"{treated_quality['compliance']:.1f}%" if treated_quality and treated_quality["compliance"] is not None else "—", "unit": "of scored results", "icon": "fa-shield-halved", "tone": "green" if treated_quality and treated_quality["compliance"] is not None and treated_quality["compliance"] >= 95 else "amber" if treated_quality and treated_quality["compliance"] is not None and treated_quality["compliance"] >= 80 else "red" if treated_quality and treated_quality["compliance"] is not None else "blue", "target": f"{treated_quality['within']:,} of {treated_quality['compared']:,} results within plant limits" if treated_quality else "No treated-water QC results", "href": "#water-quality-telemetry"},
+            {"label": "Online probe freshness", "value": f"{online_sensor_fresh}/{online_sensor_total}" if online_sensor_total else "—", "unit": "fresh / mapped", "icon": "fa-satellite-dish", "tone": "green" if online_sensor_total and not online_sensor_issues else "amber", "target": f"{online_sensor_issues} stale, flagged or untracked · plant scoped", "href": "#water-quality-telemetry"},
             {"label": "Chemical dosing runs", "value": f"{total_dosing:,}", "unit": "records", "icon": "fa-vials", "tone": "violet", "target": f"Last {period_days} days", "href": "#dosing-records"},
             {"label": "Within ±15% expected", "value": f"{compliance_rate:.1f}%" if compliance_rate is not None else "—", "unit": "of comparable runs", "icon": "fa-bullseye", "tone": "green" if compliance_rate is not None and compliance_rate >= 85 else "amber", "target": f"{compliance_ok:,} of {compliance_total:,} comparable runs", "href": "#dosing-records"},
             {"label": "Pump availability", "value": f"{pump_summary['working']}/{len(pump_rows)}", "unit": "working / total", "icon": "fa-pump-soap", "tone": "green" if not pump_summary["faulty"] else "red", "target": f"{pump_summary['faulty']} faulty · {pump_summary['maintenance']} in maintenance", "href": "#chemical-pumps"},
             {"label": "Reservoir storage", "value": f"{capacity_fill:.1f}%" if measured_capacity else "—", "unit": f"{measured_storage:,.0f} / {measured_capacity:,.0f} m³ monitored", "icon": "fa-water-ladder", "tone": "amber" if low_reservoirs else "blue", "target": f"{monitored_reservoir_count}/{len(reservoir_rows)} monitored · {len(low_reservoirs)} below 20%", "href": "#reservoirs"},
             {"label": "Chemical stock", "value": f"{total_stock:,.0f}", "unit": "kg on record", "icon": "fa-boxes-stacked", "tone": "amber" if low_stock_rows else "green", "target": f"{len(low_stock_rows)} stock lines below 50 kg", "href": "#chemical-stocks"},
-            {"label": "Filter readiness", "value": f"{filter_status_counts.get('working', 0)}/{len(filter_rows)}", "unit": "working / total", "icon": "fa-filter", "tone": "green" if not filter_status_counts.get("isolated", 0) and not filter_status_counts.get("maintenance", 0) else "amber", "target": f"{filter_flow_total:,.1f} / {filter_design_total:,.1f} m³/h flow / capacity", "href": "#t-filters"},
+            {"label": "Filter readiness", "value": f"{filter_status_counts.get('working', 0)}/{len(filter_rows)}", "unit": "working / total", "icon": "fa-filter", "tone": "green" if not filter_status_counts.get("isolated", 0) and not filter_status_counts.get("maintenance", 0) else "amber", "target": f"{filter_flow_total:,.1f} / {filter_capacity_total:,.1f} m³/h flow / capacity", "href": "#t-filters"},
             {"label": "Clarifiers due", "value": f"{clarifier_maintenance_due}", "unit": f"of {len(clarifier_rows)} assets", "icon": "fa-industry", "tone": "amber" if clarifier_maintenance_due else "blue", "target": f"{len(valves)} disludge valves · {len(valve_status_counts)} status types", "href": "#t-clarifiers"},
         ]
 
@@ -771,6 +1167,43 @@ class DashboardView(WanjalaMixin, View):
                 })
         for row in low_reservoirs[:8]:
             alerts.append({"level": "warning", "title": f"Low reservoir level · {row['name']}", "detail": f"Latest recorded level is {row['fill']:.1f}% of depth.", "target": "#reservoirs"})
+        for row in quality_rows:
+            if row["latest_within"] is False and row["latest_age_days"] is not None and row["latest_age_days"] <= 2:
+                limit_text = "configured limits"
+                if row["limit_min"] is not None and row["limit_max"] is not None:
+                    limit_text = f"{row['limit_min']:.3f}–{row['limit_max']:.3f} {row['unit']}"
+                elif row["limit_min"] is not None:
+                    limit_text = f"minimum {row['limit_min']:.3f} {row['unit']}"
+                elif row["limit_max"] is not None:
+                    limit_text = f"maximum {row['limit_max']:.3f} {row['unit']}"
+                alerts.append({
+                    "level": "critical",
+                    "title": f"Latest QC result outside limits · {row['stage']} {row['parameter']}",
+                    "detail": f"{row['latest']:.3f} {row['unit']} · allowed {limit_text} · {row['latest_reference'] or 'QC sample'}.",
+                    "target": "#water-quality-telemetry",
+                })
+            online = row["online"]
+            if online and online["within_treatment_limits"] is False:
+                limit_text = "configured stage limits"
+                if online["limit_min"] is not None and online["limit_max"] is not None:
+                    limit_text = f"{online['limit_min']:.3f}–{online['limit_max']:.3f} {row['unit']}"
+                elif online["limit_min"] is not None:
+                    limit_text = f"minimum {online['limit_min']:.3f} {row['unit']}"
+                elif online["limit_max"] is not None:
+                    limit_text = f"maximum {online['limit_max']:.3f} {row['unit']}"
+                alerts.append({
+                    "level": "critical",
+                    "title": f"Online reading outside plant limits · {row['stage']} {row['parameter']}",
+                    "detail": f"{online['value']:.3f} {row['unit']} · allowed {limit_text} · {online['instrument']} / {online['sensor']}.",
+                    "target": "#water-quality-telemetry",
+                })
+            if online and online["state_key"] != "working":
+                alerts.append({
+                    "level": "critical" if online["state_key"] == "faulty" else "warning",
+                    "title": f"Water quality probe {online['state_label'].lower()} · {row['stage']} {row['parameter']}",
+                    "detail": f"{online['value']:.3f} {row['unit']} from {online['instrument']} / {online['sensor']} · {online['measured_at']:%d %b %Y %H:%M}.",
+                    "target": "#water-quality-telemetry",
+                })
         for row in pump_rows:
             if row["status"] in ("faulty", "maintenance"):
                 alerts.append({"level": "critical" if row["status"] == "faulty" else "warning", "title": f"Pump {row['status']} · {row['name']}", "detail": row["remarks"] or f"{row['phase']} · {row['category']}.", "target": "#chemical-pumps"})
@@ -794,7 +1227,7 @@ class DashboardView(WanjalaMixin, View):
                 alerts.append({
                     "level": "warning",
                     "title": f"Filter flow exceeds design · {filter_row['name']}",
-                    "detail": f"Recorded model flow is {filter_row['flow_rate']:.1f} m³/h against {filter_row['design_capacity']:.1f} m³/h capacity.",
+                    "detail": f"Recorded model flow is {filter_row['flow_rate']:.1f} m³/h against {filter_row['capacity']:.1f} m³/h capacity.",
                     "target": "#t-filters",
                 })
         filter_interventions = [row["name"] for row in filter_rows if row["status"] in ("isolated", "maintenance")]
@@ -806,6 +1239,33 @@ class DashboardView(WanjalaMixin, View):
         overdue_clarifier_names = [row["name"] for row in clarifier_rows if row["maintenance_due"]]
         if overdue_clarifier_names:
             alerts.append({"level": "warning", "title": f"Clarifier maintenance due · {len(overdue_clarifier_names)} units", "detail": ", ".join(overdue_clarifier_names[:4]), "target": "#t-clarifiers"})
+
+        persistent_alerts = AlertState.objects.filter(
+            state__in=(AlertState.StateChoices.QUEUED, AlertState.StateChoices.SENT, AlertState.StateChoices.ESCALATED),
+            alert_config__alert_type__in=(
+                "sensor_threshold", "sensor_health", "derived_metric", "phase_anomaly",
+                "performance_deviation", "water_quality_limit", "maintenance_due",
+            ),
+        ).select_related("alert_config").order_by("-created_at")
+        if plant:
+            persistent_alerts = persistent_alerts.filter(geo_context__plant_id=str(plant.pk))
+        elif can_view_unscoped:
+            persistent_alerts = persistent_alerts.exclude(geo_context__plant_id__isnull=True)
+        else:
+            persistent_alerts = persistent_alerts.none()
+        for state in persistent_alerts[:50]:
+            level = "critical" if state.priority in ("critical", "high") else "warning"
+            state_label = state.get_state_display() if hasattr(state, "get_state_display") else state.state.replace("_", " ").title()
+            alerts.append({
+                "level": level,
+                "title": state.title or state.alert_config.get_alert_type_display(),
+                "detail": f"{state.message} · {state_label} · {state.priority.title()} priority · opened {timezone.localtime(state.created_at):%d %b %Y %H:%M}",
+                "target": "/alerts/",
+                "persistent": True,
+                "state": state.state,
+                "priority": state.priority,
+                "created_at": state.created_at,
+            })
         alerts.sort(key=lambda alert: alert["level"] != "critical")
         alerts = alerts[:12]
         if not has_plant_scope:
@@ -892,7 +1352,7 @@ class DashboardView(WanjalaMixin, View):
             "filter_train": {
                 "labels": [row["name"] for row in filter_rows],
                 "flow": [row["flow_rate"] for row in filter_rows],
-                "capacity": [row["design_capacity"] for row in filter_rows],
+                "capacity": [row["capacity"] for row in filter_rows],
             },
             "filter_status": {
                 "labels": [label for _key, label in WaterFilter.STATUS_CHOICES] + [key for key in filter_status_counts if key not in dict(WaterFilter.STATUS_CHOICES)],
@@ -931,6 +1391,10 @@ class DashboardView(WanjalaMixin, View):
                 "flow_coefficient_variation_percent": flow_coefficient_variation,
                 "qc_samples": qc_sample_total,
                 "qc_measurements": qc_measurement_total,
+                "online_sensors_mapped": online_sensor_total,
+                "online_sensors_fresh": online_sensor_fresh,
+                "online_sensor_issues": online_sensor_issues,
+                "quality_plant_required": quality_plant_required,
                 "qc_stage_compliance": quality_stage_rows,
                 "established_dosages": approved_dosages,
                 "dosing_records": total_dosing,
@@ -945,7 +1409,7 @@ class DashboardView(WanjalaMixin, View):
                 "filters_working": filter_status_counts.get("working", 0),
                 "filters_total": len(filter_rows),
                 "filter_flow_m3h": _number(filter_flow_total, 2),
-                "filter_design_capacity_m3h": _number(filter_design_total, 2),
+                "filter_capacity_m3h": _number(filter_capacity_total, 2),
                 "filter_utilization_percent": filter_overall_utilization,
                 "filters_maintenance_due": filter_maintenance_due,
                 "filter_status_counts": filter_status_counts,
@@ -969,6 +1433,8 @@ class DashboardView(WanjalaMixin, View):
             "water_quality_stages": quality_stage_rows,
             "water_quality_parameters": quality_rows,
             "water_quality_daily_trends": quality_chart,
+            "water_quality_current": quality_rows,
+            "online_sensor_readings_without_data": online_sensor_rows,
             "established_dosages": approved_dosages,
             "established_dosage_trends": {
                 "labels": chart_labels,
@@ -1010,6 +1476,11 @@ class DashboardView(WanjalaMixin, View):
             "qc_measurement_count": qc_measurement_total,
             "water_quality_stages": quality_stage_rows,
             "water_quality_rows": quality_rows,
+            "online_sensor_rows": online_sensor_rows,
+            "online_sensor_total": online_sensor_total,
+            "online_sensor_fresh": online_sensor_fresh,
+            "online_sensor_issues": online_sensor_issues,
+            "quality_plant_required": quality_plant_required,
             "water_quality_parameters": quality_parameter_options,
             "selected_quality_parameter": selected_quality_parameter,
             "water_quality_chart": quality_chart,
@@ -1057,7 +1528,7 @@ class DashboardView(WanjalaMixin, View):
             "filter_status_counts": filter_status_counts,
             "filter_status_rows": filter_status_rows,
             "filter_flow_total": _number(filter_flow_total, 2),
-            "filter_design_total": _number(filter_design_total, 2),
+            "filter_capacity_total": _number(filter_capacity_total, 2),
             "filter_overall_utilization": filter_overall_utilization,
             "filter_maintenance_due": filter_maintenance_due,
             "filter_type_rows": filter_type_rows,
@@ -1091,6 +1562,11 @@ class DashboardView(WanjalaMixin, View):
             "qc_measurement_count": qc_measurement_total,
             "water_quality_stages": quality_stage_rows,
             "water_quality_rows": quality_rows,
+            "online_sensor_rows": online_sensor_rows,
+            "online_sensor_total": online_sensor_total,
+            "online_sensor_fresh": online_sensor_fresh,
+            "online_sensor_issues": online_sensor_issues,
+            "quality_plant_required": quality_plant_required,
             "water_quality_parameters": quality_parameter_options,
             "selected_quality_parameter": selected_quality_parameter,
             "water_quality_chart": quality_chart,

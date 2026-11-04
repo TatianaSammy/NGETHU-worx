@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta, date as dt_date
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, List, Optional
@@ -18,14 +19,31 @@ from django.utils.dateparse import parse_date
 from django.views import View
 
 from core.mixins import WanjalaMixin
-from t.models import TreatmentPlant
+from t.models import TreatedWaterLimit, TreatmentPlant
 from ca.models import Chemical
 from o.models import ChemicalCategory
 from chlorinedemand.models import ChlorineDemandTest, ChlorineJarResult
 from chlorinedemand.services.reports import build_report_payload, serialize_chlorine_test
-from qc.models import RawWaterResult, WaterAnalysis, TreatedWaterResult
+from qc.models import RawWaterResult, SamplingSchedule, WaterAnalysis, TreatedWaterResult
 
 logger = logging.getLogger(__name__)
+
+_FRC_PARAMETER_NAMES = (
+    "free residual chlorine",
+    "free chlorine residual",
+    "residual free chlorine",
+    "free available chlorine",
+)
+
+
+def is_free_residual_chlorine_parameter(name: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", (name or "").casefold()).strip()
+    compact = normalized.replace(" ", "")
+    return (
+        compact == "frc"
+        or any(alias in normalized for alias in _FRC_PARAMETER_NAMES)
+        or bool(re.search(r"\bf[\W_]*r[\W_]*c\b", (name or "").casefold()))
+    )
 
 
 class ChlorineDemandDashboardView(WanjalaMixin, View):
@@ -150,7 +168,7 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
             test_date=test_date,
             defaults={
                 "analyst": user if user and user.is_authenticated else None,
-                "remarks": "Standard 30-minute breakpoint chlorination demand test.",
+                "remarks": "Standard 10-minute breakpoint chlorination demand test.",
             }
         )
 
@@ -206,26 +224,23 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
 
         try:
             # Query Raw Water parameters
+            latest_raw_analysis = (
+                WaterAnalysis.objects.filter(
+                    treatment_plant=plant,
+                    analysis_date__lte=test_date,
+                    analysis_time__schedule__water_type=SamplingSchedule.RAW,
+                    analysis_time__schedule__treatment_plant=plant,
+                    rawwaterresults__isnull=False,
+                )
+                .select_related("analysis_time", "analysis_time__schedule")
+                .order_by("-analysis_date", "-analysis_time__time", "-pk")
+                .first()
+            )
             qc_raw = list(
-                RawWaterResult.objects
-                .filter(analysis__treatment_plant=plant, analysis__analysis_date=test_date)
+                RawWaterResult.objects.filter(analysis=latest_raw_analysis)
                 .select_related("parameter__parameter", "analysis")
                 .order_by("-id")
-            )
-            if not qc_raw:
-                latest_analysis = (
-                    WaterAnalysis.objects
-                    .filter(treatment_plant=plant)
-                    .order_by("-analysis_date", "-id")
-                    .first()
-                )
-                if latest_analysis:
-                    qc_raw = list(
-                        RawWaterResult.objects
-                        .filter(analysis=latest_analysis)
-                        .select_related("parameter__parameter", "analysis")
-                        .order_by("-id")
-                    )
+            ) if latest_raw_analysis else []
 
             if qc_raw:
                 telemetry["is_live"] = True
@@ -253,8 +268,23 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
             treated_res = (
                 TreatedWaterResult.objects
                 .filter(analysis__treatment_plant=plant)
+                .filter(
+                    analysis__analysis_date__lte=test_date,
+                    analysis__analysis_time__schedule__treatment_plant=plant,
+                    analysis__analysis_time__schedule__water_type=SamplingSchedule.TREATED,
+                )
+                .filter(
+                    Q(parameter__parameter__name__icontains="free residual chlorine")
+                    | Q(parameter__parameter__name__icontains="free chlorine residual")
+                    | Q(parameter__parameter__name__icontains="residual free chlorine")
+                    | Q(parameter__parameter__name__icontains="free available chlorine")
+                    | Q(parameter__parameter__name__iexact="FRC")
+                    | Q(parameter__parameter__name__iexact="F.R.C")
+                    | Q(parameter__parameter__name__iexact="F.R.C.")
+                    | Q(parameter__parameter__name__icontains="F.R.C")
+                )
                 .select_related("parameter__parameter")
-                .order_by("-id")
+                .order_by("-analysis__analysis_date", "-analysis__analysis_time__time", "-pk")
                 .first()
             )
             if treated_res and treated_res.value is not None:
@@ -264,6 +294,38 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
             logger.debug(f"Chlorine telemetry fetch note: {e}")
 
         return telemetry
+
+    @staticmethod
+    def get_plant_frc_limits(
+        plant: Optional[TreatmentPlant],
+    ) -> Optional[tuple[Decimal, Decimal]]:
+        """Return this plant's treated-water free-chlorine lower and upper limits."""
+        if not plant:
+            return None
+
+        limits = (
+            TreatedWaterLimit.objects
+            .filter(treatment_plant=plant)
+            .exclude(min_value__isnull=True)
+            .exclude(max_value__isnull=True)
+            .select_related("parameter")
+            .only("min_value", "max_value", "parameter__name")
+        )
+        for limit in limits:
+            if not is_free_residual_chlorine_parameter(limit.parameter.name):
+                continue
+            lower = Decimal(limit.min_value)
+            upper = Decimal(limit.max_value)
+            if lower < 0 or upper < lower:
+                logger.warning(
+                    "Invalid treated-water FRC limits plant=%s min=%s max=%s",
+                    plant.pk,
+                    lower,
+                    upper,
+                )
+                return None
+            return lower, upper
+        return None
 
     # =====================================================
     # CONTEXT BUILDER
@@ -275,7 +337,12 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
         chlorine_test = self.get_or_create_chlorine_test(plant, test_date, request.user) if plant and not report_view else None
         telemetry = self.get_qc_telemetry(plant, test_date)
 
-        target_residual = Decimal("0.20")  # mg/L ideal target
+        frc_limits = self.get_plant_frc_limits(plant)
+        target_residual = (
+            (frc_limits[0] + frc_limits[1]) / Decimal("2")
+            if frc_limits is not None
+            else None
+        )
         jars = []
         chart_points = []
         optimal_jar = None
@@ -289,8 +356,11 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
                 retention_pct = (residual / dose * Decimal("100")) if dose > Decimal("0") else Decimal("0")
 
                 # Diagnostic status
-                diff = abs(residual - target_residual)
-                if diff <= Decimal("0.05") and residual > Decimal("0.05"):
+                diff = abs(residual - target_residual) if target_residual is not None else None
+                if target_residual is None:
+                    status_class = "unconfigured"
+                    status_label = "Treated F.R.C. Limit Missing"
+                elif diff <= Decimal("0.05"):
                     status_class = "optimal"
                     status_label = "Optimal Target"
                 elif residual < target_residual:
@@ -299,6 +369,12 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
                 else:
                     status_class = "over"
                     status_label = "Excess Residual"
+
+                gauge_range = max(
+                    target_residual * Decimal("2") if target_residual is not None else Decimal("0"),
+                    Decimal("0.4"),
+                )
+                gauge_pct = min(100, max(0, int((residual / gauge_range) * 100)))
 
                 jar_data = {
                     "obj": jar,
@@ -311,6 +387,8 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
                     "rank": jar.performance_rank,
                     "status_class": status_class,
                     "status_label": status_label,
+                    "target_deviation": diff,
+                    "gauge_pct": gauge_pct,
                 }
                 jars.append(jar_data)
 
@@ -333,6 +411,7 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
             "jars": jars,
             "optimal_jar": optimal_jar,
             "target_residual": target_residual,
+            "frc_limits": frc_limits,
             "chart_points": chart_points,
             "telemetry": telemetry,
             "available_plants": self.get_available_plants(request),
@@ -387,7 +466,7 @@ class ChlorineDemandDashboardView(WanjalaMixin, View):
             remarks = request.POST.get("remarks")
             if remarks is not None:
                 chlorine_test.remarks = remarks
-            if not chlorine_test.analyst_id and request.user.is_authenticated:
+            if request.user.is_authenticated:
                 chlorine_test.analyst = request.user
 
             # Update jars → ChlorineJarResult.dosage_mg_per_l / residual_chlorine

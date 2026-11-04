@@ -23,7 +23,6 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import CustomUser
 from .utils import (
-    TextToSpeechEngine,
     SafeConditionEvaluator,
     InstanceSerializer,
     AIAlertPriorityPredictor,
@@ -86,8 +85,19 @@ class AlertConfig(models.Model):
         MAINTENANCE_DUE = 'maintenance_due', 'Maintenance Due'
         VERIFICATION_PENDING = 'verification_pending', 'Verification Pending'
         PERFORMANCE_DEVIATION = 'performance_deviation', 'Performance Deviation'
+        WATER_QUALITY_LIMIT = 'water_quality_limit', 'Water Quality Treatment Limit'
+        SENSOR_THRESHOLD = 'sensor_threshold', 'Instrument Sensor Threshold'
+        SENSOR_HEALTH = 'sensor_health', 'Instrument Sensor Health'
+        DERIVED_METRIC = 'derived_metric', 'Instrument Derived Metric'
+        PHASE_ANOMALY = 'phase_anomaly', 'Treatment Phase Anomaly'
         CA_ASSIGNMENT_PENDING = 'ca_assignment_pending', 'CA analyst assignment pending'
         CA_ASSIGNMENT_ESCALATION = 'ca_assignment_escalation', 'CA analyst assignment escalation'
+        CA_QC_FAILURE = 'ca_qc_failure', 'Chemical analysis method QC failure'
+        CA_QC_DRIFT = 'ca_qc_drift', 'Chemical analysis QC drift'
+        CA_INTERLAB_DISAGREEMENT = 'ca_interlab_disagreement', 'Chemical interlaboratory disagreement'
+        CA_INTERLAB_RESULTS_READY = 'ca_interlab_results_ready', 'Chemical interlaboratory results ready'
+        CA_OOS_RESULT = 'ca_oos_result', 'Chemical analysis out-of-specification result'
+        CA_INSTRUMENT_UNAVAILABLE = 'ca_instrument_unavailable', 'Chemical laboratory instrument unavailable'
 
     class VoicePersistenceMode(models.TextChoices):
         ONCE = 'once', 'Play once'
@@ -416,29 +426,50 @@ def _run_coroutine_safely(coro):
         return asyncio.run(coro)
 
 
-def resolve_cloned_voice_profile(voice_over: Optional["VoiceOver"] = None, accent: str = "co.uk", speech_rate: float = 1.0):
-    """
-    Resolve a regional stock voice for the fallback TTS engines.
-
-    This is not voice cloning: the attached reference clip is handled by the
-    Chatterbox path below when that optional runtime is installed.
-    """
+def resolve_voice_profile(voice_over: Optional["VoiceOver"] = None, accent: str = "co.uk", speech_rate: float = 1.0):
+    """Resolve a regional TTS voice using the configured VoiceOver profile."""
     rate_percent = f"{int((speech_rate - 1.0) * 100):+d}%" if speech_rate and speech_rate != 1.0 else "+0%"
 
     if not voice_over:
-        return "en-KE-ChilembaNeural", "+0Hz", rate_percent
+        raise ValueError("A VoiceOver profile is required for alert speech.")
 
-    name_lower = (voice_over.name or "").lower()
-    slot = getattr(voice_over, "slot", None)
-    gender = getattr(voice_over, "gender", "male")
-
-    if gender == "female":
-        return "en-KE-AsiliaNeural", "+0Hz", rate_percent
-
-    if slot == 2 or "michael" in name_lower or "onyango" in name_lower:
-        return "en-TZ-ElimuNeural", "-3Hz", rate_percent
-    else:
-        return "en-KE-ChilembaNeural", "+0Hz", rate_percent
+    accent_voices = {
+        "co.uk": {
+            "female": ("en-GB-SoniaNeural", "en-GB-LibbyNeural"),
+            "male": ("en-GB-RyanNeural", "en-GB-ThomasNeural", "en-GB-AlfieNeural"),
+        },
+        "com": {
+            "female": ("en-US-AvaNeural", "en-US-EmmaNeural", "en-US-JennyNeural"),
+            "male": ("en-US-AndrewNeural", "en-US-BrianNeural", "en-US-ChristopherNeural"),
+        },
+        "com.au": {
+            "female": ("en-AU-NatashaNeural", "en-AU-FreyaNeural"),
+            "male": ("en-AU-WilliamNeural", "en-AU-DuncanNeural", "en-AU-TimNeural"),
+        },
+        "ca": {
+            "female": ("en-CA-ClaraNeural",),
+            "male": ("en-CA-LiamNeural",),
+        },
+        "co.za": {
+            "female": ("en-ZA-LeahNeural",),
+            "male": ("en-ZA-LukeNeural",),
+        },
+        "co.in": {
+            "female": ("en-IN-NeerjaNeural",),
+            "male": ("en-IN-PrabhatNeural",),
+        },
+        "ie": {
+            "female": ("en-IE-EmilyNeural",),
+            "male": ("en-IE-ConnorNeural",),
+        },
+    }
+    gender = "female" if voice_over.gender == "female" else "male"
+    profile_accent = voice_over.accent_profile or accent or "co.uk"
+    voices = accent_voices.get(profile_accent, accent_voices["co.uk"])[gender]
+    slot = max(1, int(voice_over.slot or 1))
+    neural_voice = voices[(slot - 1) % len(voices)]
+    pitch_offset = "-2Hz" if slot % 2 == 0 else "+0Hz"
+    return neural_voice, pitch_offset, rate_percent
 
 
 @contextmanager
@@ -522,20 +553,90 @@ def synthesize_alert_audio(
     accent: str = "co.uk",
     speech_rate: float = 1.0,
 ) -> tuple[bytes, bool]:
-    """
-    Synthesize speech from the selected VoiceOver reference clip when possible.
-    Regional Edge-TTS, gTTS, and pyttsx3 remain compatibility fallbacks.
-    Returns (audio_bytes, used_reference_voice).
-    """
+    """Synthesize using the selected VoiceOver profile and its local settings."""
+    if voice_over is None:
+        logger.error("[VoiceAlert] Refusing to synthesize speech without a VoiceOver profile.")
+        return b"", False
+
     # 1. Reference-conditioned voice cloning from the attached VoiceOver clip.
     cloned_audio = _synthesize_reference_voice(message, voice_over)
     if cloned_audio:
         return cloned_audio, True
 
-    # 2. Regional Edge-TTS voice (a stock voice, not a clone).
+    # 2. Local profile-matched speech works without network access.
+    try:
+        import pyttsx3
+
+        engine = pyttsx3.init()
+        available_voices = engine.getProperty("voices") or []
+        gender = (getattr(voice_over, "gender", "") or "").casefold()
+        accent_tokens = {
+            "co.uk": ("en-gb", "english_rp", "british", "en_gb"),
+            "com": ("en-us", "english-us", "american", "en_us"),
+            "com.au": ("en-au", "australian", "en_au", "en-gb"),
+            "ca": ("en-ca", "canadian", "en_ca", "en-us"),
+            "co.za": ("en-za", "south african", "en_za", "english_rp", "en-gb"),
+            "co.in": ("en-in", "indian", "en_in", "en-gb"),
+            "ie": ("en-ie", "irish", "en_ie", "en-sc", "en-gb"),
+        }
+        profile_accent = getattr(voice_over, "accent_profile", None) or accent
+        tokens = accent_tokens.get(profile_accent, ())
+        english_voices = []
+        best_voice = None
+        best_score = -1
+        for candidate in available_voices:
+            candidate_id = str(getattr(candidate, "id", ""))
+            candidate_name = str(getattr(candidate, "name", ""))
+            language_text = " ".join(
+                str(value.decode(errors="ignore") if isinstance(value, bytes) else value)
+                for value in (getattr(candidate, "languages", []) or [])
+            )
+            descriptor = f"{candidate_id} {candidate_name} {language_text}".casefold()
+            if "en" not in descriptor and "english" not in descriptor:
+                continue
+            english_voices.append(candidate)
+            score = sum(3 for token in tokens if token in descriptor)
+            candidate_gender = str(getattr(candidate, "gender", "") or "").casefold()
+            if gender and candidate_gender == gender:
+                score += 2
+            if gender and gender in descriptor:
+                score += 1
+            if score > best_score:
+                best_voice = candidate
+                best_score = score
+        if best_voice is None and english_voices:
+            best_voice = english_voices[0]
+        if best_voice is not None:
+            voice_id = str(best_voice.id)
+            if os.path.exists("/usr/bin/espeak-ng") and "+" not in voice_id:
+                slot = int(getattr(voice_over, "slot", 1) or 1)
+                variant = 2 if slot == 1 else 4
+                voice_variant = "f" if gender == "female" else "m"
+                voice_id = f"{voice_id}+{voice_variant}{variant}"
+            engine.setProperty("voice", voice_id)
+        base_rate = int(engine.getProperty("rate") or 175)
+        multiplier = float(speech_rate or getattr(voice_over, "speech_rate", 1.0) or 1.0)
+        engine.setProperty("rate", max(90, min(300, int(base_rate * multiplier))))
+
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            engine.save_to_file(message, tmp_path)
+            engine.runAndWait()
+            with open(tmp_path, "rb") as audio_file:
+                data = audio_file.read()
+            if data.startswith(b"RIFF") and data[8:12] == b"WAVE":
+                return data, False
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+    except Exception as offline_err:
+        logger.warning("[VoiceAlert] Local profile speech synthesis failed: %s", offline_err)
+
+    # 3. Network providers retain the VoiceOver profile's accent, gender, and rate.
     try:
         import edge_tts
-        neural_voice, pitch_offset, rate_offset = resolve_cloned_voice_profile(
+        neural_voice, pitch_offset, rate_offset = resolve_voice_profile(
             voice_over=voice_over,
             accent=accent,
             speech_rate=speech_rate,
@@ -548,48 +649,16 @@ def synthesize_alert_audio(
                 pitch=pitch_offset,
                 rate=rate_offset,
             )
-            out_bytes = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    out_bytes += chunk["data"]
-            return out_bytes
+            chunks = [chunk["data"] async for chunk in communicate.stream() if chunk["type"] == "audio"]
+            return b"".join(chunks)
 
         audio_bytes = _run_coroutine_safely(_synthesize_edge())
         if audio_bytes and len(audio_bytes) > 200:
             return audio_bytes, False
     except Exception as edge_err:
-        logger.warning(f"[VoiceAlert] Edge-TTS cloned synthesis failed ({edge_err}); falling back to gTTS...")
+        logger.warning("[VoiceAlert] Profile-matched Edge-TTS failed: %s", edge_err)
 
-    # 3. Google TTS (gTTS) with regional accent profile.
-    try:
-        from gtts import gTTS
-        fp = io.BytesIO()
-        tld_accent = getattr(voice_over, "accent_profile", None) or accent or "co.za"
-        tts = gTTS(text=message, lang="en", tld=tld_accent)
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        return fp.read(), False
-    except Exception as exc:
-        logger.warning(f"[VoiceAlert] gTTS synthesis failed ({exc}); falling back to offline TTS...")
-
-    # 4. Offline pyttsx3 fallback.
-    try:
-        import tempfile
-        import pyttsx3
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp_path = tmp.name
-        engine = pyttsx3.init()
-        if speech_rate and speech_rate != 1.0:
-            engine.setProperty("rate", int(200 * speech_rate))
-        engine.save_to_file(message, tmp_path)
-        engine.runAndWait()
-        with open(tmp_path, "rb") as f:
-            data = f.read()
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        return data, False
-    except Exception as fallback_err:
-        logger.error(f"[VoiceAlert] Offline TTS fallback failed: {fallback_err}")
+    logger.error("[VoiceAlert] No profile-matched synthesis provider could generate audio.")
     return b"", False
 
 
@@ -890,6 +959,10 @@ class VoiceAlert(models.Model):
         speaker = getattr(self.speaker_user, "username", "System Voice")
         return f"VoiceAlert [{speaker}]: {self.title or self.message[:40]}"
 
+    @property
+    def profile_audio_ready(self):
+        return bool(self.voice_over_id and self.audio_file)
+
     @classmethod
     def generate_persistent_voice_alert(
         cls,
@@ -905,13 +978,16 @@ class VoiceAlert(models.Model):
         fairly selecting from the two VoiceOver profiles in a 1:1 ratio.
         """
         existing = cls.objects.filter(source_key=source_key).first() if source_key else None
-        if existing and existing.audio_file:
+        if existing and existing.profile_audio_ready:
             return existing
 
         voice = forced_voice or VoiceOver.get_next_voice()
-        speaker = voice.user if voice else None
-        accent = voice.accent_profile if voice else "co.uk"
-        rate = voice.speech_rate if voice else 1.0
+        if voice is None:
+            logger.error("[VoiceAlert] No active VoiceOver profile is configured; alert audio was not generated.")
+            return None
+        speaker = voice.user
+        accent = voice.accent_profile
+        rate = voice.speech_rate
 
         # Clone the selected VoiceOver profile and synthesize the notification text using TTS
         audio_bytes, voice_cloned = synthesize_alert_audio(
@@ -933,6 +1009,7 @@ class VoiceAlert(models.Model):
 
         # Create persistent VoiceAlert
         voice_alert = existing or cls(uuid=alert_uuid, source_key=source_key)
+        previous_audio_name = voice_alert.audio_file.name if voice_alert.audio_file else ""
         voice_alert.voice_over = voice
         voice_alert.speaker_user = speaker
         voice_alert.alert_config = alert_config
@@ -954,6 +1031,12 @@ class VoiceAlert(models.Model):
                 if existing and existing.audio_file:
                     return existing
             raise
+
+        if previous_audio_name and previous_audio_name != voice_alert.audio_file.name:
+            try:
+                voice_alert.audio_file.storage.delete(previous_audio_name)
+            except Exception as storage_error:
+                logger.warning("[VoiceAlert] Could not remove replaced audio file: %s", storage_error)
 
         # Forced profiles (such as the admin test action) do not pass through
         # the round-robin reservation above.

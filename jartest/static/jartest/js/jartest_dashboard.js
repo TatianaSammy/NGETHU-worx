@@ -673,4 +673,14 @@
     document.body.addEventListener("htmx:afterSwap", () => {
         setupDashboard();
     });
+
+    document.body.addEventListener("htmx:afterRequest", (event) => {
+        const source = event.detail?.elt;
+        const form = source?.closest?.("#jar-bench-form") || source;
+        if (form?.id === "jar-bench-form" && event.detail?.successful) {
+            // Re-render the linked leaderboard, sample reference, and matrix
+            // together after a save or review action.
+            window.location.reload();
+        }
+    });
 })();

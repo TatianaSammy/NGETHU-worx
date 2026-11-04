@@ -888,10 +888,10 @@ class ChemicalBatchTaskClaimView(CaWanjalaMixin, View):
                 raise PermissionDenied("You do not have permission to claim this task.")
 
             if node_name == "approval" and not process.is_independent_approver(user):
-                raise PermissionDenied("Batch approval must be performed by someone independent of analysis and QA review.")
+                raise PermissionDenied("Legacy batch approval must be performed by someone independent of analysis and chemist review.")
 
             if node_name == "qa_review" and process.is_analysis_performer(user):
-                raise PermissionDenied("The analyst who performed this batch cannot claim its QA review.")
+                raise PermissionDenied("The analyst who performed this batch cannot claim its chemist review.")
 
             if node_name == "approve_coa":
                 if (
@@ -899,7 +899,7 @@ class ChemicalBatchTaskClaimView(CaWanjalaMixin, View):
                     or user.pk == process.qa_officer_id
                     or user.pk == process.approver_id
                 ):
-                    raise PermissionDenied("CoA approval must be independent of analysis, QA review, and batch approval.")
+                    raise PermissionDenied("CoA approval must be independent of analysis and chemist batch review.")
 
             if task.status not in {"NEW", "ASSIGNED", "STARTED"}:
                 messages.warning(request, "This task is not available to claim.")
@@ -1083,21 +1083,6 @@ class ChemicalBatchDetailView(
             elif stage_key == "quality":
                 if process and process.qa_officer:
                     actor_name = process.qa_officer.get_full_name().strip() or process.qa_officer.get_username()
-            elif stage_key == "approval":
-                if process and process.approver:
-                    actor_name = process.approver.get_full_name().strip() or process.approver.get_username()
-                elif process and batch and batch.treatment_plant_id:
-                    User = get_user_model()
-                    approvers = [
-                        u for u in User.objects.filter(is_active=True, assigned_treatment_plant=batch.treatment_plant)
-                        if process.is_independent_approver(u) and u.has_perm("ca.approve_chemical_batch")
-                    ]
-                    if approvers:
-                        actor_name = ", ".join(
-                            a.get_full_name().strip() or a.get_username() for a in approvers
-                        )
-                if not actor_name and process and process.assigned_analyst:
-                    actor_name = process.assigned_analyst.get_full_name().strip() or process.assigned_analyst.get_username()
             elif stage_key == "certificate":
                 coa = getattr(batch, "coa", None) if batch else None
                 if coa and coa.approved_by:
@@ -1117,10 +1102,10 @@ class ChemicalBatchDetailView(
 
         if actor_name:
             if stage_key == "quality":
-                return f"Waiting for the independent QA reviewer ({actor_name})"
+                return f"Waiting for the independent chemist reviewer ({actor_name})"
             return f"Waiting for the authorized Analyst ({actor_name})"
         if stage_key == "quality":
-            return "Waiting for an independent QA reviewer"
+            return "Waiting for an independent chemist reviewer"
         return "Waiting for the authorized Analyst"
 
     def _workflow_stage_context(self, batch, process, analysis_request, checklist, coa):
@@ -1154,18 +1139,11 @@ class ChemicalBatchDetailView(
                 ChemicalAnalysisProcess.WorkflowStatus.RETURNED,
                 ChemicalAnalysisProcess.WorkflowStatus.COMPLETED,
             },
-            "approval": status in {
-                ChemicalAnalysisProcess.WorkflowStatus.APPROVED,
-                ChemicalAnalysisProcess.WorkflowStatus.UTILIZED,
-                ChemicalAnalysisProcess.WorkflowStatus.RETURNED,
-                ChemicalAnalysisProcess.WorkflowStatus.COMPLETED,
-            },
             "certificate": bool(coa and coa.is_approved),
             "disposition": terminal,
             "complete": terminal or bool(process and process.completed_at),
         }
         skipped = {
-            "approval": rejected,
             "certificate": rejected,
         }
         stage_indexes = {stage["key"]: index for index, stage in enumerate(WORKFLOW_STAGES)}
@@ -1199,9 +1177,7 @@ class ChemicalBatchDetailView(
                 progress = process.analysis_progress if process else 0
                 summary = f"{progress:g}% of required analytical parameters recorded." if process else "Analysis process has not been created."
             elif key == "quality":
-                summary = "Quality review and any required corrective work are complete." if completed[key] else "Results are routed to QA, retest or corrective action as required."
-            elif key == "approval":
-                summary = "Batch approval is recorded." if completed[key] else ("Approval is skipped for this rejected batch." if is_skipped else "An independent approver reviews the completed QA decision.")
+                summary = "Chemist review and any required corrective work are complete." if completed[key] else "Results are routed to chemist review, retest or corrective action as required."
             elif key == "certificate":
                 summary = "Certificate generated and approved." if completed[key] else ("Certificate is not required for a rejected batch." if is_skipped else "Generate and approve the Certificate of Analysis.")
             elif key == "disposition":
@@ -1285,6 +1261,18 @@ class ChemicalBatchDetailView(
             {
                 "process": process,
                 "analysis_request": analysis_request,
+                "analyst_assignment_url": (
+                    reverse("ca:request-assign-analyst", kwargs={"pk": analysis_request.pk})
+                    if (
+                        analysis_request
+                        and analysis_request.status in {
+                            ChemicalAnalysisRequest.Status.PENDING,
+                            ChemicalAnalysisRequest.Status.IN_PROGRESS,
+                        }
+                        and (user.is_superuser or user.has_perm("ca.create_analysis_request"))
+                    )
+                    else ""
+                ),
                 "checklist": checklist,
                 "results": results,
                 "test_results": results,
@@ -1704,6 +1692,44 @@ class ChemicalBatchCreateView(
         )
 
 
+class ChemicalBatchDeleteView(CaWanjalaMixin, TemplateView):
+    """Confirm and audit a superuser hard-delete of a chemical batch."""
+
+    template_name = "ca/chema/batch_delete_confirm.html"
+    permission_required_view = "ca.view_chemicalbatch"
+
+    def _require_superuser(self):
+        if not self.is_ca_superuser():
+            raise PermissionDenied("Only a superuser can delete chemical batches.")
+
+    def _get_batch(self):
+        return _get_batch_or_404(
+            self.request.user,
+            self.kwargs["pk"],
+            plant_id=self.get_scope_plant_id(),
+        )
+
+    def get(self, request, *args, **kwargs):
+        self._require_superuser()
+        self.object = self._get_batch()
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["batch"] = getattr(self, "object", None) or self._get_batch()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self._require_superuser()
+        batch = self._get_batch()
+        batch_label = batch.sample_id or batch.batch_number
+        from .services.superuser_deletion import delete_ca_objects
+
+        delete_ca_objects([batch], actor=request.user)
+        messages.success(request, f"Chemical batch {batch_label} and its dependent records were permanently deleted.")
+        return redirect("ca:batch-list")
+
+
 class ChemicalBatchUpdateView(
     CaWanjalaMixin,
     UpdateView,
@@ -1792,17 +1818,13 @@ class ChemicalAnalysisRequestListView(
             )
 
         elif assignment == "overdue":
-            deadline_field = getattr(
-                ChemicalAnalysisRequest,
-                "assignment_deadline",
-                None,
+            queryset = queryset.filter(
+                status__in=(
+                    ChemicalAnalysisRequest.Status.PENDING,
+                    ChemicalAnalysisRequest.Status.IN_PROGRESS,
+                ),
+                assigned_analysts__isnull=True,
             )
-
-            if deadline_field is not None:
-                queryset = queryset.filter(
-                    assignment_deadline__lt=timezone.now(),
-                    assigned_analysts__isnull=True,
-                )
 
         query = self.request.GET.get("q")
 
@@ -1968,6 +1990,21 @@ class ChemicalAnalysisRequestAssignAnalystView(CaWanjalaMixin, FormView):
                 .filter(analysis_request=analysis_request)
                 .first()
             )
+            selected_analyst_ids = {user.pk for user in analysts}
+            if (
+                process
+                and process.status in {
+                    ChemicalAnalysisProcess.WorkflowStatus.RECEIVED,
+                    ChemicalAnalysisProcess.WorkflowStatus.REQUESTED,
+                    ChemicalAnalysisProcess.WorkflowStatus.ASSIGNED,
+                    ChemicalAnalysisProcess.WorkflowStatus.CHECKLIST,
+                    ChemicalAnalysisProcess.WorkflowStatus.ANALYSIS,
+                    ChemicalAnalysisProcess.WorkflowStatus.RETEST,
+                }
+                and process.assigned_analyst_id not in selected_analyst_ids
+            ):
+                process.assigned_analyst = next(iter(analysts), None)
+                process.save(update_fields=["assigned_analyst", "updated_at"])
             if (
                 process is None
                 and analysis_request.batch_id
@@ -2005,11 +2042,12 @@ class ChemicalAnalysisRequestAssignAnalystView(CaWanjalaMixin, FormView):
                 "The assignment could not be saved. Your selections are still here; please try again or contact an administrator if the problem continues.",
             )
             return self.form_invalid(form)
-        messages.success(self.request, "Analyst assignment saved successfully.")
+        messages.success(self.request, "Analyst assignment or reassignment saved successfully.")
         if analysis_request.batch_id:
+            stage = next_stage_key(process) if process else "assignment"
             success_url = (
                 f"{reverse('ca:batch-detail', kwargs={'pk': analysis_request.batch_id})}"
-                "?stage=checklist"
+                f"?stage={stage}"
             )
         else:
             success_url = (
@@ -2172,12 +2210,12 @@ class ProcessDetailView(
                 "ca:pending-analysis",
             ),
             ChemicalAnalysisProcess.WorkflowStatus.RETEST: (
-                "Record the requested retest result and method inputs, then submit the retest for QA review.",
+                "Record the requested retest result and method inputs, then submit the retest for chemist review.",
                 "Open workflow tasks to continue the retest.",
                 "ca:pending-analysis",
             ),
             ChemicalAnalysisProcess.WorkflowStatus.QA: (
-                "Review the completed results and choose approval, retest, CAPA, or rejection with the required rationale.",
+                "Review the completed results and accept, request a retest, require CAPA, or reject with the required rationale.",
                 "Open workflow tasks to review this analysis.",
                 "ca:pending-qa",
             ),
@@ -2769,6 +2807,12 @@ class ResultDetailView(
                 test_result=self.object
             )
             .first()
+        )
+        batch = self.object.batch
+        context["process"] = (
+            getattr(batch, "analysis_process", None)
+            if batch is not None
+            else None
         )
 
         return context
@@ -3742,9 +3786,9 @@ class MyChemicalTasksView(
                 stage_key = "analysis"
                 if node.name in {"receive", "create_request", "checklist", "complete_checklist"}:
                     stage_key = "intake"
-                elif node.name in {"qa_review", "capa", "retest", "retest_result", "retest_input", "complete_retest"}:
+                elif node.name in {"qa_review", "capa", "retest", "retest_result", "retest_input", "complete_retest", "quality_control_gate", "record_method_qc"}:
                     stage_key = "quality"
-                elif node.name in {"approval", "reject", "generate_coa", "approve_coa", "batch_disposition", "utilize", "return_to_supplier", "return_rejected"}:
+                elif node.name in {"approval", "reject", "generate_coa", "refer_kebs", "approve_coa", "batch_disposition", "utilize", "return_to_supplier", "return_rejected"}:
                     stage_key = "release"
                 batch = process.batch if process.batch_id else None
                 task_rows.append({
@@ -3846,43 +3890,6 @@ class PendingAnalysisView(
                 "analysis_request__analysis_deadline",
                 "pk",
             )
-        )
-
-
-class PendingApprovalView(
-    CaWanjalaMixin,
-    ListView,
-):
-    model = ChemicalAnalysisProcess
-    template_name = "ca/chema/pending_approval.html"
-    context_object_name = "processes"
-    permission_required_view = CHEMICAL_PERMISSIONS[
-        "approve_batch"
-    ]
-    paginate_by = 50
-
-    def get_queryset(self):
-        user = self.request.user
-
-        queryset = (
-            _process_display_queryset(user, plant_id=self.get_scope_plant_id())
-            .filter(
-                status="QA",
-                qa_reviewed_at__isnull=False,
-            )
-            .filter(
-                Q(
-                    approver=user
-                )
-                | Q(
-                    approver__isnull=True
-                )
-            )
-        )
-
-        return queryset.distinct().order_by(
-            "qa_reviewed_at",
-            "pk",
         )
 
 

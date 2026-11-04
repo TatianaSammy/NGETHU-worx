@@ -28,10 +28,10 @@
             </div>
             <span class="my-work-metric__accent">01</span>
         </article>
-        <article class="my-work-metric my-work-metric--quality" role="button" tabindex="0" data-filter-trigger="quality" title="Filter by Quality review tasks">
+        <article class="my-work-metric my-work-metric--quality" role="button" tabindex="0" data-filter-trigger="quality" title="Filter by chemist review tasks">
             <span class="my-work-metric__icon"><i class="fa fa-shield-halved"></i></span>
             <div>
-                <span class="my-work-metric__label">QA Review</span>
+                <span class="my-work-metric__label">Chemist Review</span>
                 <strong>{{ pending_qa }}</strong>
                 <small>review &amp; retest</small>
             </div>
@@ -74,7 +74,7 @@
                     <option value="all">All stages</option>
                     <option value="intake">Intake</option>
                     <option value="analysis">Analysis</option>
-                    <option value="quality">QA review</option>
+                    <option value="quality">Chemist review</option>
                     <option value="release">Release</option>
                     <option value="attention">Needs attention</option>
                 </select>
@@ -239,7 +239,7 @@
                 if (b) {
                     const labelMap = {
                         analysis: 'Analysis',
-                        quality: 'QA Review',
+                        quality: 'Chemist Review',
                         release: 'Release',
                         attention: 'Needs Attention',
                         intake: 'Intake'

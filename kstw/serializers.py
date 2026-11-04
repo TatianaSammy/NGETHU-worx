@@ -47,6 +47,9 @@ class ShiftAssignmentSerializer(serializers.ModelSerializer):
         fields = ['id', 'user', 'shift']
 
 class WWQParameterSerializer(serializers.ModelSerializer):
+    nema_min_std = serializers.DecimalField(source='min_standard', max_digits=8, decimal_places=3, read_only=True)
+    nema_max_std = serializers.DecimalField(source='max_standard', max_digits=8, decimal_places=3, read_only=True)
+
     class Meta:
         model = WWQParameter_qad
         fields = ['id', 'name', 'unit', 'nema_min_std', 'nema_max_std']

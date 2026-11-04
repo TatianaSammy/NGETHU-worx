@@ -32,6 +32,8 @@ TreatmentPlant = get_model("TreatmentPlant")
 TreatmentPlantPhase = get_model("TreatmentPlantPhase")
 FilterType = get_model("FilterType")
 WaterFilter = get_model("WaterFilter")
+FilterStatus = get_model("FilterStatus")
+FilterStatusEvent = get_model("FilterStatusEvent")
 Status = get_model("Status")
 Clarifier = get_model("Clarifier")
 DisludgeValve = get_model("DisludgeValve")
@@ -53,6 +55,8 @@ ICONS = {
     "TreatmentPlantPhase": "layer-group",
     "FilterType": "sliders",
     "WaterFilter": "filter-circle-xmark",
+    "FilterStatus": "gauge-high",
+    "FilterStatusEvent": "clock-rotate-left",
     "Status": "traffic-light",
     "Clarifier": "arrows-spin",
     "DisludgeValve": "faucet-drip",
@@ -76,6 +80,8 @@ GROUPS = {
 
     "FilterType": "filters",
     "WaterFilter": "filters",
+    "FilterStatus": "filters",
+    "FilterStatusEvent": "filters",
 
     "Status": "system",
 
@@ -137,6 +143,7 @@ def filter_qs(model) -> QuerySet:
         "filter_type",
         "treatment_plant",
         "phase",
+        "filter_status",
     )
 
 
@@ -277,7 +284,7 @@ safe_register(
         "location",
     ],
     filter_fields=[
-        "status",
+        "filter_status__status",
         "filter_type",
         "treatment_plant",
     ],
@@ -286,13 +293,14 @@ safe_register(
         "filter_type",
         "treatment_plant",
         "phase",
+        "filter_status",
     ],
     queryset_factory=filter_qs,
     inline_edit_fields=[
         "name",
-        "status",
+        "capacity",
         "flow_rate",
-        "last_maintenance_date",
+        "location",
         "treatment_plant",
         "phase",
     ],
@@ -300,6 +308,23 @@ safe_register(
         "backwash": True,
         "mark_maintenance": True,
     },
+)
+
+safe_register(
+    FilterStatus,
+    search_fields=["water_filter__name", "water_filter__location", "status_note"],
+    filter_fields=["status", "water_filter__treatment_plant", "maintenance_interval_days"],
+    ordering=["water_filter__name"],
+    select_related=["water_filter", "water_filter__treatment_plant", "water_filter__phase"],
+    inline_edit_fields=[
+        "installation_date",
+        "last_maintenance_date",
+        "next_maintenance_date",
+        "maintenance_interval_days",
+        "status",
+        "condition_percent",
+        "status_note",
+    ],
 )
 
 safe_register(

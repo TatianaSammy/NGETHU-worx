@@ -13,10 +13,10 @@
     <script src="{% static 'core/js/theme.js' %}?v=20261020-enterprise-theme"></script>
     <script>document.documentElement.classList.remove('fullscreen-app');</script>
 
-    <!-- FontAwesome -->
+
     <link rel="stylesheet" href="{% static 'css/font_awesome/all.min.css' %}">
 
-    <!-- Favicon -->
+
     {% if company.logo %}
     <link rel="apple-touch-icon" href="{{ company.logo.url }}">
     <link rel="icon" href="{{ company.logo.url }}">
@@ -29,34 +29,38 @@
     {% endif %}
 
     <link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261020-enterprise-theme">
-    <!-- Login-specific layout, using the shared theme tokens. -->
-    <link rel="stylesheet" href="{% static 'accounts/css/login.css' %}?v=20261025-standard-login">
+
+    <link rel="stylesheet" href="{% static 'accounts/css/login.css' %}?v=20261030-auth-feedback-v3">
 </head>
 <body>
 
-<!-- =============================
-     Floating error container
-     ============================= -->
-<div id="errorMessage" class="error-message" aria-live="assertive">
-    {% if error %}{{ error }}{% endif %}
-</div>
 
-<!-- =============================
-     Login Wrapper for animations / gradient
-     ============================= -->
 <div id="loginWrapper" class="login-wrapper">
 
-    <!-- =============================
-         Login Card
-         ============================= -->
+
     <div class="login-container">
 
-        <!-- Company Branding / Logo -->
+
         <div id="companyBrandingWrapper" data-logo="{% if company.logo %}{{ company.logo.url }}{% else %}{% static 'accounts/images/ncwsc_logo.png' %}{% endif %}">
             {% include 'accounts/components/company_branding.html' %}
         </div>
 
-        <!-- Standard Login Form — username + password visible together -->
+        <div id="errorMessage"
+             class="error-message{% if error %} is-{{ feedback_level|default:'error' }}{% endif %}"
+             role="{% if error and feedback_level == 'info' %}status{% else %}alert{% endif %}"
+             aria-live="{% if error and feedback_level == 'info' %}polite{% else %}assertive{% endif %}"
+             aria-atomic="true"
+             {% if not error %}hidden{% endif %}>
+            <i id="feedbackIcon"
+               class="fas {% if feedback_level == 'warning' %}fa-triangle-exclamation{% elif feedback_level == 'info' %}fa-circle-info{% else %}fa-circle-exclamation{% endif %} feedback-icon"
+               aria-hidden="true"></i>
+            <span id="feedbackText">{% if error %}{{ error }}{% endif %}</span>
+            <button type="button" id="dismissFeedback" class="feedback-dismiss" aria-label="Dismiss message">
+                <i class="fas fa-xmark" aria-hidden="true"></i>
+            </button>
+        </div>
+
+
         <form id="loginForm"
               method="post"
               action="{% url 'accounts:login' %}"
@@ -65,7 +69,7 @@
 
             {% csrf_token %}
 
-            <!-- Username Input -->
+
             <div class="form-group" id="usernameGroup">
                 <i class="fas fa-user left-icon" aria-hidden="true"></i>
                 <input type="text"
@@ -74,10 +78,13 @@
                        placeholder="Username"
                        autocomplete="off"
                        spellcheck="false"
+                       autocapitalize="characters"
+                       data-1p-ignore="true"
+                       data-lpignore="true"
                        aria-label="Username">
             </div>
 
-            <!-- Password Input -->
+
             <div class="form-group password-container" id="passwordGroup">
                 <i class="fas fa-lock left-icon" aria-hidden="true"></i>
 
@@ -86,52 +93,48 @@
                        name="password"
                        placeholder="Password"
                        autocomplete="off"
+                       data-1p-ignore="true"
+                       data-lpignore="true"
                        aria-label="Password">
 
-                <i class="fas fa-eye toggle-password"
-                   id="togglePassword"
-                   aria-label="Toggle password visibility"
-                   role="button"
-                   tabindex="0"></i>
+                <button type="button"
+                        class="toggle-password"
+                        id="togglePassword"
+                        aria-label="Show password"
+                        aria-pressed="false">
+                    <i class="fas fa-eye" aria-hidden="true"></i>
+                </button>
             </div>
+            <p id="passwordCapsWarning" class="auth-hint caps-warning" hidden>
+                <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+                Caps Lock is on.
+            </p>
 
             <button type="submit"
-                    id="loginBtn"
-                    class="ripple">
+                    id="loginBtn">
                 Login
             </button>
         </form>
 
-        <!-- Forgot Password (AJAX trigger) -->
+
         <div class="forgot-password" id="forgotDiv">
             <a href="#" id="forgotPasswordLink"
                data-url="{% url 'accounts:reset_password_request' %}">
                 Forgot your password?
             </a>
         </div>
-        <!-- Reset email status message -->
-        <div id="resetMessage" class="reset-status" style="display:none;"></div>
+
+        <div id="resetMessage" class="reset-status" hidden></div>
+        <div class="login-network-status" aria-live="polite" role="status" hidden>
+            <span id="networkIndicator" class="network-indicator" aria-hidden="true"></span>
+            <span id="networkStatus"></span>
+        </div>
 
     </div>
 </div>
 
-<!-- =============================
-     Login JS
-     ============================= -->
-<script src="{% static 'accounts/js/login.js' %}?v=20261027-clear-login"></script>
 
-{% if error %}
-<script>
-    // Show server-side error on load
-    document.addEventListener('DOMContentLoaded', () => {
-        const err = document.getElementById('errorMessage');
-        if (err && err.textContent.trim()) {
-            err.classList.add('show');
-            setTimeout(() => err.classList.remove('show'), 4000);
-        }
-    });
-</script>
-{% endif %}
+<script src="{% static 'accounts/js/login.js' %}?v=20261030-auth-feedback-v3"></script>
 
 <script src="{% static 'core/js/pwa.js' %}?v=20261027-no-auto-logout" defer></script>
 </body>

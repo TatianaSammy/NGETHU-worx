@@ -1,10 +1,13 @@
 from django.urls import path
 from .ViewDashboard import DashboardView
+from .dashboard_actions import task_assignment_action, task_assignment_options
 from core.views import (NAMUBUYA,fields_schema,registry_router,)
 
 app_name = "weeklytasks"
 
 urlpatterns = [
+    path("assignment-options/", task_assignment_options, name="assignment-options"),
+    path("assignment-action/", task_assignment_action, name="assignment-action"),
     # ---------------- Dashboard ----------------
     path("", DashboardView.as_view(), name="dashboard"),
     path( "<str:model>/<str:action>/", NAMUBUYA.as_view(),name="registry-list",),

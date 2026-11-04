@@ -53,10 +53,6 @@
                         <a href="{% url 'ca:batch-detail' result.batch.pk %}">
                             {{ result.batch }}
                         </a>
-                    {% elif result.process.batch %}
-                        <a href="{% url 'ca:batch-detail' result.process.batch.pk %}">
-                            {{ result.process.batch }}
-                        </a>
                     {% else %}
                         —
                     {% endif %}
@@ -66,7 +62,7 @@
             <div class="detail-item">
                 <span class="detail-label">Sample ID</span>
                 <span class="detail-value">
-                    {{ result.batch.sample_id|default:result.process.sample_id|default:result.sample_id|default:"—" }}
+                    {{ result.batch.sample_id|default:"—" }}
                 </span>
             </div>
 
@@ -93,7 +89,7 @@
             <div class="detail-item">
                 <span class="detail-label">Unit</span>
                 <span class="detail-value">
-                    {{ result.parameter.unit|default:result.unit|default:"—" }}
+                    {{ result.parameter.unit|default:"—" }}
                 </span>
             </div>
 
@@ -135,23 +131,52 @@
             </div>
 
             <div class="detail-item">
+                <span class="detail-label">Inventory Equipment</span>
+                <span class="detail-value">
+                    {% if result.instrument_snapshot.name %}
+                        {{ result.instrument_snapshot.name }} · {{ result.instrument_snapshot.serial_number|default:"No serial" }}
+                    {% elif result.instrument %}
+                        {{ result.instrument }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="detail-item">
+                <span class="detail-label">Calibration / Maintenance</span>
+                <span class="detail-value">
+                    {% if result.instrument_snapshot.calibration_status %}
+                        Calibration {{ result.instrument_snapshot.calibration_status }} · due {{ result.instrument_snapshot.calibration_due_date|default:"not recorded" }}
+                    {% elif result.instrument_snapshot.calibration_valid_until %}
+                        Calibration valid until {{ result.instrument_snapshot.calibration_valid_until }}
+                    {% else %}
+                        Calibration not recorded
+                    {% endif %}
+                    {% if result.instrument_snapshot.maintenance_status == "DUE" or result.instrument_snapshot.maintenance_status == "OVERDUE" %}
+                        · Maintenance {{ result.instrument_snapshot.maintenance_status }}
+                    {% endif %}
+                </span>
+            </div>
+
+            <div class="detail-item">
                 <span class="detail-label">Chemical</span>
                 <span class="detail-value">
-                    {{ result.batch.chemical|default:result.chemical|default:"—" }}
+                    {{ result.batch.chemical|default:"—" }}
                 </span>
             </div>
 
             <div class="detail-item">
                 <span class="detail-label">Supplier</span>
                 <span class="detail-value">
-                    {{ result.batch.supplier|default:result.supplier|default:"—" }}
+                    {{ result.batch.supplier|default:"—" }}
                 </span>
             </div>
 
             <div class="detail-item">
                 <span class="detail-label">Remarks</span>
                 <span class="detail-value">
-                    {{ result.remarks|default:"—" }}
+                    {{ result.auto_remark|default:"—" }}
                 </span>
             </div>
         </div>
@@ -186,14 +211,14 @@
             <div class="detail-item">
                 <span class="detail-label">Minimum</span>
                 <span class="detail-value">
-                    {{ result.parameter.minimum|default:result.parameter.min_value|default:"—" }}
+                    {{ result.parameter.min_limit|default:"—" }}
                 </span>
             </div>
 
             <div class="detail-item">
                 <span class="detail-label">Maximum</span>
                 <span class="detail-value">
-                    {{ result.parameter.maximum|default:result.parameter.max_value|default:"—" }}
+                    {{ result.parameter.max_limit|default:"—" }}
                 </span>
             </div>
         </div>
@@ -201,7 +226,7 @@
 </div>
 {% endif %}
 
-{% if result.input %}
+{% if analysis_input %}
 <div class="card">
     <div class="card-header">
         <div>
@@ -215,29 +240,29 @@
             <div class="detail-item">
                 <span class="detail-label">Calculated Value</span>
                 <span class="detail-value">
-                    {{ result.input.calculated_value|default:"—" }}
+                    {{ analysis_input.calculated_value|default:"—" }}
                 </span>
             </div>
 
             <div class="detail-item">
                 <span class="detail-label">Inputs</span>
                 <span class="detail-value">
-                    {{ result.input.inputs|default:"—" }}
+                    {{ analysis_input.inputs|default:"—" }}
                 </span>
             </div>
         </div>
 
-        {% if result.input.pk %}
+        {% if analysis_input.pk %}
         <div class="page-actions">
             <a
-                href="{% url 'ca:analysis-input-detail' result.input.pk %}"
+                href="{% url 'ca:analysis-input-detail' analysis_input.pk %}"
                 class="btn btn-secondary"
             >
                 View Input
             </a>
 
             <a
-                href="{% url 'ca:analysis-input-recalculate' result.input.pk %}"
+                href="{% url 'ca:analysis-input-recalculate' analysis_input.pk %}"
                 class="btn btn-primary"
             >
                 Recalculate
@@ -249,9 +274,9 @@
 {% endif %}
 
 <div class="page-actions">
-    {% if result.process %}
+    {% if process %}
         <a
-            href="{% url 'ca:process-detail' result.process.pk %}"
+            href="{% url 'ca:process-detail' process.pk %}"
             class="btn btn-secondary"
         >
             View Process

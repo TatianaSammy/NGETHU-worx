@@ -1,0 +1,68 @@
+<div class="domain-dashboard" data-domain-dashboard>
+    <header class="domain-dashboard__hero">
+        <div>
+            <span class="domain-dashboard__eyebrow"><i class="fa-solid fa-wave-square"></i> {{ dashboard_kicker|default:"Operational intelligence" }}</span>
+            <h1>{{ dashboard_title }}</h1>
+            <p>{{ dashboard_subtitle }}</p>
+            <div class="domain-dashboard__meta">
+                <span><i class="fa-solid fa-clock"></i> {{ period_days }} day window</span>
+                <span><i class="fa-solid fa-database"></i> Live records from {{ model_count }} models</span>
+                {% if selected_plant %}<span><i class="fa-solid fa-location-dot"></i> {{ selected_plant.name }}</span>{% endif %}
+            </div>
+        </div>
+        <div class="domain-dashboard__hero-actions">
+            {% for action in dashboard_actions %}<a href="{{ action.url }}" class="domain-action"><i class="fa-solid fa-{{ action.icon }}"></i><span>{{ action.label }}</span></a>{% endfor %}
+            <button type="button" class="domain-action domain-action--refresh" data-dashboard-refresh aria-label="Refresh dashboard"><i class="fa-solid fa-arrows-rotate"></i></button>
+        </div>
+    </header>
+
+    <form method="get" class="domain-dashboard__filters">
+        <label><span>Analysis window</span><select name="days" data-dashboard-filter>{% for option in period_options %}<option value="{{ option }}" {% if option == period_days %}selected{% endif %}>Last {{ option }} days</option>{% endfor %}</select></label>
+        {% if show_plant_selector %}<label><span>Treatment plant</span><select name="plant" data-dashboard-filter><option value="all" {% if not selected_plant %}selected{% endif %}>All plants</option>{% for plant in plant_options %}<option value="{{ plant.pk }}" {% if selected_plant.pk == plant.pk %}selected{% endif %}>{{ plant.name }}</option>{% endfor %}</select></label>{% endif %}
+        <input type="hidden" name="tab" value="{{ active_tab }}" data-dashboard-active-tab>
+        <button type="submit" class="domain-action domain-action--apply"><i class="fa-solid fa-sliders"></i> Apply</button>
+    </form>
+
+    <section class="domain-dashboard__kpis" aria-label="Operational key performance indicators">
+        {% for metric in kpis %}<button type="button" class="domain-kpi domain-kpi--{{ metric.color|default:'cyan' }}" data-dashboard-open="{{ metric.tab|default:'overview' }}">
+            <span class="domain-kpi__icon"><i class="fa-solid fa-{{ metric.icon|default:'chart-line' }}"></i></span>
+            <span class="domain-kpi__label">{{ metric.label }}</span><strong>{{ metric.value }}</strong><small>{{ metric.detail }}</small>
+            <span class="domain-kpi__spark" aria-hidden="true">{% for value in metric.sparkline %}<i style="height:{{ value }}%"></i>{% endfor %}</span>
+        </button>{% endfor %}
+    </section>
+
+    <nav class="domain-dashboard__tabs" role="tablist" aria-label="Dashboard sections">
+        {% for tab in dashboard_tabs %}<button type="button" role="tab" data-domain-tab="{{ tab.id }}" aria-selected="{% if tab.id == active_tab %}true{% else %}false{% endif %}"><i class="fa-solid fa-{{ tab.icon }}"></i>{{ tab.label }}{% if tab.count != None %}<span>{{ tab.count }}</span>{% endif %}</button>{% endfor %}
+    </nav>
+
+    <section class="domain-dashboard__panel" data-domain-panel="overview" {% if active_tab != "overview" %}hidden{% endif %}>
+        <div class="domain-dashboard__section-head"><div><span class="domain-dashboard__eyebrow">LIVE OPERATIONS</span><h2>System overview</h2><p>{{ overview_caption }}</p></div><span class="domain-live"><i></i> DATA-SYNCED</span></div>
+        <div class="domain-dashboard__chart-grid">
+            {% for chart in dashboard_charts %}{% if forloop.counter <= 2 %}<article class="domain-panel domain-panel--chart"><header><div><h3>{{ chart.title }}</h3><p>{{ chart.caption }}</p></div><span>{{ chart.badge|default:"PERIOD" }}</span></header><div class="domain-chart"><canvas id="{{ chart.id }}"></canvas></div></article>{% endif %}{% endfor %}
+        </div>
+        <div class="domain-dashboard__lower-grid">
+            <article class="domain-panel"><header><div><h3>Operational signals</h3><p>Key states calculated from saved records.</p></div></header><div class="domain-signal-grid">{% for signal in status_signals %}<div class="domain-signal domain-signal--{{ signal.color|default:'cyan' }}"><span><i class="fa-solid fa-{{ signal.icon|default:'circle-dot' }}"></i> {{ signal.label }}</span><strong>{{ signal.value }}</strong><small>{{ signal.detail }}</small></div>{% empty %}<div class="domain-empty">No status metrics are available for this period.</div>{% endfor %}</div></article>
+            <article class="domain-panel"><header><div><h3>Recent activity</h3><p>Newest changes in this workspace.</p></div><span class="domain-count">{{ recent_records|length }} records</span></header><div class="domain-activity">{% for row in recent_records|slice:":6" %}<div class="domain-activity__row"><span class="domain-activity__icon domain-activity__icon--{{ row.color|default:'cyan' }}"><i class="fa-solid fa-{{ row.icon|default:'circle-nodes' }}"></i></span><div><strong>{{ row.title }}</strong><small>{{ row.detail }}</small></div><time>{{ row.timestamp }}</time></div>{% empty %}<div class="domain-empty">No recent records in the selected window.</div>{% endfor %}</div></article>
+        </div>
+    </section>
+
+    <section class="domain-dashboard__panel" data-domain-panel="analytics" {% if active_tab != "analytics" %}hidden{% endif %}>
+        <div class="domain-dashboard__section-head"><div><span class="domain-dashboard__eyebrow">PERFORMANCE ANALYTICS</span><h2>Trends and distribution</h2><p>Values are aggregated from the app’s stored operational records.</p></div></div>
+        <div class="domain-dashboard__chart-grid">{% for chart in dashboard_charts %}{% if forloop.counter > 2 %}<article class="domain-panel domain-panel--chart"><header><div><h3>{{ chart.title }}</h3><p>{{ chart.caption }}</p></div><span>{{ chart.badge|default:"ANALYTICS" }}</span></header><div class="domain-chart"><canvas id="{{ chart.id }}"></canvas></div></article>{% endif %}{% endfor %}</div>
+        <div class="domain-dashboard__lower-grid">
+            <article class="domain-panel"><header><div><h3>Performance matrix</h3><p>Priority ranking from actual counts, coverage, or quality metrics.</p></div></header><div class="domain-ranking">{% for row in ranked_rows %}<div class="domain-ranking__row"><div><strong>{{ row.label }}</strong><small>{{ row.detail }}</small></div><span class="domain-ranking__track"><i class="domain-ranking__fill domain-ranking__fill--{{ row.color|default:'cyan' }}" style="width:{{ row.percent|default:0 }}%"></i></span><b>{{ row.value }}</b></div>{% empty %}<div class="domain-empty">No ranking data available.</div>{% endfor %}</div></article>
+            <article class="domain-panel"><header><div><h3>Model coverage</h3><p>Live record volume for domain models.</p></div></header><div class="domain-model-list">{% for model in model_rows %}<a href="{{ model.url|default:'#' }}"><span class="domain-model-list__icon"><i class="fa-solid fa-{{ model.icon|default:'database' }}"></i></span><span><strong>{{ model.label }}</strong><small>{{ model.group|default:"Operational records" }}</small></span><b>{{ model.count }}</b></a>{% empty %}<div class="domain-empty">No model coverage data available.</div>{% endfor %}</div></article>
+        </div>
+    </section>
+
+    <section class="domain-dashboard__panel" data-domain-panel="records" {% if active_tab != "records" %}hidden{% endif %}>
+        <div class="domain-dashboard__section-head"><div><span class="domain-dashboard__eyebrow">RECORD EXPLORER</span><h2>Recent records</h2><p>Use the app navigation for full records, filters, and exports.</p></div></div>
+        <article class="domain-panel"><div class="domain-table-wrap"><table class="domain-table"><thead><tr>{% for heading in table_headings %}<th>{{ heading }}</th>{% endfor %}</tr></thead><tbody>{% for row in table_rows %}<tr>{% for cell in row.cells %}<td>{{ cell }}</td>{% endfor %}</tr>{% empty %}<tr><td colspan="8"><div class="domain-empty">No records match this window.</div></td></tr>{% endfor %}</tbody></table></div></article>
+    </section>
+
+    <section class="domain-dashboard__panel" data-domain-panel="models" {% if active_tab != "models" %}hidden{% endif %}>
+        <div class="domain-dashboard__section-head"><div><span class="domain-dashboard__eyebrow">DOMAIN MAP</span><h2>Data model coverage</h2><p>Counts reflect the app’s operational entities, not registry metadata.</p></div></div>
+        <div class="domain-model-grid">{% for model in model_rows %}<a class="domain-model-card" href="{{ model.url|default:'#' }}"><span><i class="fa-solid fa-{{ model.icon|default:'database' }}"></i></span><small>{{ model.group|default:"MODEL" }}</small><strong>{{ model.label }}</strong><b>{{ model.count }}<em> records</em></b><i class="fa-solid fa-arrow-up-right-from-square domain-model-card__arrow"></i></a>{% empty %}<div class="domain-empty">No model coverage data available.</div>{% endfor %}</div>
+    </section>
+</div>
+{{ dashboard_chart_payload|json_script:"domain-dashboard-chart-data" }}

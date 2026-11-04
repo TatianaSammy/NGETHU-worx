@@ -28,6 +28,11 @@
                     <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
                 </a>
             {% endif %}
+            {% if plant_context.is_superuser %}
+                <a class="ca-workbench-icon-link ca-workbench-icon-link--delete" href="{% url 'ca:batch-delete' batch.pk %}{% if selected_plant_id %}?plant={{ selected_plant_id }}{% endif %}" title="Delete batch permanently" aria-label="Delete batch permanently">
+                    <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                </a>
+            {% endif %}
         </div>
     </header>
 
@@ -107,6 +112,7 @@
                         <div><span>Assignment deadline</span><strong>{{ analysis_request.analysis_deadline|date:"d M Y H:i"|default:"—" }}</strong></div>
                     </div>
                     <div class="ca-workflow-assignees"><span>Assigned analysts</span><div>{% if analysis_request %}{% for analyst in analysis_request.assigned_analysts.all %}<span>{{ analyst.get_full_name|default:analyst.get_username }}</span>{% empty %}<em>No analysts assigned</em>{% endfor %}{% else %}<em>Analysis request not available</em>{% endif %}</div></div>
+                    {% if analyst_assignment_url %}<a class="btn btn-sm btn-outline-primary mt-2" href="{{ analyst_assignment_url }}" data-ca-analyst-assignment><i class="fa-solid fa-user-pen" aria-hidden="true"></i> {% if analysis_request.has_assigned_analysts %}Reassign analyst{% else %}Assign analyst{% endif %}</a>{% endif %}
                 {% elif stage.key == "checklist" %}
                     <div class="ca-workflow-checklist-state{% if checklist and checklist.completed %} is-complete{% endif %}">
                         <span class="ca-workflow-checklist-state__icon"><i class="fa-solid {% if checklist and checklist.completed %}fa-clipboard-check{% else %}fa-clipboard-list{% endif %}" aria-hidden="true"></i></span>
@@ -128,14 +134,28 @@
                     {% endif %}
                 {% elif stage.key == "quality" %}
                     <div class="ca-workflow-facts">
-                        <div><span>QA officer</span><strong>{{ process.qa_officer|default:"Not assigned" }}</strong></div>
+                        <div><span>Chemist reviewer</span><strong>{{ process.qa_officer|default:"Not assigned" }}</strong></div>
                         <div><span>Review recorded</span><strong>{{ process.qa_reviewed_at|date:"d M Y H:i"|default:"Pending" }}</strong></div>
                         <div><span>Retest cycles</span><strong>{{ process.rework_count|default:0 }}</strong></div>
                         <div><span>Failed results</span><strong>{{ process.failed_tests.count|default:0 }}</strong></div>
                     </div>
                     {% if corrective_actions %}<div class="ca-workbench-results__heading"><strong>Corrective actions</strong><span>{{ corrective_actions|length }} record{{ corrective_actions|length|pluralize }}</span></div>{% endif %}
-                {% elif stage.key == "approval" %}
-                    <div class="ca-workflow-checklist-state{% if process.approved_at %} is-complete{% endif %}"><span class="ca-workflow-checklist-state__icon"><i class="fa-solid fa-stamp" aria-hidden="true"></i></span><div><strong>{% if process.approved_at %}Batch approved{% else %}Independent batch approval{% endif %}</strong><p>{% if process.approved_at %}Approved {{ process.approved_at|date:"d M Y H:i" }}{% if process.approver %} by {{ process.approver }}{% endif %}{% else %}A reviewer independent of the analysis and QA review must approve the finalized batch.{% endif %}</p></div></div>
+                    {% if process.interlaboratory_referrals.exists %}
+                        <div class="ca-workbench-results">
+                            <div class="ca-workbench-results__heading"><strong>Peer laboratory verification</strong><span>{{ process.interlaboratory_referrals.count }} participating laboratory{{ process.interlaboratory_referrals.count|pluralize }}</span></div>
+                            <div class="table-responsive"><table class="table"><thead><tr><th>Treatment plant laboratory</th><th>Status</th><th>Submitted by</th><th>Submitted</th></tr></thead><tbody>
+                                {% for referral in process.interlaboratory_referrals.all %}<tr><td>{{ referral.treatment_plant.name }}</td><td>{{ referral.get_status_display }}</td><td>{{ referral.submitted_by|default:"Awaiting submission" }}</td><td>{{ referral.submitted_at|date:"d M Y H:i"|default:"—" }}</td></tr>{% endfor %}
+                            </tbody></table></div>
+                        </div>
+                    {% endif %}
+                      {% if process.oos_investigations.exists %}
+                          <div class="ca-workbench-results">
+                              <div class="ca-workbench-results__heading"><strong>Out-of-specification investigations</strong><span>{{ process.oos_investigations.count }} linked investigation{{ process.oos_investigations.count|pluralize }}</span></div>
+                              <div class="table-responsive"><table class="table"><thead><tr><th>Parameter</th><th>Initial result</th><th>Assignable cause</th><th>Corrective action</th><th>Disposition</th><th>Status</th></tr></thead><tbody>
+                                  {% for investigation in process.oos_investigations.all %}<tr><td>{{ investigation.parameter.parameter_name }}</td><td>{{ investigation.initial_result_snapshot.value|default:investigation.initial_result_snapshot.textual_result }} · {{ investigation.initial_result_snapshot.status }}</td><td>{{ investigation.assignable_cause }}</td><td>{{ investigation.corrective_action|default:"—" }}</td><td>{{ investigation.final_disposition|default:"Under investigation" }}</td><td>{{ investigation.get_status_display }}</td></tr>{% endfor %}
+                              </tbody></table></div>
+                          </div>
+                      {% endif %}
                 {% elif stage.key == "certificate" %}
                     <div class="ca-workflow-facts">
                         <div><span>Sample reference</span><strong>{{ coa.sample_id|default:"Not generated" }}</strong></div>
@@ -144,6 +164,7 @@
                         <div><span>Approved</span><strong>{{ coa.approved_on|date:"d M Y H:i"|default:"Pending" }}</strong></div>
                     </div>
                     {% if coa and coa.pdf_file %}<a class="ca-workbench-document-link" href="{% url 'ca:coa-download' coa.pk %}"><i class="fa-solid fa-file-pdf" aria-hidden="true"></i> Download Certificate of Analysis</a>{% endif %}
+                      {% if batch.kebs_referral %}<div class="ca-workbench-results"><div class="ca-workbench-results__heading"><strong>KEBS referral and custody</strong><span>Forwarded {{ batch.kebs_referral.dispatched_at|date:"d M Y H:i" }}</span></div><p>{{ batch.kebs_referral.destination }} · {{ batch.kebs_referral.dispatch_method }} · {{ batch.kebs_referral.kebs_reference|default:"Reference pending" }} · {{ batch.kebs_referral.shipment_reference|default:"No shipment reference" }}</p><p>{{ batch.kebs_referral.remarks }}</p></div>{% endif %}
                 {% elif stage.key == "disposition" %}
                     <div class="ca-workflow-facts">
                         <div><span>Available stock</span><strong>{{ batch.available_quantity }} {{ batch.unit }}</strong></div>

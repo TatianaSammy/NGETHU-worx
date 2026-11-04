@@ -63,7 +63,7 @@ class FilterReadingsUpdateView(ResultCardEntryView):
                 pk__in=submitted,
                 treatment_plant=plant,
                 water_filter__phase=phase,
-                water_filter__status="working",
+                water_filter__filter_status__status="working",
             ).select_related("water_filter")
         )
         if len(limits) != len(submitted):

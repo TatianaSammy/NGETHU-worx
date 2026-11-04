@@ -351,23 +351,6 @@
         </a>
 
 
-        <a
-            href="{% url 'ca:pending-approval' %}"
-            class="ca-topbar-menu-item"
-        >
-            <span class="ca-topbar-menu-icon ca-icon-approval"></span>
-
-            <span>
-                <strong>Pending Approval</strong>
-                <small>Results awaiting approval</small>
-            </span>
-
-            {% if pending_approval %}
-                <span class="ca-topbar-menu-counter">
-                    {{ pending_approval }}
-                </span>
-            {% endif %}
-        </a>
 
 
         <div class="ca-topbar-menu-divider"></div>

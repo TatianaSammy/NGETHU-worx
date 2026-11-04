@@ -1,0 +1,20 @@
+body.app-fullscreen-shell {
+    min-height: 100dvh;
+}
+
+body.app-fullscreen-shell main.container {
+    padding-top: calc(var(--header-height, 62px) + 20px);
+}
+
+body.app-fullscreen-shell .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+@media (max-width: 768px) {
+    body.app-fullscreen-shell .container {
+        width: 95%;
+        padding: 10px;
+    }
+}

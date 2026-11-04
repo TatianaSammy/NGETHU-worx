@@ -12,6 +12,7 @@ from t.models import TreatmentPlant
 from sc.models import Shift, ShiftAssignment
 from parameters.models import WWQParameter_qad
 from analysis_methods.models import WWAnalysisMethod
+from core.quality_results import parameter_result_metadata
 
 
 # =========================================================
@@ -206,14 +207,11 @@ class WasteWaterParameterResult(AuditModel):
         unique_together = ("analysis", "parameter")
 
     def save(self, *args, **kwargs):
-        self.effluent_standard = f"{self.parameter.nema_min_std} - {self.parameter.nema_max_std} mg/L"
-        self.kebs_reference = self.analysis_method.reference
-
-        if self.parameter.nema_min_std <= self.result <= self.parameter.nema_max_std:
-            self.quality_compliance = "Complying"
-        else:
-            self.quality_compliance = "Not Complying"
-
+        metadata = parameter_result_metadata(self.parameter, self.analysis_method, self.result)
+        for field, value in metadata.items():
+            setattr(self, field, value)
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | set(metadata) | {"updated_at"}
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -296,14 +294,20 @@ class BaseParameterResult(AuditModel):
         abstract = True
 
     def compute(self):
-        self.effluent_standard = f"{self.parameter.nema_min_std} - {self.parameter.nema_max_std} mg/L"
-        self.kebs_reference = self.analysis_method.reference
+        metadata = parameter_result_metadata(self.parameter, self.analysis_method, self.result)
+        for field, value in metadata.items():
+            setattr(self, field, value)
 
-        self.quality_compliance = (
-            "Complying"
-            if self.parameter.nema_min_std <= self.result <= self.parameter.nema_max_std
-            else "Not Complying"
-        )
+    def save(self, *args, **kwargs):
+        self.compute()
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                "effluent_standard",
+                "kebs_reference",
+                "quality_compliance",
+                "updated_at",
+            }
+        super().save(*args, **kwargs)
 
 
 class IndustrialSampleParameterResult(BaseParameterResult):

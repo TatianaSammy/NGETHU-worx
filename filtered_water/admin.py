@@ -10,7 +10,7 @@ from .models import (
     ShiftAssignment,
     FilteredWaterAnalysisTransition,
 )
-from t.models import TreatmentPlant, TreatmentPlantPhase
+from t.models import TreatmentPlant, TreatmentPlantPhase, FilterStatus as PlantFilterStatus
 
 
 # --- Inline for FilteredWaterResults in FilteredWaterAnalysis ---
@@ -44,19 +44,31 @@ class WaterFilterStatusFilter(admin.SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value():
-            return queryset.filter(status=self.value())
+            return queryset.filter(filter_status__status=self.value())
         return queryset
 
 
 @admin.action(description="Mark selected filters as Working")
 def mark_working(modeladmin, request, queryset):
-    updated = queryset.update(status='working')
+    updated = 0
+    for water_filter in queryset.iterator():
+        status, _created = PlantFilterStatus.objects.get_or_create(water_filter=water_filter)
+        status.status = "working"
+        status._changed_by = request.user
+        status.save()
+        updated += 1
     modeladmin.message_user(request, f"{updated} filters marked as Working.", messages.SUCCESS)
 
 
 @admin.action(description="Mark selected filters as Isolated")
 def mark_isolated(modeladmin, request, queryset):
-    updated = queryset.update(status='isolated')
+    updated = 0
+    for water_filter in queryset.iterator():
+        status, _created = PlantFilterStatus.objects.get_or_create(water_filter=water_filter)
+        status.status = "isolated"
+        status._changed_by = request.user
+        status.save()
+        updated += 1
     modeladmin.message_user(request, f"{updated} filters marked as Isolated.", messages.SUCCESS)
 
 
@@ -64,7 +76,7 @@ def mark_isolated(modeladmin, request, queryset):
 class FilteredWaterResultsAdmin(admin.ModelAdmin):
     list_display = ('analysis', 'parameter_name', 'water_filter', 'result_value')
     search_fields = ('parameter__parameter__name', 'water_filter__name', 'analysis__uuid')
-    list_filter = ('water_filter__status',)
+    list_filter = ('water_filter__filter_status__status',)
     autocomplete_fields = ('parameter', 'water_filter')
 
     def parameter_name(self, obj):

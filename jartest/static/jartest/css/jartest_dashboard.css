@@ -354,6 +354,26 @@
     flex-shrink: 0;
 }
 
+.jt-process-standard {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    color: #9fb0c8;
+    font-size: 0.56rem;
+    line-height: 1.2;
+}
+
+.jt-process-standard > span {
+    padding: 0.16rem 0.3rem;
+    border: 1px solid rgba(103, 232, 249, 0.16);
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(8, 145, 178, 0.12), rgba(30, 41, 59, 0.45));
+    white-space: nowrap;
+}
+
+.jt-process-standard b { color: #67e8f9; font-weight: 750; }
+
 .jt-btn-secondary {
     display: inline-flex;
     align-items: center;
@@ -390,26 +410,6 @@
     box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
 }
 
-/* JarTest.remarks footer — compact like chlorine / PH benches */
-.jt-remarks-card {
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-    margin-top: 0.15rem;
-}
-.jt-textarea {
-    background: var(--jt-surface, rgba(15, 23, 42, 0.7));
-    border: 1px solid var(--jt-border);
-    border-radius: 6px;
-    color: #e2e8f0;
-    font-size: 0.7rem;
-    padding: 0.2rem 0.35rem;
-    min-height: 1.8rem;
-    max-height: 2.4rem;
-    resize: none;
-    outline: none;
-}
-.jt-textarea:focus { border-color: var(--jt-primary, #10b981); }
 .jt-inline-input:focus {
     border-color: #10b981 !important;
     outline: none;
@@ -930,57 +930,11 @@
     font-weight: 700;
 }
 
-/* ==============================================================================
-   FOOTER TOOLBAR & ACTION CONTROLS
-   ============================================================================== */
-.jt-footer-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--jt-card-bg);
-    border: 1px solid var(--jt-border);
-    border-radius: 8px;
-    padding: 0.3rem 0.55rem;
-    min-height: 40px;
-    max-height: 44px;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
-    flex-shrink: 0;
-    gap: 0.5rem;
-    overflow: hidden;
-    box-sizing: border-box;
-}
-
-.jt-hints-strip {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 0;
-    flex: 1 1 auto;
-    overflow: hidden;
-}
-.jt-hint-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: 0.72rem;
-    color: #94a3b8;
-}
-.jt-hint-badge kbd {
-    background: #0f172a;
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    border-radius: 4px;
-    padding: 0.1rem 0.35rem;
-    font-size: 0.68rem;
-    color: #e2e8f0;
-    font-family: 'JetBrains Mono', monospace;
-}
-
 .jt-actions-strip {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    margin-left: auto;
 }
 
 .btn-jt-save {
@@ -1150,6 +1104,7 @@ body:has(.jt-workspace-root) #workspace > .jt-workspace-root {
 .jt-telemetry-ticker{gap:.35rem}
 .jt-ticker-chip{gap:.2rem;padding:.08rem .32rem;font-size:.66rem}
 .jt-ticker-chip .chip-label{font-size:.6rem}
+.jt-source-readout{display:inline-block;max-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .jt-control-bar{min-height:36px;padding:.18rem .35rem;gap:.3rem;border-radius:6px}
 .jt-session-meta{gap:.2rem}
 .jt-meta-pill{min-height:27px;padding:.15rem .35rem;font-size:.68rem}
@@ -1157,8 +1112,9 @@ body:has(.jt-workspace-root) #workspace > .jt-workspace-root {
 .jt-matrix-container{padding:.22rem;gap:.2rem;border-radius:6px}
 .jt-matrix-header{gap:.25rem;padding-bottom:.2rem}
 .jt-jar-card{gap:.16rem;padding:.22rem;border-radius:6px}
-.jt-footer-toolbar{min-height:33px;max-height:36px;padding:.16rem .35rem;gap:.25rem;border-radius:6px}
-.jt-hint-badge{font-size:.62rem}
+.jt-leaderboard-actions{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);width:100%;margin:0;padding-top:.18rem;border-top:1px solid rgba(148,163,184,.12);gap:.28rem}
+.jt-leaderboard-actions .btn-jt-save,.jt-leaderboard-actions .btn-jt-print{display:flex;justify-content:center;min-width:0;width:100%;padding:.24rem .3rem;font-size:.62rem;white-space:nowrap;box-shadow:none}
+.jt-leaderboard-actions .btn-jt-save span,.jt-leaderboard-actions .btn-jt-print span{overflow:hidden;text-overflow:ellipsis}
 .jt-reports-panel{overflow:auto;overscroll-behavior:contain;scrollbar-color:rgba(129,140,248,.45) rgba(15,23,42,.2)}
 .jt-reports-panel::-webkit-scrollbar{width:8px}.jt-reports-panel::-webkit-scrollbar-thumb{border:2px solid #091225;border-radius:10px;background:linear-gradient(#22d3ee88,#8b5cf688)}
 .jt-reports-shell{max-width:1700px;margin:0 auto;padding:0 0 .45rem}

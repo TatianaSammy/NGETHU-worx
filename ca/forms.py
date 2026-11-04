@@ -22,6 +22,13 @@ from .models import (
     ChemicalAnalysisRequest,
     ChemicalBatch,
     ChemicalBatchHold,
+    ChemicalLabComparisonResult,
+    ChemicalLabReferral,
+    ChemicalMethodQualityPlan,
+    ChemicalMethodQCControl,
+    ChemicalQCCheckResult,
+    ChemicalOOSInvestigation,
+    ChemicalKEBSReferral,
     ChemicalCertApprover,
     ChemicalCoA,
     ChemicalLocation,
@@ -47,6 +54,17 @@ CHECKBOX_CLASS = (
 )
 
 CHEMICAL_ANALYSIS_TASK_NAME = "Water Treatment Chemical Analysis"
+
+
+class InventoryEquipmentChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, equipment):
+        from .inventory_instruments import equipment_calibration_info
+
+        category = getattr(getattr(equipment, "category", None), "name", "Equipment")
+        calibration = equipment_calibration_info(equipment)
+        serial = equipment.serial_number or "No serial"
+        due = calibration["due_date"].isoformat() if calibration["due_date"] else "no due date"
+        return f"{equipment.name} · {serial} · {category} · calibration {calibration['status']} ({due})"
 
 
 def apply_field_classes(form: forms.BaseForm) -> None:
@@ -1836,6 +1854,7 @@ class ChecklistForm(forms.ModelForm):
             "grade",
             "manufacture_date",
             "expiry_date",
+            "chemical_label_photo",
             "storage_conditions",
             "net_weight",
             "country_of_origin",
@@ -1884,6 +1903,11 @@ class ChecklistForm(forms.ModelForm):
         super().__init__(
             *args,
             **kwargs,
+        )
+
+        self.fields["chemical_label_photo"].required = True
+        self.fields["chemical_label_photo"].help_text = (
+            "Upload a clear photo of the container label with the expiry date visible."
         )
 
         # The analysis request is workflow context, not a user-editable field.
@@ -2074,7 +2098,12 @@ class BatchTestResultForm(forms.ModelForm):
             "value",
             "textual_result",
             "status",
-            "instrument",
+            "inventory_equipment",
+            "reference_standard_name",
+            "reference_standard_lot",
+            "reagent_lot_numbers",
+            "expanded_uncertainty",
+            "uncertainty_coverage_factor",
             "revision_reason",
         )
         widgets = {
@@ -2124,16 +2153,18 @@ class BatchTestResultForm(forms.ModelForm):
         else:
             queryset = ChemicalSpecification.objects.none()
 
-        try:
-            from instruments.models import Instrument
+        from .inventory_instruments import inventory_equipment_queryset
 
-            instruments = Instrument.objects.filter(is_active=True)
-            if self.batch is not None:
-                instruments = instruments.filter(treatment_plant_id=self.batch.treatment_plant_id)
-            self.fields["instrument"].queryset = instruments.order_by("name")
-            self.fields["instrument"].required = False
-        except Exception:
-            self.fields["instrument"].queryset = self.fields["instrument"].queryset.none()
+        self.fields["inventory_equipment"] = InventoryEquipmentChoiceField(
+            queryset=inventory_equipment_queryset(
+                self.batch.treatment_plant_id if self.batch is not None else None
+            ),
+            required=bool(parameter is not None and parameter.requires_instrument),
+            label="Inventory laboratory equipment",
+            help_text=(
+                "Equipment is plant scoped. Calibration state and serial number are checked and saved with the result."
+            ),
+        )
 
         self.fields[
             "parameter"
@@ -2251,6 +2282,9 @@ class BatchTestResultForm(forms.ModelForm):
                 and status == BatchTestResult.Status.PASS
             ):
                 cleaned["status"] = BatchTestResult.Status.FAIL
+
+        if parameter and parameter.requires_instrument and not cleaned.get("inventory_equipment"):
+            self.add_error("inventory_equipment", "Select the laboratory equipment used for this parameter.")
 
             if (
                 maximum is not None
@@ -2710,24 +2744,37 @@ class FormulaDrivenChemicalAnalysisForm(forms.Form):
             )
             self.input_names.append(name)
 
+        self.fields["reference_standard_name"] = forms.CharField(required=False, max_length=180, label="Reference standard")
+        self.fields["reference_standard_lot"] = forms.CharField(required=False, max_length=120, label="Reference standard lot")
+        self.fields["reagent_lot_numbers"] = forms.CharField(required=False, max_length=500, label="Reagent lot numbers")
+        self.fields["expanded_uncertainty"] = forms.DecimalField(required=False, min_value=0, max_digits=24, decimal_places=12, label="Expanded measurement uncertainty")
+        self.fields["uncertainty_coverage_factor"] = forms.DecimalField(required=False, min_value=Decimal("0.0001"), max_digits=8, decimal_places=4, initial=Decimal("2"), label="Uncertainty coverage factor (k)")
+        quality_plan = (
+            ChemicalMethodQualityPlan.current_for(method, batch.treatment_plant if batch else None)
+            if method is not None else None
+        )
+        if quality_plan:
+            self.fields["reference_standard_lot"].required = quality_plan.require_reference_standard_lot
+            self.fields["reagent_lot_numbers"].required = quality_plan.require_reagent_lot_numbers
+            self.fields["expanded_uncertainty"].required = quality_plan.require_measurement_uncertainty
+
         if parameter is not None and parameter.requires_instrument:
             try:
-                from instruments.models import Instrument
+                from .inventory_instruments import inventory_equipment_queryset
 
-                instruments = Instrument.objects.filter(is_active=True)
-                if batch is not None:
-                    instruments = instruments.filter(
-                        treatment_plant_id=batch.treatment_plant_id
-                    )
-                self.fields["instrument"] = forms.ModelChoiceField(
-                    queryset=instruments.order_by("name"),
-                    empty_label="Select calibrated instrument",
+                equipment = inventory_equipment_queryset(
+                    batch.treatment_plant_id if batch is not None else None
+                )
+                self.fields["inventory_equipment"] = InventoryEquipmentChoiceField(
+                    queryset=equipment,
+                    empty_label="Select Inventory equipment",
                     required=True,
-                    label="Calibrated instrument",
+                    label="Inventory laboratory equipment",
+                    help_text="Select the equipment used. Calibration and availability are checked against Inventory and recorded with the result.",
                 )
             except Exception:
                 self.setup_errors.append(
-                    "The instrument register is unavailable, so the required instrument cannot be selected."
+                    "The Inventory equipment register is unavailable, so required laboratory equipment cannot be selected."
                 )
 
         if not self.input_names:
@@ -2900,9 +2947,21 @@ class QAReviewForm(forms.Form):
             attrs={"rows": 5}
         ),
     )
+    assignable_cause = forms.CharField(
+        required=False,
+        max_length=3000,
+        label="Potential assignable cause",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    corrective_action = forms.CharField(
+        required=False,
+        max_length=3000,
+        label="Immediate corrective action / containment",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
     confirm = forms.BooleanField(
         required=True,
-        label="Confirm QA review decision",
+        label="Confirm chemist review decision",
     )
 
     def __init__(
@@ -2922,6 +2981,96 @@ class QAReviewForm(forms.Form):
             **kwargs,
         )
 
+        self.requires_local_repeat = False
+        self.requires_interlaboratory_review = False
+        if self.process is not None and self.process.failed_tests.exists():
+            failed_parameter_ids = list(self.process.failed_tests.values_list("parameter_id", flat=True))
+            comparisons = ChemicalLabComparisonResult.objects.filter(
+                process=self.process,
+                treatment_plant_id=self.process.batch.treatment_plant_id,
+                parameter_id__in=failed_parameter_ids,
+            )
+            latest_qc_status = {}
+            for qc in self.process.qc_checks.order_by("control_id", "parameter_id", "-run_number", "-pk"):
+                latest_qc_status.setdefault((qc.control_id, qc.parameter_id), qc.status)
+            failed_qc_parameter_ids = {
+                parameter_id
+                for (_, parameter_id), status in latest_qc_status.items()
+                if status != ChemicalQCCheckResult.Status.PASS
+            }
+            self.requires_local_repeat = bool(set(failed_parameter_ids) & failed_qc_parameter_ids) or any(
+                not comparisons.filter(parameter_id=parameter_id, source=ChemicalLabComparisonResult.Source.ORIGINAL).exists()
+                or not comparisons.filter(parameter_id=parameter_id, source=ChemicalLabComparisonResult.Source.REASSIGNMENT).exists()
+                for parameter_id in failed_parameter_ids
+            )
+            if self.requires_local_repeat:
+                analysts = chemical_analysis_analyst_queryset(
+                    treatment_plant=self.process.batch.treatment_plant,
+                    batch=self.process.batch,
+                    analysis_request=self.process.analysis_request if self.process.analysis_request_id else None,
+                )
+                retest_analysts = permission_user_queryset(
+                    "ca.perform_chemical_retest",
+                    treatment_plant=self.process.batch.treatment_plant,
+                )
+                failed_analyst_ids = self.process.failed_tests.values_list("analyst_id", flat=True)
+                analysts = analysts.filter(
+                    assigned_treatment_plant_id=self.process.batch.treatment_plant_id
+                ).filter(
+                    pk__in=retest_analysts.values("pk")
+                ).exclude(is_superuser=True).exclude(pk__in=failed_analyst_ids).exclude(pk=getattr(self.user, "pk", None))
+                self.fields["replacement_analyst"] = forms.ModelChoiceField(
+                    queryset=analysts,
+                    required=False,
+                    label="Replacement analyst",
+                    help_text="The selected qualified analyst at this plant must differ from every analyst who recorded a current failed result.",
+                )
+                self.fields["replacement_analyst"].label_from_instance = lambda analyst: (
+                    f"{analyst.full_name} · @{analyst.get_username()}" if analyst.full_name else analyst.get_username()
+                )
+                if analysts.exists():
+                    self.fields["decision"].choices = [
+                        ("REASSIGN", "Reassign failed parameters to another analyst"),
+                    ]
+                else:
+                    self.fields["decision"].choices = [("REJECT", "Reject the batch")]
+            else:
+                self.requires_interlaboratory_review = True
+                target_plants = (
+                    TreatmentPlant.objects.filter(laboratory__isnull=False)
+                    .exclude(pk=self.process.batch.treatment_plant_id)
+                    .exclude(pk__in=self.process.interlaboratory_referrals.values("treatment_plant_id"))
+                    .order_by("name")
+                )
+                eligible_plant_ids = [
+                    plant.pk
+                    for plant in target_plants
+                    if permission_user_queryset(
+                        "ca.record_chemical_result",
+                        treatment_plant=plant,
+                    ).filter(assigned_treatment_plant_id=plant.pk).exclude(is_superuser=True).exists()
+                ]
+                target_plants = target_plants.filter(pk__in=eligible_plant_ids)
+                if target_plants.exists():
+                    self.fields["decision"].choices = [
+                        ("REFER_INTERLAB", "Forward persistent failures to other plant laboratories"),
+                    ]
+                else:
+                    self.fields["decision"].choices = [("REJECT", "Reject the batch")]
+                self.fields["laboratories"] = forms.ModelMultipleChoiceField(
+                    queryset=target_plants,
+                    required=False,
+                    label="Independent laboratories",
+                    help_text="Select other treatment-plant laboratories to independently test every persistent failure.",
+                    widget=forms.CheckboxSelectMultiple(),
+                )
+        elif self.process is not None:
+            self.fields["decision"].choices = [
+                ("PASS", "Accept analysis"),
+                ("CAPA", "Require CAPA"),
+                ("REJECT", "Reject analysis"),
+            ]
+
         apply_field_classes(self)
 
     def clean(self):
@@ -2935,7 +3084,7 @@ class QAReviewForm(forms.Form):
         _require_permission(
             self.user,
             "ca.review_chemical_analysis",
-            "You do not have permission to perform QA review.",
+            "You do not have permission to perform chemist review.",
         )
 
         if self.process is None:
@@ -2947,7 +3096,7 @@ class QAReviewForm(forms.Form):
             ChemicalAnalysisProcess.WorkflowStatus.QA
         ):
             raise ValidationError(
-                "This analysis is not currently awaiting QA review."
+                "This analysis is not currently awaiting chemist review."
             )
 
         decision = cleaned.get(
@@ -2960,12 +3109,29 @@ class QAReviewForm(forms.Form):
                     "The analysis cannot pass QA while required tests remain incomplete."
                 )
 
+        if decision == "REASSIGN" and not self.requires_local_repeat:
+            raise ValidationError("Every persistent failed parameter already has an independent local repeat.")
+        if decision == "REASSIGN" and not cleaned.get("replacement_analyst"):
+            self.add_error("replacement_analyst", "Choose a different qualified analyst for the repeat analysis.")
+        if decision == "REFER_INTERLAB" and not self.requires_interlaboratory_review:
+            raise ValidationError("Repeat each failed parameter with another local analyst before interlaboratory referral.")
+        if decision == "REFER_INTERLAB" and not cleaned.get("laboratories"):
+            self.add_error("laboratories", "Select at least one other treatment-plant laboratory.")
+
+        if self.process is not None and self.process.failed_tests.exists():
+            if not (cleaned.get("assignable_cause") or "").strip():
+                self.add_error("assignable_cause", "Record the potential assignable cause for every failing analysis before disposition.")
+            if not (cleaned.get("corrective_action") or "").strip():
+                self.add_error("corrective_action", "Record the containment or corrective action taken for the failed analysis.")
+
         if (
             decision
             in {
                 "REWORK",
                 "CAPA",
                 "REJECT",
+                "REASSIGN",
+                "REFER_INTERLAB",
             }
             and not (
                 cleaned.get(
@@ -2976,7 +3142,7 @@ class QAReviewForm(forms.Form):
         ):
             self.add_error(
                 "remarks",
-                "Remarks are required for this QA decision.",
+                "Remarks are required for this chemist review decision.",
             )
 
         return cleaned
@@ -3161,14 +3327,11 @@ class RetestForm(forms.Form):
         )
 
         if process is not None:
-            self.fields[
-                "parameter"
-            ].queryset = (
+            failed_ids = process.failed_tests.values_list("parameter_id", flat=True)
+            self.fields["parameter"].queryset = (
                 process.required_specifications()
-                .select_related(
-                    "chemical",
-                    "method",
-                )
+                .filter(pk__in=failed_ids)
+                .select_related("chemical", "method")
             )
 
         apply_field_classes(self)
@@ -3204,6 +3367,10 @@ class RetestForm(forms.Form):
                     "The selected parameter is not required for this analysis."
                 )
 
+            failed_result = self.process.failed_tests.filter(parameter_id=parameter.pk).first()
+            if failed_result and failed_result.analyst_id == getattr(self.user, "pk", None):
+                self.add_error("parameter", "The failed result must be repeated by the newly assigned analyst, not its original analyst.")
+
         reason = (
             cleaned.get("reason")
             or ""
@@ -3215,6 +3382,282 @@ class RetestForm(forms.Form):
                 "A retest reason is required.",
             )
 
+        return cleaned
+
+
+class ChemicalInterlaboratorySubmissionForm(forms.Form):
+    submission_remarks = forms.CharField(
+        required=False,
+        max_length=3000,
+        label="Laboratory notes",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+    def __init__(self, *args, referral=None, user=None, **kwargs):
+        self.referral = referral
+        self.user = user
+        super().__init__(*args, **kwargs)
+        self.parameters = []
+        if referral is not None:
+            parameter_ids = [int(value) for value in referral.parameter_ids]
+            self.parameters = list(
+                ChemicalSpecification.objects.filter(pk__in=parameter_ids)
+                .select_related("chemical")
+                .order_by("parameter_name", "pk")
+            )
+        from .inventory_instruments import inventory_equipment_queryset
+        equipment = inventory_equipment_queryset(getattr(referral, "treatment_plant_id", None))
+
+        for parameter in self.parameters:
+            suffix = str(parameter.pk)
+            self.fields[f"value_{suffix}"] = forms.DecimalField(
+                required=False,
+                max_digits=26,
+                decimal_places=12,
+                label=f"{parameter.parameter_name} — reading ({parameter.unit})",
+            )
+            self.fields[f"text_{suffix}"] = forms.CharField(
+                required=False,
+                max_length=255,
+                label=f"{parameter.parameter_name} — textual result",
+            )
+            self.fields[f"status_{suffix}"] = forms.ChoiceField(
+                required=False,
+                choices=(("", "Select outcome"), ("PASS", "Pass"), ("FAIL", "Fail"), ("NA", "Not applicable")),
+                label=f"{parameter.parameter_name} — outcome when numerical limits do not apply",
+            )
+            quality_plan = (
+                ChemicalMethodQualityPlan.current_for(parameter.method, referral.treatment_plant)
+                if parameter.method_id else None
+            )
+            comparison_rule = (referral.comparison_rules_snapshot or {}).get(suffix, {})
+            self.fields[f"standard_{suffix}"] = forms.CharField(required=False, max_length=180, label=f"{parameter.parameter_name} — reference standard")
+            self.fields[f"standard_lot_{suffix}"] = forms.CharField(
+                required=bool(comparison_rule.get("require_reference_standard_lot", quality_plan and quality_plan.require_reference_standard_lot)),
+                max_length=120,
+                label=f"{parameter.parameter_name} — reference-standard lot",
+            )
+            self.fields[f"reagent_lots_{suffix}"] = forms.CharField(
+                required=bool(comparison_rule.get("require_reagent_lot_numbers", quality_plan and quality_plan.require_reagent_lot_numbers)),
+                max_length=500,
+                label=f"{parameter.parameter_name} — reagent lot numbers",
+            )
+            self.fields[f"uncertainty_{suffix}"] = forms.DecimalField(
+                required=bool(comparison_rule.get("require_measurement_uncertainty", quality_plan and quality_plan.require_measurement_uncertainty)),
+                min_value=0,
+                max_digits=24,
+                decimal_places=12,
+                label=f"{parameter.parameter_name} — expanded uncertainty",
+            )
+            self.fields[f"coverage_{suffix}"] = forms.DecimalField(
+                required=False,
+                min_value=Decimal("0.0001"),
+                max_digits=8,
+                decimal_places=4,
+                initial=comparison_rule.get("uncertainty_coverage_factor") or (quality_plan.uncertainty_coverage_factor if quality_plan else Decimal("2")),
+                label=f"{parameter.parameter_name} — coverage factor (k)",
+            )
+            if parameter.requires_instrument:
+                self.fields[f"inventory_equipment_{suffix}"] = InventoryEquipmentChoiceField(
+                    queryset=equipment,
+                    required=True,
+                    label=f"{parameter.parameter_name} — Inventory laboratory equipment",
+                )
+        apply_field_classes(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        _require_active_user(self.user, "An active analyst at the receiving laboratory is required.")
+        _require_permission(self.user, "ca.record_chemical_result", "You do not have permission to submit laboratory results.")
+        if self.referral is None:
+            raise ValidationError("A laboratory referral is required.")
+        _validate_plant_access(self.user, self.referral.treatment_plant)
+        if self.referral.status != ChemicalLabReferral.Status.PENDING:
+            raise ValidationError("This referral has already been submitted or closed.")
+        for parameter in self.parameters:
+            suffix = str(parameter.pk)
+            value = cleaned.get(f"value_{suffix}")
+            text = (cleaned.get(f"text_{suffix}") or "").strip()
+            status = cleaned.get(f"status_{suffix}") or ""
+            has_limits = parameter.min_limit is not None or parameter.max_limit is not None
+            if value is None and not text:
+                self.add_error(f"value_{suffix}", "Enter a numerical or textual result for this parameter.")
+            if (value is None or not has_limits) and not status:
+                self.add_error(f"status_{suffix}", "Select the laboratory outcome for this parameter.")
+            if parameter.requires_instrument and not cleaned.get(f"inventory_equipment_{suffix}"):
+                self.add_error(f"inventory_equipment_{suffix}", "Select the required Inventory laboratory equipment.")
+        return cleaned
+
+    def result_entries(self):
+        return [
+            {
+                "parameter": parameter,
+                "value": self.cleaned_data.get(f"value_{parameter.pk}"),
+                "textual_result": (self.cleaned_data.get(f"text_{parameter.pk}") or "").strip(),
+                "status": self.cleaned_data.get(f"status_{parameter.pk}") or "",
+                "inventory_equipment": self.cleaned_data.get(f"inventory_equipment_{parameter.pk}"),
+                "reference_standard_name": (self.cleaned_data.get(f"standard_{parameter.pk}") or "").strip(),
+                "reference_standard_lot": (self.cleaned_data.get(f"standard_lot_{parameter.pk}") or "").strip(),
+                "reagent_lot_numbers": (self.cleaned_data.get(f"reagent_lots_{parameter.pk}") or "").strip(),
+                "expanded_uncertainty": self.cleaned_data.get(f"uncertainty_{parameter.pk}"),
+                "uncertainty_coverage_factor": self.cleaned_data.get(f"coverage_{parameter.pk}"),
+            }
+            for parameter in self.parameters
+        ]
+
+
+class InterlaboratoryReviewForm(forms.Form):
+    remarks = forms.CharField(
+        required=True,
+        min_length=5,
+        max_length=3000,
+        label="Chemist comparison remarks",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    confirm = forms.BooleanField(required=True, label="Confirm the interlaboratory comparison and finalize its average")
+    acknowledge_disagreement = forms.BooleanField(
+        required=False,
+        label="I reviewed the laboratory spread, result-status differences, and uncertainty flags and will explain them in my remarks",
+    )
+
+    def __init__(self, *args, process=None, user=None, requires_disagreement_ack=False, **kwargs):
+        self.process = process
+        self.user = user
+        self.requires_disagreement_ack = requires_disagreement_ack
+        super().__init__(*args, **kwargs)
+        self.fields["acknowledge_disagreement"].required = self.requires_disagreement_ack
+        if not self.requires_disagreement_ack:
+            self.fields.pop("acknowledge_disagreement")
+        apply_field_classes(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        _require_active_user(self.user, "An active chemist reviewer is required.")
+        _require_permission(self.user, "ca.review_chemical_analysis", "You do not have permission to review the laboratory comparison.")
+        if self.process is None:
+            raise ValidationError("The chemical analysis process is required.")
+        if self.process.status != ChemicalAnalysisProcess.WorkflowStatus.QA:
+            raise ValidationError("The process must remain in chemist review during laboratory comparison.")
+        if self.process.is_analysis_performer(self.user):
+            raise ValidationError("The analyst who performed the analysis cannot finalize its chemist comparison.")
+        referrals = self.process.interlaboratory_referrals.all()
+        if not referrals.exists():
+            raise ValidationError("No independent laboratory referrals were recorded for this process.")
+        if referrals.exclude(status=ChemicalLabReferral.Status.COMPLETED).exists():
+            raise ValidationError("Wait for every referred laboratory to submit its complete result set.")
+        if self.process.workflow_events.filter(event_type="interlaboratory_consensus_recorded").exists():
+            raise ValidationError("The interlaboratory comparison has already been finalized.")
+        if self.requires_disagreement_ack and not cleaned.get("acknowledge_disagreement"):
+            self.add_error("acknowledge_disagreement", "Acknowledge the configured between-laboratory tolerance alert before finalizing.")
+        return cleaned
+
+
+class ChemicalMethodQCForm(forms.Form):
+    """Collect method-configured QC checks before chemist review."""
+
+    def __init__(self, *args, process=None, user=None, **kwargs):
+        self.process = process
+        self.user = user
+        self.controls = []
+        super().__init__(*args, **kwargs)
+        if process is not None:
+            specifications = list(process.required_specifications().select_related("method"))
+            seen = set()
+            for parameter in specifications:
+                if not parameter.method_id:
+                    continue
+                plan = ChemicalMethodQualityPlan.current_for(parameter.method, process.batch.treatment_plant)
+                if not plan:
+                    continue
+                for control in plan.controls.filter(is_active=True).order_by("pk"):
+                    identity = (control.pk, parameter.pk)
+                    if identity in seen:
+                        continue
+                    seen.add(identity)
+                    suffix = f"{control.pk}_{parameter.pk}"
+                    self.fields[f"observed_{suffix}"] = forms.DecimalField(
+                        required=control.required,
+                        max_digits=24,
+                        decimal_places=12,
+                        label=f"{parameter.parameter_name} · {control.label} ({parameter.unit})",
+                        help_text=(
+                            f"Acceptance: {control.acceptance_min if control.acceptance_min is not None else '—'} to "
+                            f"{control.acceptance_max if control.acceptance_max is not None else '—'}; "
+                            f"{control.corrective_instruction or 'Investigate any failed control before releasing results.'}"
+                        ),
+                    )
+                    self.fields[f"remarks_{suffix}"] = forms.CharField(
+                        required=False,
+                        max_length=1000,
+                        label=f"{control.label} notes",
+                    )
+                    if control.check_type == ChemicalMethodQCControl.CheckType.INSTRUMENT:
+                        try:
+                            from .inventory_instruments import inventory_equipment_queryset
+                            equipment = inventory_equipment_queryset(process.batch.treatment_plant_id)
+                        except Exception:
+                            equipment = None
+                        self.fields[f"inventory_equipment_{suffix}"] = InventoryEquipmentChoiceField(
+                            queryset=equipment if equipment is not None else BatchTestResult._meta.get_field("inventory_equipment").remote_field.model.objects.none(),
+                            required=True,
+                            label=f"{control.label} Inventory equipment",
+                        )
+                    self.controls.append((control, parameter, suffix))
+        self.fields["confirm"] = forms.BooleanField(required=True, label="Confirm that all configured QC checks are recorded")
+        apply_field_classes(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        _require_active_user(self.user, "An active analyst is required to record method QC.")
+        _require_permission(self.user, "ca.record_chemical_result", "You do not have permission to record analytical QC.")
+        if self.process is None or self.process.status not in {ChemicalAnalysisProcess.WorkflowStatus.QA, ChemicalAnalysisProcess.WorkflowStatus.RETEST}:
+            raise ValidationError("Method QC can only be recorded after analysis or a retest is complete.")
+        if not self.process.is_authorized_analyst(self.user):
+            raise ValidationError("Only an assigned analyst may record QC for this analysis.")
+        entries = []
+        for control, parameter, suffix in self.controls:
+            observed = cleaned.get(f"observed_{suffix}")
+            if observed is None:
+                if control.required:
+                    self.add_error(f"observed_{suffix}", "This configured QC check is required.")
+                continue
+            result = BatchTestResult.objects.filter(batch=self.process.batch, parameter=parameter).first()
+            comparison = result.value if result else None
+            if control.evaluation == ChemicalMethodQCControl.Evaluation.RECOVERY_PERCENT:
+                if control.check_type == ChemicalMethodQCControl.CheckType.REFERENCE:
+                    denominator = control.target_value
+                    comparison = denominator
+                else:
+                    denominator = control.spike_amount
+                    comparison = result.value if result else None
+                    if comparison is None:
+                        self.add_error(f"observed_{suffix}", "The matrix spike needs a recorded base result for this parameter.")
+                        continue
+                    observed = observed - comparison
+                if not denominator:
+                    self.add_error(f"observed_{suffix}", "A configured positive QC target or spike amount is required.")
+                    continue
+                evaluated = observed / denominator * Decimal("100")
+            elif control.evaluation == ChemicalMethodQCControl.Evaluation.RPD_PERCENT:
+                if comparison is None:
+                    self.add_error(f"observed_{suffix}", "The duplicate check needs a recorded base result for this parameter.")
+                    continue
+                mean = (abs(observed) + abs(comparison)) / Decimal("2")
+                evaluated = Decimal("0") if mean == 0 else abs(observed - comparison) / mean * Decimal("100")
+            else:
+                evaluated = observed
+            passed = (control.acceptance_min is None or evaluated >= control.acceptance_min) and (control.acceptance_max is None or evaluated <= control.acceptance_max)
+            entries.append({
+                "control": control,
+                "parameter": parameter,
+                "observed_value": cleaned.get(f"observed_{suffix}"),
+                "evaluated_value": evaluated,
+                "comparison_value": comparison,
+                "status": ChemicalQCCheckResult.Status.PASS if passed else ChemicalQCCheckResult.Status.FAIL,
+                "remarks": (cleaned.get(f"remarks_{suffix}") or "").strip(),
+                "inventory_equipment": cleaned.get(f"inventory_equipment_{suffix}"),
+            })
+        self.qc_entries = entries
         return cleaned
 
 
@@ -3334,6 +3777,37 @@ class CoAGenerationForm(forms.Form):
                     "The analysis must be complete before the CoA is generated."
                 )
 
+        return cleaned
+
+
+class KEBSReferralForm(forms.Form):
+    confirm_dispatch = forms.BooleanField(required=True, label="Confirm that the failed chemical and its Certificate of Analysis are being forwarded to KEBS")
+    kebs_reference = forms.CharField(required=False, max_length=120, label="KEBS case / reference number")
+    dispatch_method = forms.CharField(required=True, max_length=80, label="Dispatch method")
+    shipment_reference = forms.CharField(required=False, max_length=120, label="Courier, consignment, or handover reference")
+    assignable_cause = forms.CharField(required=True, max_length=3000, label="Summary of investigation and failure cause", widget=forms.Textarea(attrs={"rows": 3}))
+    remarks = forms.CharField(required=True, min_length=5, max_length=3000, label="KEBS referral remarks and requested assessment", widget=forms.Textarea(attrs={"rows": 3}))
+    evidence = forms.FileField(required=False, label="Dispatch or handover evidence")
+
+    def __init__(self, *args, process=None, user=None, batch=None, **kwargs):
+        self.process = process
+        self.user = user
+        self.batch = batch or getattr(process, "batch", None)
+        super().__init__(*args, **kwargs)
+        apply_field_classes(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        _require_active_user(self.user, "An authenticated user is required to forward the batch to KEBS.")
+        _require_permission(self.user, "ca.reject_chemical_batch", "You do not have permission to record the failed-batch KEBS handoff.")
+        if self.process is None or self.batch is None or not self.process.failed_tests.exists():
+            raise ValidationError("A failed final analysis is required before forwarding a chemical batch to KEBS.")
+        _validate_plant_access(self.user, self.batch.treatment_plant)
+        coa = ChemicalCoA.objects.filter(batch=self.batch, pdf_file__isnull=False).first()
+        if coa is None or not coa.pdf_file:
+            raise ValidationError("Generate the failed-result Certificate of Analysis before forwarding this chemical to KEBS.")
+        if not (cleaned.get("assignable_cause") or "").strip():
+            self.add_error("assignable_cause", "Summarize the known or suspected cause of the failure.")
         return cleaned
 
 
@@ -3860,15 +4334,11 @@ class ChemicalDashboardActionForm(forms.Form):
         ),
         (
             "qa_review",
-            "QA review",
+            "Chemist review",
         ),
         (
             "capa",
             "CAPA",
-        ),
-        (
-            "approve",
-            "Approve",
         ),
         (
             "reject",
@@ -4521,6 +4991,6 @@ class AnalystAutoAssignmentForm(forms.Form):
             raise ValidationError("An analysis request is required before analyst assignment.")
         request = self.process.analysis_request
         if not request.assignment_overdue:
-            raise ValidationError("Automatic analyst assignment is not yet due.")
+            raise ValidationError("An analyst is already assigned to this request.")
         _validate_plant_access(self.user, self.process.treatment_plant)
         return cleaned

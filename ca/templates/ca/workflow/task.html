@@ -6,6 +6,7 @@
 {% block extra_styles %}
     {{ block.super }}
     <link rel="stylesheet" href="{% static 'ca/css/components/advanced-forms.css' %}?v=20261020-focused-form">
+    <link rel="stylesheet" href="{% static 'ca/css/components/interlaboratory.css' %}?v=20261030-interlab">
 {% endblock %}
 
 {% block accounts_content %}
@@ -50,6 +51,55 @@
             </div>
             <span class="ca-required-note"><span aria-hidden="true">*</span> Required</span>
         </div>
+
+        {% if interlab_referrals %}
+            <section class="ca-interlab-review" aria-label="Independent laboratory results">
+                <h3>Participating treatment-plant laboratories</h3>
+                <div class="ca-interlab-referrals">
+                    {% for referral in interlab_referrals %}
+                        <article class="ca-context-chip">
+                            <strong>{{ referral.treatment_plant.name }}</strong>
+                            <span>{{ referral.get_status_display }}</span>
+                            {% if referral.submitted_at %}<small>{{ referral.submitted_at|date:"Y-m-d H:i" }} · {{ referral.submitted_by }}</small>{% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+                {% if interlab_pending %}
+                    <p class="ca-form-help">Refresh this task after the pending laboratory submissions arrive. Comparison and certificate generation stay at {{ batch.treatment_plant.name }}.</p>
+                {% elif interlab_comparison %}
+                    <div class="ca-interlab-comparison">
+                        {% for item in interlab_comparison %}
+                            <article class="ca-interlab-parameter">
+                                <h4>{{ item.parameter.parameter_name }} <small>{{ item.parameter.unit }}</small></h4>
+                                <p class="ca-form-help">Decision rule: {{ item.consensus_rule|cut:"_"|lower }} · between-lab spread {{ item.spread|default:"—" }} {{ item.parameter.unit }}{% if item.spread_percent != None %} ({{ item.spread_percent }}%){% endif %}</p>
+                                <div class="ca-interlab-labs">
+                                    {% for lab in item.laboratories %}
+                                        <div><strong>{{ lab.plant.name }}</strong><span>{% if lab.mean != None %}Lab mean {{ lab.mean }}{% else %}Qualitative result{% endif %}</span><span>Laboratory outcome: {{ lab.status }}</span>{% for reading in lab.readings %}<small>Run {{ reading.run_number }}: {{ reading.value|default:reading.textual_result }} · {{ reading.status }} · {{ reading.analyst|default:"Unknown analyst" }} · {{ reading.recorded_at|date:"Y-m-d H:i" }}</small>{% endfor %}<small>Standard uncertainty: {{ lab.standard_uncertainty|default:"Not established" }}</small></div>
+                                    {% endfor %}
+                                </div>
+                                <p><strong>Final {% if item.numeric_average %}average{% else %}outcome{% endif %}:</strong> {% if item.mean != None %}{{ item.mean }} {{ item.parameter.unit }}{% else %}{{ item.status }}{% endif %} · {{ item.status }}</p>
+                                <p>Expanded uncertainty: {% if item.expanded_uncertainty != None %}±{{ item.expanded_uncertainty }} {{ item.parameter.unit }} (k={{ item.coverage_factor }}){% else %}insufficient reading uncertainty data{% endif %}</p>
+                                {% if item.tolerance_breached %}<p class="ca-form-error-summary" role="alert">The laboratory spread exceeded the configured tolerance. Record and acknowledge the discrepancy in your chemist remarks.</p>{% endif %}
+                                {% if item.status_disagreement %}<p class="ca-form-error-summary" role="alert">Individual run outcomes or laboratory statuses disagree. Review the original readings and document the disposition.</p>{% endif %}
+                                {% if item.mean_fallback %}<p class="ca-form-error-summary" role="alert">The configured uncertainty weighted calculation could not be used. The system used equal laboratory means and requires documented chemist review.</p>{% endif %}
+                            </article>
+                        {% endfor %}
+                    </div>
+                    {% if interlab_attention %}<p class="ca-form-help">A flagged spread or incomplete uncertainty blocks finalization until it is acknowledged and explained.</p>{% endif %}
+                {% endif %}
+            </section>
+        {% endif %}
+
+        {% if qc_controls %}
+            <section class="ca-interlab-review" aria-label="Method quality controls">
+                <h3>Configured method QC checks</h3>
+                <div class="ca-interlab-referrals">
+                    {% for control, parameter, suffix in qc_controls %}
+                        <article class="ca-context-chip"><strong>{{ parameter.parameter_name }} · {{ control.label }}</strong><span>{{ control.get_check_type_display }} · {{ control.get_evaluation_display }}</span><small>Acceptance {{ control.acceptance_min|default:"—" }} to {{ control.acceptance_max|default:"—" }} · warning {{ control.warning_sigma }}σ</small><small>{{ control.corrective_instruction }}</small></article>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
 
         {% if formula_result %}
             <div class="ca-form-context" aria-label="Automated result setup">
@@ -145,8 +195,8 @@
                             <i class="fa-solid fa-flask-vial" aria-hidden="true"></i> Confirm complete checklist and start analysis
                         </button>
                     {% else %}
-                        <button type="submit" class="ca-form-button ca-form-button--primary"{% if formula_setup_error %} disabled aria-disabled="true"{% endif %}>
-                            {% if formula_result %}<i class="fa-solid fa-calculator" aria-hidden="true"></i> Calculate, evaluate and continue{% else %}<i class="fa-solid fa-check" aria-hidden="true"></i> Save and continue{% endif %}
+                        <button type="submit" class="ca-form-button ca-form-button--primary"{% if formula_setup_error or interlab_pending %} disabled aria-disabled="true"{% endif %}>
+                            {% if formula_result %}<i class="fa-solid fa-calculator" aria-hidden="true"></i> Calculate, evaluate and continue{% elif flow_task.name == "interlaboratory_review" %}<i class="fa-solid fa-scale-balanced" aria-hidden="true"></i> Finalize comparison and continue to certificate{% else %}<i class="fa-solid fa-check" aria-hidden="true"></i> Save and continue{% endif %}
                         </button>
                     {% endif %}
                 </div>

@@ -15,7 +15,11 @@ from django.utils import timezone
 class WaterFilterSerializer(serializers.ModelSerializer):
     class Meta:
         model = WaterFilter
-        fields = ['id', 'name', 'status']
+        fields = [
+            'id', 'name', 'capacity', 'flow_rate',
+            'capacity_utilization_percent', 'status',
+        ]
+        read_only_fields = ['capacity_utilization_percent', 'status']
 
 
 class FilteredWaterLimitSerializer(serializers.ModelSerializer):

@@ -8,12 +8,15 @@ from typing import Optional, Dict, Any, List
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from core.plant_section_scope import scoped_queryset, user_plant_section
 
 from t.models import TreatmentPlant
 from sc.models import (
+    AnnualLeave,
     Shift,
     ShiftHandover,
     ShiftAssignment,
+    ShiftSectionRequirement,
     ShiftSupervisor,
     Apparatus,
     ApparatusCondition
@@ -77,13 +80,14 @@ def ensure_default_shifts(plant: TreatmentPlant) -> List[Shift]:
     return created_shifts
 
 
-def get_next_shift(current_shift: Shift, plant: TreatmentPlant) -> Optional[Shift]:
+def get_next_shift(current_shift: Shift, plant: TreatmentPlant, section_id=None) -> Optional[Shift]:
     """
     Finds the next shift following the current shift in rotation.
     """
-    shifts = list(
-        Shift.objects.filter(treatment_plant=plant, is_deleted=False).order_by("start_time")
-    )
+    shifts_qs = Shift.objects.filter(treatment_plant=plant, is_deleted=False)
+    if section_id:
+        shifts_qs = shifts_qs.filter(section_requirements__section_id=section_id).distinct()
+    shifts = list(shifts_qs.order_by("start_time"))
     if not shifts:
         return None
 
@@ -136,11 +140,15 @@ def get_current_shift_data(user, request=None) -> Dict[str, Any]:
     Returns complete shift telemetry and supervisor info for the active user session.
     """
     # 1. Resolve Treatment Plant
+    is_superuser = bool(getattr(user, "is_superuser", False))
+    plant_id, section_id = user_plant_section(user)
     plant = getattr(user, "assigned_treatment_plant", None)
-    if not plant:
+    if not plant and is_superuser:
         plant = TreatmentPlant.objects.filter(code="NGH").first() or TreatmentPlant.objects.first()
+    elif not plant and plant_id:
+        plant = TreatmentPlant.objects.filter(pk=plant_id).first()
 
-    if not plant:
+    if not plant or (not is_superuser and not section_id):
         return {
             "plant": None,
             "current_shift": None,
@@ -151,25 +159,39 @@ def get_current_shift_data(user, request=None) -> Dict[str, Any]:
         }
 
     # 2. Ensure shifts exist
-    shifts = ensure_default_shifts(plant)
+    shifts = ensure_default_shifts(plant) if is_superuser else list(
+        Shift.objects.filter(treatment_plant=plant, is_deleted=False).order_by("start_time")
+    )
+    if not is_superuser:
+        shifts = [
+            shift for shift in shifts
+            if ShiftSectionRequirement.objects.filter(shift_id=shift.pk, section_id=section_id).exists()
+        ]
 
     # 3. Get current shift
     now = timezone.localtime()
     current_shift = Shift.get_shift_for_time(now, treatment_plant=plant)
+    if not is_superuser and current_shift not in shifts:
+        current_shift = None
     if not current_shift and shifts:
         current_shift = shifts[0]
 
     # 4. Get next shift in rotation
-    next_shift = get_next_shift(current_shift, plant) if current_shift else None
+    next_shift = get_next_shift(current_shift, plant, None if is_superuser else section_id) if current_shift else None
 
     # 5. Resolve active Shift Supervisor
     supervisor = None
+    unavailable_ids = set(AnnualLeave.objects.filter(
+        status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+        start_date__lte=now.date(),
+        end_date__gte=now.date(),
+    ).values_list("staff_id", flat=True))
     if current_shift:
         # Check if handover already occurred today
         latest_handover = (
-            ShiftHandover.objects
+            scoped_queryset(ShiftHandover.objects
             .filter(shift=current_shift, date=now.date())
-            .order_by("-handed_over_at")
+            .order_by("-handed_over_at"), user)
             .first()
         )
         if latest_handover and latest_handover.is_taken_over and latest_handover.incoming_supervisor:
@@ -177,33 +199,50 @@ def get_current_shift_data(user, request=None) -> Dict[str, Any]:
         elif latest_handover and latest_handover.outgoing_supervisor:
             supervisor = latest_handover.outgoing_supervisor
 
+        if supervisor and AnnualLeave.is_unavailable(supervisor.pk, now.date()):
+            supervisor = None
+
         if not supervisor:
             # Check shift assignment for today
-            assignment = (
-                ShiftAssignment.objects
-                .filter(shift=current_shift, date=now.date(), is_deleted=False)
-                .exclude(supervisor=None)
-                .first()
+            assignment_queryset = scoped_queryset(
+                ShiftAssignment.objects.filter(
+                    shift=current_shift,
+                    date=now.date(),
+                    is_deleted=False,
+                ).exclude(supervisor=None),
+                user,
             )
+            assignment = assignment_queryset.first()
             if assignment:
                 supervisor = assignment.effective_supervisor
+                if supervisor and AnnualLeave.is_unavailable(supervisor.pk, now.date()):
+                    supervisor = None
 
         if not supervisor:
             # Check designated plant ShiftSupervisor (prefer matching user section)
             user_section = getattr(user, "section", None)
             shift_sup = None
             if user_section:
+                shift_sup = scoped_queryset(ShiftSupervisor.objects.filter(
+                    treatment_plant=plant,
+                    section=user_section,
+                    user__assigned_treatment_plant_id=plant.pk,
+                    user__section_id=section_id,
+                    is_active=True,
+                ).exclude(
+                    user_id__in=unavailable_ids
+                ), user).first()
+            if not shift_sup and is_superuser:
                 shift_sup = ShiftSupervisor.objects.filter(
-                    treatment_plant=plant, section=user_section, is_active=True
-                ).first()
-            if not shift_sup:
-                shift_sup = ShiftSupervisor.objects.filter(treatment_plant=plant, is_active=True).first()
+                    treatment_plant=plant,
+                    is_active=True,
+                ).exclude(user_id__in=unavailable_ids).order_by("user_id").first()
             if shift_sup:
                 supervisor = shift_sup.user
 
         if not supervisor:
             # Fallback to active staff user if staff/superuser
-            if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):
+            if (is_superuser or (user.assigned_treatment_plant_id == plant.pk and section_id)) and not AnnualLeave.is_unavailable(user.pk, now.date()):
                 supervisor = user
 
     # 6. Handover window check
@@ -211,7 +250,7 @@ def get_current_shift_data(user, request=None) -> Dict[str, Any]:
 
     is_window_active = window_data["is_active"]
     # Allow superusers / staff to initiate handover for testing/admin purposes
-    if getattr(user, "is_superuser", False):
+    if is_superuser:
         is_window_active = True
 
     return {
@@ -230,10 +269,18 @@ def user_belongs_to_shift(user, shift: Shift, target_date: Optional[date] = None
     Checks if a user belongs to the specified shift.
     Superusers automatically have cross-shift authorization.
     """
+    target_date = target_date or timezone.localdate()
+    if AnnualLeave.is_unavailable(user.pk, target_date):
+        return False
     if getattr(user, "is_superuser", False):
         return True
 
-    target_date = target_date or timezone.localdate()
+    if (
+        not user.section_id
+        or user.assigned_treatment_plant_id != shift.treatment_plant_id
+        or not ShiftSectionRequirement.objects.filter(shift_id=shift.pk, section_id=user.section_id).exists()
+    ):
+        return False
 
     # 1. Direct ShiftAssignment
     has_assignment = ShiftAssignment.objects.filter(
@@ -259,6 +306,7 @@ def user_belongs_to_shift(user, shift: Shift, target_date: Optional[date] = None
     is_plant_supervisor = ShiftSupervisor.objects.filter(
         user=user,
         treatment_plant=shift.treatment_plant,
+        section_id=user.section_id,
         is_active=True
     ).exists()
     if is_plant_supervisor:
@@ -273,28 +321,36 @@ def user_belongs_to_shift(user, shift: Shift, target_date: Optional[date] = None
     ).count()
 
     if total_assignments_for_date == 0:
-        if getattr(user, "assigned_treatment_plant_id", None) == shift.treatment_plant_id:
-            return True
-        if user.is_staff:
+        if user.assigned_treatment_plant_id == shift.treatment_plant_id and user.section_id:
             return True
 
     return False
 
 
-def get_eligible_supervisors_for_shift(shift: Shift, target_date: Optional[date] = None) -> List[User]:
+def get_eligible_supervisors_for_shift(shift: Shift, target_date: Optional[date] = None, section_id=None, allow_cross_scope=False) -> List[User]:
     """
     Returns users who belong to the target shift and can take over or hand over.
     """
     target_date = target_date or timezone.localdate()
     eligible = set()
+    if not section_id and not allow_cross_scope:
+        return []
+    unavailable_ids = set(AnnualLeave.objects.filter(
+        status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+        start_date__lte=target_date,
+        end_date__gte=target_date,
+    ).values_list("staff_id", flat=True))
 
     # 1. Staff assigned to this shift today
-    assigned_staff_ids = ShiftAssignment.objects.filter(
+    assigned_staff_qs = ShiftAssignment.objects.filter(
         shift=shift,
         date=target_date,
         is_deleted=False
-    ).values_list("staff_id", flat=True)
-    for u in User.objects.filter(id__in=assigned_staff_ids, is_active=True):
+    )
+    if section_id:
+        assigned_staff_qs = assigned_staff_qs.filter(staff__assigned_treatment_plant_id=shift.treatment_plant_id, staff__section_id=section_id)
+    assigned_staff_ids = assigned_staff_qs.values_list("staff_id", flat=True)
+    for u in User.objects.filter(id__in=assigned_staff_ids, is_active=True).exclude(pk__in=unavailable_ids):
         eligible.add(u)
 
     # 2. Supervisors assigned to this shift today
@@ -302,15 +358,22 @@ def get_eligible_supervisors_for_shift(shift: Shift, target_date: Optional[date]
         shift=shift,
         date=target_date,
         is_deleted=False
-    ).exclude(supervisor=None).values_list("supervisor_id", flat=True)
-    for u in User.objects.filter(id__in=supervisor_ids, is_active=True):
+    ).exclude(supervisor=None)
+    if section_id:
+        supervisor_ids = supervisor_ids.filter(supervisor__assigned_treatment_plant_id=shift.treatment_plant_id, supervisor__section_id=section_id)
+    supervisor_ids = supervisor_ids.values_list("supervisor_id", flat=True)
+    for u in User.objects.filter(id__in=supervisor_ids, is_active=True).exclude(pk__in=unavailable_ids):
         eligible.add(u)
 
     # 3. Designated plant shift supervisors
     plant_supervisors = ShiftSupervisor.objects.filter(
         treatment_plant=shift.treatment_plant,
         is_active=True
-    ).select_related("user")
+    ).exclude(user_id__in=unavailable_ids).select_related("user")
+    if section_id:
+        plant_supervisors = plant_supervisors.filter(section_id=section_id, user__section_id=section_id)
+    elif not allow_cross_scope:
+        plant_supervisors = plant_supervisors.none()
     for ps in plant_supervisors:
         eligible.add(ps.user)
 
@@ -319,32 +382,40 @@ def get_eligible_supervisors_for_shift(shift: Shift, target_date: Optional[date]
         plant_users = User.objects.filter(
             assigned_treatment_plant=shift.treatment_plant,
             is_active=True
-        )
+        ).exclude(pk__in=unavailable_ids)
+        if section_id:
+            plant_users = plant_users.filter(section_id=section_id)
         for u in plant_users:
             eligible.add(u)
 
-    # Always include superusers as overseers
-    superusers = User.objects.filter(is_superuser=True, is_active=True)
-    for su in superusers:
-        eligible.add(su)
+    if allow_cross_scope:
+        superusers = User.objects.filter(is_superuser=True, is_active=True).exclude(pk__in=unavailable_ids)
+        for su in superusers:
+            eligible.add(su)
 
     return sorted(list(eligible), key=lambda u: (not u.is_superuser, u.get_full_name() or u.username))
 
 
-def seed_default_apparatus_if_needed(plant: TreatmentPlant) -> List[Apparatus]:
+def seed_default_apparatus_if_needed(plant: TreatmentPlant, section_id=None) -> List[Apparatus]:
     """
     Ensures baseline equipment and apparatus exist for the handover checklist.
     """
     from core.models import Section
     from inventory.models import Category, Equipment
 
-    existing = list(Apparatus.objects.all())
+    existing_qs = Apparatus.objects.filter(equipment__section__treatment_plant=plant)
+    if section_id:
+        existing_qs = existing_qs.filter(equipment__section_id=section_id)
+    existing = list(existing_qs)
     if existing:
         return existing
 
-    section = Section.objects.first()
+    section_qs = Section.objects.filter(treatment_plant=plant)
+    if section_id:
+        section_qs = section_qs.filter(pk=section_id)
+    section = section_qs.order_by("name").first()
     if not section:
-        section = Section.objects.create(name="Quality Assurance & Operations")
+        return []
 
     category, _ = Category.objects.get_or_create(
         name="Laboratory & Operations Apparatus",

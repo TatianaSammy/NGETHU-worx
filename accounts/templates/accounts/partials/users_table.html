@@ -127,7 +127,7 @@
                     <div class="card-body">
                         <small class="text-muted">Total Users</small>
                         <h2 class="fw-bold mb-0">
-                            {{ users|length }}
+                            {{ total_users_count }}
                         </h2>
                     </div>
                 </div>
@@ -177,7 +177,8 @@
 
     <div class="card-body border-bottom">
 
-        <form method="get">
+        <form method="get" action="{% url 'accounts:dashboard' %}" data-dashboard-form>
+            <input type="hidden" name="tab" value="users">
 
             <div class="row g-3">
 
@@ -201,11 +202,11 @@
                     >
                         <option value="">All Statuses</option>
 
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                        <option value="locked">Locked</option>
-                        <option value="staff">Staff</option>
-                        <option value="mfa">MFA Enabled</option>
+                        <option value="active" {% if request.GET.status == "active" %}selected{% endif %}>Active</option>
+                        <option value="inactive" {% if request.GET.status == "inactive" %}selected{% endif %}>Inactive</option>
+                        <option value="locked" {% if request.GET.status == "locked" %}selected{% endif %}>Locked</option>
+                        <option value="staff" {% if request.GET.status == "staff" %}selected{% endif %}>Staff</option>
+                        <option value="mfa" {% if request.GET.status == "mfa" %}selected{% endif %}>MFA Enabled</option>
                     </select>
 
                 </div>
@@ -225,6 +226,7 @@
                             {% for section in sections %}
                             <option
                                 value="{{ section.pk }}"
+                                {% if request.GET.section == section.pk|stringformat:"s" %}selected{% endif %}
                             >
                                 {{ section }}
                             </option>
@@ -237,9 +239,6 @@
                             href="{% url 'core:section_create' %}"
                             class="btn btn-outline-success"
                             title="Add Section"
-                            data-bs-toggle="modal"
-                            data-bs-target="#sectionModal"
-                            data-url="{% url 'core:section_create' %}"
                         >
                             <i class="fa fa-plus"></i>
                         </a>
@@ -264,6 +263,7 @@
                             {% for plant in plants %}
                             <option
                                 value="{{ plant.pk }}"
+                                {% if request.GET.plant == plant.pk|stringformat:"s" %}selected{% endif %}
                             >
                                 {{ plant }}
                             </option>
@@ -309,7 +309,7 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap">
 
             <small class="text-muted">
-                {{ users|length }} user{{ users|pluralize }} found
+                {{ total_users_count }} user{{ total_users_count|pluralize }} found
             </small>
 
             {% if request.user.is_superuser %}
@@ -573,11 +573,15 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap">
 
             <small class="text-muted">
-                Showing {{ users|length }} user{{ users|pluralize }}
+                Showing {{ users|length }} on this page of {{ total_users_count }} user{{ total_users_count|pluralize }}
             </small>
 
             {% if is_paginated %}
-                {% include "partials/pagination.html" %}
+                <nav class="d-flex align-items-center gap-2" aria-label="User directory pages">
+                    {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" data-dashboard-page href="?tab=users&amp;page={{ page_obj.previous_page_number }}&amp;search={{ request.GET.search|urlencode }}&amp;status={{ request.GET.status|urlencode }}&amp;section={{ request.GET.section|urlencode }}&amp;plant={{ request.GET.plant|urlencode }}">Previous</a>{% endif %}
+                    <span class="small text-muted">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+                    {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" data-dashboard-page href="?tab=users&amp;page={{ page_obj.next_page_number }}&amp;search={{ request.GET.search|urlencode }}&amp;status={{ request.GET.status|urlencode }}&amp;section={{ request.GET.section|urlencode }}&amp;plant={{ request.GET.plant|urlencode }}">Next</a>{% endif %}
+                </nav>
             {% endif %}
 
         </div>

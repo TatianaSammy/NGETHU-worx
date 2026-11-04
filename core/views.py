@@ -13,6 +13,7 @@ from django.db.models import Q
 from django.db.models.fields.related import ForeignKey, OneToOneField, ManyToManyField
 from core.mixins import WanjalaMixin
 from core.registry import registry
+from core.plant_section_scope import object_in_scope, scoped_queryset
 from django.template.loader import render_to_string
 from django.http import (JsonResponse,HttpResponse,Http404,)
 
@@ -174,6 +175,12 @@ class NAMUBUYA(WanjalaMixin, View):
                 rel_model = field.related_model
                 rel_app = rel_model._meta.app_label
                 rel_name = rel_model._meta.model_name
+                if (
+                    related_obj is not None
+                    and rel_app in {"sc", "weeklytasks"}
+                    and not object_in_scope(related_obj, self.request.user, allow_global_read=True)
+                ):
+                    continue
 
                 fk_relations.append({
                     "name": field.name,
@@ -200,6 +207,8 @@ class NAMUBUYA(WanjalaMixin, View):
             rel_name = rel_model._meta.model_name
 
             qs = related_manager.all()
+            if rel_app in {"sc", "weeklytasks"}:
+                qs = scoped_queryset(qs, self.request.user)
             qs = qs.select_related() if hasattr(qs, "select_related") else qs
 
             fields = [
@@ -324,6 +333,34 @@ class NAMUBUYA(WanjalaMixin, View):
 
     def _authorize(self, action: str):
         if (
+            self.model._meta.app_label == "sc"
+            and self.model._meta.model_name == "monthlydutyroster"
+            and action not in {"list", "detail", "export"}
+            and not self.request.user.is_superuser
+        ):
+            raise PermissionDenied("Monthly duty rosters are plant-wide; only a superuser can change them.")
+        if (
+            self.model._meta.app_label == "sc"
+            and self.model._meta.model_name == "shift"
+            and not self.request.user.is_superuser
+        ):
+            if action in {"delete", "bulk_delete"}:
+                raise PermissionDenied("Only a superuser can delete treatment plant shifts.")
+            if action in {"update", "inline_edit"}:
+                shift = self._obj(self._ctx(action))
+                section_id = getattr(self.request.user, "section_id", None)
+                if shift.section_requirements.exclude(section_id=section_id).exists():
+                    raise PermissionDenied("Only a superuser can change a shift shared across treatment plant sections.")
+            elif action not in {"list", "detail", "export", "create"}:
+                raise PermissionDenied("Only a superuser can run this action on a treatment plant shift.")
+        if (
+            self.model._meta.app_label in {"sc", "weeklytasks"}
+            and self.model._meta.model_name == "standardweeklytask"
+            and action not in {"list", "detail", "export"}
+            and not self.request.user.is_superuser
+        ):
+            raise PermissionDenied("Only a superuser can change the shared task library.")
+        if (
             self.model._meta.app_label == "ca"
             and self.request.user.is_superuser
             and action in {"delete", "bulk_delete"}
@@ -445,6 +482,11 @@ class NAMUBUYA(WanjalaMixin, View):
                     val = getattr(instance, f.name, None)
                     if val is None:
                         continue
+                    if (
+                        rel_model._meta.app_label in {"sc", "weeklytasks"}
+                        and not object_in_scope(val, request.user, allow_global_read=True)
+                    ):
+                        continue
 
                     graph.append({
                         "type": "fk",
@@ -479,6 +521,8 @@ class NAMUBUYA(WanjalaMixin, View):
                         continue
 
                     qs = manager.all()
+                    if rel_model._meta.app_label in {"sc", "weeklytasks"}:
+                        qs = scoped_queryset(qs, request.user)
 
                     if config.get("relation_limit"):
                         qs = qs[:config["relation_limit"]]
@@ -611,7 +655,7 @@ class NAMUBUYA(WanjalaMixin, View):
         ids = ctx["request"].POST.getlist("ids")
 
         with transaction.atomic():
-            queryset = self.model.objects.filter(pk__in=ids)
+            queryset = self._qs(ctx).filter(pk__in=ids)
             if ctx["request"].user.is_superuser:
                 from core.engine.superuser_authorization import force_delete_objects
 
@@ -643,6 +687,11 @@ class NAMUBUYA(WanjalaMixin, View):
             request.FILES or None,
             instance=instance,
         )
+        if self.model._meta.app_label in {"sc", "weeklytasks"} and not request.user.is_superuser:
+            for field in form.fields.values():
+                queryset = getattr(field, "queryset", None)
+                if queryset is not None:
+                    field.queryset = scoped_queryset(queryset, request.user)
 
         is_htmx = request.headers.get("HX-Request") is not None
         is_json = (
@@ -715,8 +764,17 @@ class NAMUBUYA(WanjalaMixin, View):
         # =====================================================
         try:
             with transaction.atomic():
-                obj = form.save()
+                if self.model._meta.app_label in {"sc", "weeklytasks"}:
+                    obj = form.save(commit=False)
+                    if not object_in_scope(obj, request.user):
+                        raise PermissionDenied("This record must remain within your assigned treatment plant and section.")
+                    obj.save()
+                    form.save_m2m()
+                else:
+                    obj = form.save()
 
+        except PermissionDenied as e:
+            return self._error(str(e), 403)
         except Exception as e:
             logger.exception("Form save failed")
 
@@ -807,6 +865,8 @@ class NAMUBUYA(WanjalaMixin, View):
             if self.entry.queryset
             else registry.resolve_queryset(self.model, request, config)
         )
+        if self.model._meta.app_label in {"sc", "weeklytasks"}:
+            qs = scoped_queryset(qs, request.user)
 
         search = request.GET.get("search")
         if search:
@@ -1006,8 +1066,10 @@ class NAMUBUYA(WanjalaMixin, View):
                         value = value  # optionally parse ISO if needed
 
                     elif isinstance(field_obj, models.ForeignKey):
-                        # FK safety: assign by ID only
-                        value = field_obj.remote_field.model.objects.get(pk=value)
+                        related_queryset = field_obj.remote_field.model.objects.all()
+                        if self.model._meta.app_label in {"sc", "weeklytasks"}:
+                            related_queryset = scoped_queryset(related_queryset, request.user)
+                        value = related_queryset.get(pk=value)
 
                 except Exception as e:
                     return self._error(f"Invalid value type: {str(e)}", 400)
@@ -1017,6 +1079,11 @@ class NAMUBUYA(WanjalaMixin, View):
                 try:
                     with transaction.atomic():
                         setattr(instance, field_name, value)
+                        if (
+                            self.model._meta.app_label in {"sc", "weeklytasks"}
+                            and not object_in_scope(instance, request.user, allow_global_read=True)
+                        ):
+                            return self._error("This record must remain within your assigned treatment plant and section.", 403)
                         update_fields = [field_name]
                         if field_name == "value" and hasattr(instance, "entry_status"):
                             instance.entry_status = instance.EntryStatus.RECORDED
@@ -1078,15 +1145,29 @@ class NAMUBUYA(WanjalaMixin, View):
         if action == "update":
 
             Form = registry.build_form(self.model, entry.config)
-            form = Form(request.POST or None, instance=instance)
+            form = Form(request.POST or None, request.FILES or None, instance=instance)
+            if self.model._meta.app_label in {"sc", "weeklytasks"} and not request.user.is_superuser:
+                for field in form.fields.values():
+                    queryset = getattr(field, "queryset", None)
+                    if queryset is not None:
+                        field.queryset = scoped_queryset(queryset, request.user)
 
             if request.method == "POST":
 
                 if form.is_valid():
                     try:
                         with transaction.atomic():
-                            updated = form.save(commit=True)
+                            updated = form.save(commit=False)
+                            if (
+                                self.model._meta.app_label in {"sc", "weeklytasks"}
+                                and not object_in_scope(updated, request.user, allow_global_read=True)
+                            ):
+                                raise PermissionDenied("This record must remain within your assigned treatment plant and section.")
+                            updated.save()
+                            form.save_m2m()
 
+                    except PermissionDenied as e:
+                        return self._error(str(e), 403)
                     except Exception as e:
                         return self._error(str(e), 500)
 

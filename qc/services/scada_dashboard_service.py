@@ -171,7 +171,6 @@ class SCADADashboardService:
         cards_context = ResultCardService.get_context(
             treatment_plant=self.plant,
             selected_date=self.selected_date,
-            dismiss_completed=False,
         )
 
         # Operational dosages and phase chemical concentrations

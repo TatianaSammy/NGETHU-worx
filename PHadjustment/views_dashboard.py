@@ -22,7 +22,7 @@ from t.models import TreatmentPlant, CoagulatedWaterLimit
 from jartest.models import JarTest, JarResult
 from PHadjustment.models import PHAdjustmentTest, PHAdjustmentJarResult
 from PHadjustment.services.reports import build_report_payload, serialize_ph_test
-from qc.models import RawWaterResult, WaterAnalysis, CoagulatedWaterResult, TreatedWaterResult
+from qc.models import RawWaterResult, SamplingSchedule, WaterAnalysis, CoagulatedWaterResult, TreatedWaterResult
 
 logger = logging.getLogger(__name__)
 
@@ -157,12 +157,13 @@ class PHAdjustmentDashboardView(WanjalaMixin, View):
         plant = self.resolve_plant(request)
         return TreatmentPlant.objects.filter(pk=plant.pk) if plant else TreatmentPlant.objects.none()
 
-    def resolve_source_jar(self, plant: TreatmentPlant, test_date: dt_date, user) -> JarResult:
-        """
-        Finds or creates the optimal source jar from JarTest to link this pH adjustment test.
-        """
-        # Look for optimal jar from today's jar test
-        today_jartest = JarTest.objects.filter(treatment_plant=plant, test_date=test_date).first()
+    def resolve_source_jar(self, plant: TreatmentPlant, test_date: dt_date) -> Optional[JarResult]:
+        """Choose a source jar backed by raw water from the selected plant."""
+        today_jartest = JarTest.objects.filter(
+            treatment_plant=plant,
+            raw_water__treatment_plant=plant,
+            test_date=test_date,
+        ).first()
         if today_jartest:
             opt_jar = today_jartest.jar_results.filter(is_optimal=True).first()
             if opt_jar:
@@ -171,48 +172,29 @@ class PHAdjustmentDashboardView(WanjalaMixin, View):
             if first_jar:
                 return first_jar
 
-        # Look for any recent Jar Result
-        any_jar = JarResult.objects.filter(jar_test__treatment_plant=plant).order_by("-jar_test__test_date", "performance_rank").first()
-        if any_jar:
-            return any_jar
-
-        # If none exist at all, instantiate a minimal baseline jar
-        from ca.models import Chemical
-        from o.models import ChemicalCategory
-        from jartest.models import RawWater
-
-        coag = Chemical.objects.filter(categories__category=ChemicalCategory.Category.COAGULANT).first()
-        if not coag:
-            coag = Chemical.objects.create(name="Aluminium Sulphate (Alum)", code="ALUM-STD")
-
-        rw = RawWater.objects.filter(treatment_plant=plant).first()
-        if not rw:
-            rw = RawWater.objects.create(
-                treatment_plant=plant,
-                source_name="Standard River Intake",
-                coagulant=coag,
-                coagulant_concentration_ppm=Decimal("20.00"),
+        return (
+            JarResult.objects.filter(
+                jar_test__treatment_plant=plant,
+                jar_test__raw_water__treatment_plant=plant,
+                jar_test__test_date__lte=test_date,
             )
-
-        jt, _ = JarTest.objects.get_or_create(
-            treatment_plant=plant,
-            test_date=test_date,
-            defaults={"raw_water": rw, "coagulant": coag, "analyst": user if user.is_authenticated else None}
+            .select_related("jar_test", "jar_test__raw_water")
+            .order_by("-jar_test__test_date", "performance_rank", "jar_number")
+            .first()
         )
-        jar, _ = JarResult.objects.get_or_create(
-            jar_test=jt,
-            jar_number=3,
-            defaults={"dosage_mg_per_l": Decimal("18.00"), "is_optimal": True, "performance_rank": 1}
-        )
-        return jar
 
     # =====================================================
     # ORM INITIALIZATION
     # =====================================================
-    def get_or_create_ph_test(self, plant: TreatmentPlant, test_date: dt_date, user) -> PHAdjustmentTest:
-        test = PHAdjustmentTest.objects.filter(treatment_plant=plant, test_date=test_date).first()
+    def get_or_create_ph_test(self, plant: TreatmentPlant, test_date: dt_date, user) -> Optional[PHAdjustmentTest]:
+        test = PHAdjustmentTest.objects.filter(
+            treatment_plant=plant,
+            test_date=test_date,
+        ).select_related("source_jar__jar_test__raw_water").first()
         if not test:
-            source_jar = self.resolve_source_jar(plant, test_date, user)
+            source_jar = self.resolve_source_jar(plant, test_date)
+            if not source_jar:
+                return None
             test = PHAdjustmentTest.objects.create(
                 treatment_plant=plant,
                 source_jar=source_jar,
@@ -220,6 +202,18 @@ class PHAdjustmentDashboardView(WanjalaMixin, View):
                 analyst=user if user and user.is_authenticated else None,
                 remarks="Coagulated water pH stabilization test targeting pH 7.00.",
             )
+        elif (
+            test.source_jar.jar_test.treatment_plant_id != plant.pk
+            or test.source_jar.jar_test.raw_water.treatment_plant_id != plant.pk
+        ):
+            if test.verified_at or test.confirmed_at or test.approved_at:
+                logger.error("pH test source plant mismatch test=%s selected_plant=%s", test.pk, plant.pk)
+                return None
+            source_jar = self.resolve_source_jar(plant, test_date)
+            if not source_jar:
+                return None
+            test.source_jar = source_jar
+            test.save(update_fields=["source_jar"])
 
         # Initialize jars if empty
         if not test.results.exists():
@@ -267,29 +261,48 @@ class PHAdjustmentDashboardView(WanjalaMixin, View):
             return telemetry
 
         try:
-            # Query Raw Water Result for pH
-            raw_res = (
-                RawWaterResult.objects
-                .filter(analysis__treatment_plant=plant)
-                .select_related("parameter__parameter")
-                .order_by("-id")
+            # Use the latest raw-water sample for this plant, bounded by the
+            # selected test date so later samples cannot leak into old tests.
+            raw_analysis = (
+                WaterAnalysis.objects.filter(
+                    treatment_plant=plant,
+                    analysis_date__lte=test_date,
+                    analysis_time__schedule__water_type=SamplingSchedule.RAW,
+                    analysis_time__schedule__treatment_plant=plant,
+                    rawwaterresults__isnull=False,
+                )
+                .select_related("analysis_time", "analysis_time__schedule")
+                .order_by("-analysis_date", "-analysis_time__time", "-pk")
+                .first()
             )
-            for r in raw_res[:10]:
+            raw_res = list(
+                RawWaterResult.objects.filter(analysis=raw_analysis)
+                .select_related("parameter__parameter", "analysis")
+                .order_by("-id")
+            ) if raw_analysis else []
+            if raw_analysis:
+                telemetry["source"] = f"QC {raw_analysis.reference_id} · {raw_analysis.analysis_date}"
+            for r in raw_res:
                 pname = r.parameter.parameter.name.lower()
-                if "ph" in pname and "alpha" not in pname and r.value:
+                if "ph" in pname and "alpha" not in pname and r.value is not None:
                     telemetry["raw_ph"] = f"{r.value:.2f}"
                     telemetry["is_live"] = True
-                elif "temp" in pname and r.value:
+                elif "temp" in pname and r.value is not None:
                     telemetry["water_temp"] = f"{r.value:.1f} °C"
-                elif "alkal" in pname and r.value:
+                elif "alkal" in pname and r.value is not None:
                     telemetry["alkalinity"] = f"{r.value:.1f} mg/L"
 
             # Query coagulated water pH (post-coagulation) from QC
             coag_res = (
                 CoagulatedWaterResult.objects
-                .filter(analysis__treatment_plant=plant)
+                .filter(
+                    analysis__treatment_plant=plant,
+                    analysis__analysis_date__lte=test_date,
+                    analysis__analysis_time__schedule__treatment_plant=plant,
+                    analysis__analysis_time__schedule__water_type=SamplingSchedule.COAGULATED,
+                )
                 .select_related("parameter__parameter")
-                .order_by("-id")
+                .order_by("-analysis__analysis_date", "-analysis__analysis_time__time", "-pk")
             )
             for r in coag_res[:10]:
                 pname = r.parameter.parameter.name.lower()
@@ -301,13 +314,18 @@ class PHAdjustmentDashboardView(WanjalaMixin, View):
             # Query Treated Water Result for finished water pH
             treated_res = (
                 TreatedWaterResult.objects
-                .filter(analysis__treatment_plant=plant)
+                .filter(
+                    analysis__treatment_plant=plant,
+                    analysis__analysis_date__lte=test_date,
+                    analysis__analysis_time__schedule__treatment_plant=plant,
+                    analysis__analysis_time__schedule__water_type=SamplingSchedule.TREATED,
+                )
                 .select_related("parameter__parameter")
-                .order_by("-id")
+                .order_by("-analysis__analysis_date", "-analysis__analysis_time__time", "-pk")
             )
             for r in treated_res[:10]:
                 pname = r.parameter.parameter.name.lower()
-                if "ph" in pname and "alpha" not in pname and r.value:
+                if "ph" in pname and "alpha" not in pname and r.value is not None:
                     telemetry["treated_ph"] = f"{r.value:.2f}"
         except Exception as e:
             logger.debug(f"QC pH telemetry fetch notice: {e}")
@@ -391,7 +409,11 @@ class PHAdjustmentDashboardView(WanjalaMixin, View):
         # Available Jar Test source jars for selection
         available_source_jars = list(
             JarResult.objects
-            .filter(jar_test__treatment_plant=plant)
+            .filter(
+                jar_test__treatment_plant=plant,
+                jar_test__raw_water__treatment_plant=plant,
+                jar_test__test_date__lte=test_date,
+            )
             .select_related("jar_test")
             .order_by("-jar_test__test_date", "performance_rank")[:10]
         ) if plant else []
@@ -483,12 +505,16 @@ class PHAdjustmentDashboardView(WanjalaMixin, View):
             source_jar_id = request.POST.get("source_jar")
             if source_jar_id:
                 try:
-                    sj = JarResult.objects.filter(pk=int(source_jar_id)).first()
+                    sj = JarResult.objects.filter(
+                        pk=int(source_jar_id),
+                        jar_test__treatment_plant=plant,
+                        jar_test__raw_water__treatment_plant=plant,
+                    ).first()
                     if sj:
                         ph_test.source_jar = sj
                 except (ValueError, TypeError):
                     pass
-            if not ph_test.analyst_id and request.user.is_authenticated:
+            if request.user.is_authenticated:
                 ph_test.analyst = request.user
             ph_test.save()
 

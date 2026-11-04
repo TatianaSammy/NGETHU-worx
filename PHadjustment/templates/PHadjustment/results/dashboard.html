@@ -4,7 +4,7 @@
 {% block title %}pH Adjustment &amp; Neutralization Dashboard | {{ plant.name|default:"pH Adjustment" }}{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'PHadjustment/css/phadjustment_dashboard.css' %}?v=20261020-compact-reports">
+    <link rel="stylesheet" href="{% static 'PHadjustment/css/phadjustment_dashboard.css' %}?v=20261030-clean-bench-v2">
     <script src="{% static 'js/plotly.min.js' %}" defer></script>
     <script src="{% static 'PHadjustment/js/phadjustment_dashboard.js' %}?v=20261020-compact-reports" defer></script>
     <script>document.documentElement.classList.add("dashboard-locked");document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("dashboard-fullscreen");});</script>
@@ -17,6 +17,11 @@
 {% elif request.GET.tab == 'reports' %}
     {% include "PHadjustment/results/partials/_reports_panel.html" %}
     {{ ph_reports|json_script:"ph-report-data" }}
+{% elif not ph_test %}
+    <section class="ph-no-plant-card" role="alert">
+        <h1>No plant-scoped raw-water source is available</h1>
+        <p>Record raw-water results in QC and complete a Jar Test for {{ plant.name }} before starting pH adjustment. The workspace only accepts source jars linked to this plant’s raw-water samples.</p>
+    </section>
 {% else %}
     <section class="ph-bench-panel">
     <form method="post" action="" hx-post="{{ request.get_full_path }}" hx-target="#ph-matrix-container" hx-swap="outerHTML" hx-indicator="#ph-loading-indicator" class="ph-bench-form" data-target-ph="{{ target_ph|default:'7.00' }}">
@@ -27,7 +32,7 @@
             <div class="ph-side-col">{% include "PHadjustment/results/partials/_titration_curve.html" %}{% include "PHadjustment/results/partials/_conditioning_calculator.html" %}</div>
         </div>
         <div id="ph-loading-indicator" class="htmx-indicator realtime-loading-pill"><span class="loading-spinner"></span><span>Recomputing neutralization curve and optimal pH dose…</span></div>
-        <div class="ph-footer-toolbar"><div class="ph-hints-strip"><span class="ph-hint-badge"><kbd>Ctrl+S</kbd> Save bench</span><span class="ph-hint-badge"><kbd>Space</kbd> Timer toggle</span><span class="ph-hint-badge"><kbd>Tab</kbd> Next jar</span></div><div class="ph-actions-strip"><button type="submit" name="action" value="save_jars" class="btn-ph-save" id="savePhBtn"><i class="fa-solid fa-floppy-disk"></i><span>Save pH Observations</span></button><button type="button" class="btn-ph-print" onclick="window.print();" title="Print Neutralization Lab Certificate"><i class="fa-solid fa-print"></i><span>Print Certificate</span></button></div></div>
+        <div class="ph-footer-toolbar"><div class="ph-actions-strip"><button type="submit" name="action" value="save_jars" class="btn-ph-save" id="savePhBtn"><i class="fa-solid fa-floppy-disk"></i><span>Save pH Observations</span></button><button type="button" class="btn-ph-print" onclick="window.print();" title="Print Neutralization Lab Certificate"><i class="fa-solid fa-print"></i><span>Print Certificate</span></button></div></div>
     </form>
     </section>
     {{ chart_points|json_script:"ph-chart-data" }}

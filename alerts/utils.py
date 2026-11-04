@@ -4,7 +4,6 @@ import logging
 import asyncio
 import aiohttp
 import subprocess
-from gtts import gTTS
 from functools import wraps
 from django.forms.models import model_to_dict
 from django.core.mail import send_mail
@@ -195,22 +194,47 @@ class SafeConditionEvaluator:
 # =====================================================
 class TextToSpeechEngine:
     @staticmethod
-    async def generate_voice_notification_gtts(message, filename='notification.mp3'):
-        loop = asyncio.get_event_loop()
+    async def generate_voice_notification(message, filename='notification.mp3', voice_over=None):
         try:
-            def sync_tts():
-                tts = gTTS(text=message, lang='en')
-                tts.save(filename)
-            await loop.run_in_executor(None, sync_tts)
-            logger.info(f"Voice notification saved to {filename}")
-            return filename
+            from asgiref.sync import sync_to_async
+            from alerts.models import VoiceOver, synthesize_alert_audio
+
+            if voice_over is None:
+                voice_over = await sync_to_async(VoiceOver.get_next_voice)()
+            if voice_over is None:
+                logger.error("No active VoiceOver profile is available for alert speech.")
+                return None
+            audio_bytes, _ = await asyncio.to_thread(
+                synthesize_alert_audio,
+                message,
+                voice_over,
+                voice_over.accent_profile,
+                voice_over.speech_rate,
+            )
+            if not audio_bytes:
+                return None
+            output_path = filename
+            if audio_bytes.startswith(b"RIFF") and audio_bytes[8:12] == b"WAVE":
+                output_path = os.path.splitext(filename)[0] + ".wav"
+            await asyncio.to_thread(_write_voice_file, output_path, audio_bytes)
+            logger.info("Voice notification saved with profile %s", voice_over.name)
+            return output_path
         except Exception as e:
-            logger.error(f"Failed to generate GTTS voice notification: {e}")
+            logger.error("Failed to generate profile-based voice notification: %s", e)
             return None
 
     @staticmethod
-    async def speak_alert(message):
-        return await TextToSpeechEngine.generate_voice_notification_gtts(message)
+    async def generate_voice_notification_gtts(message, filename='notification.mp3', voice_over=None):
+        return await TextToSpeechEngine.generate_voice_notification(message, filename, voice_over)
+
+    @staticmethod
+    async def speak_alert(message, voice_over=None):
+        return await TextToSpeechEngine.generate_voice_notification(message, voice_over=voice_over)
+
+
+def _write_voice_file(filename, audio_bytes):
+    with open(filename, "wb") as audio_file:
+        audio_file.write(audio_bytes)
 
 
 # =====================================================
@@ -246,5 +270,5 @@ class AIEscalationForecaster:
 # =====================================================
 # 🔹 Legacy wrapper for backward compatibility
 # =====================================================
-def generate_voice_notification_pyttsx3(message, filename='notification.mp3'):
-    return asyncio.run(TextToSpeechEngine.generate_voice_notification_gtts(message, filename))
+def generate_voice_notification_pyttsx3(message, filename='notification.mp3', voice_over=None):
+    return asyncio.run(TextToSpeechEngine.generate_voice_notification(message, filename, voice_over))

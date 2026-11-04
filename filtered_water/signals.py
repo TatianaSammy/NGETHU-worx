@@ -11,7 +11,7 @@ def create_default_results(sender, instance, created, **kwargs):
     # Get filters in WORKING state only
     working_filters = WaterFilter.objects.filter(
         phase=instance.treatment_plant_phase,
-        status=WaterFilterStatus.WORKING.value
+        filter_status__status=WaterFilterStatus.WORKING.value
     ).filter(
         Q(treatment_plant=instance.treatment_plant)
         | Q(treatment_plant__isnull=True)

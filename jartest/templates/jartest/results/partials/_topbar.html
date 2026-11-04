@@ -40,12 +40,9 @@
             </div>
             <div class="jt-ticker-chip">
                 <span class="chip-label">Intake Source:</span>
-                <input type="text"
-                       name="raw_water_source"
-                       class="jt-inline-input"
-                       title="RawWater.source_name"
-                       value="{{ jartest.raw_water.source_name|default:'River Intake' }}"
-                       style="min-width:7rem;max-width:11rem;background:transparent;border:1px solid rgba(51,65,85,0.5);border-radius:4px;color:#cbd5e1;font-weight:600;font-size:0.75rem;padding:0.05rem 0.3rem;">
+                <span class="chip-val jt-source-readout" title="Plant-scoped current raw-water sample">
+                    {{ jartest.raw_water.source_name }}
+                </span>
             </div>
         </div>
 
@@ -90,7 +87,7 @@
             <div class="jt-meta-pill">
                 <i class="fa-solid fa-user-gear text-muted"></i>
                 <span class="small text-muted">Analyst:</span>
-                <span class="fw-semibold">{{ jartest.analyst.username|default:request.user.username }}</span>
+                <span class="fw-semibold">{{ request.user.get_full_name|default:request.user.get_username }}</span>
             </div>
         </div>
 

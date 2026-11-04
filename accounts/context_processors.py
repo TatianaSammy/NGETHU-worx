@@ -13,7 +13,7 @@ APP_LABELS = {
     "central_lab": "Central Laboratory",
     "chlorinedemand": "Chlorine Demand",
     "CompanyInfo": "Company Information",
-    "destw": "Desalination Works",
+    "destw": "DESTW · Wastewater Operations",
     "duty_house": "Duty House",
     "filtered_water": "Filtered Water",
     "heavy_metal": "Heavy Metal Analysis",

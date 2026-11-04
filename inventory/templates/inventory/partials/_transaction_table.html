@@ -1,0 +1,21 @@
+{% load humanize %}
+<div class="inventory-table-scroll">
+    <table class="inventory-table{% if compact %} inventory-table--compact{% endif %}"{% if table_id %} id="{{ table_id }}"{% endif %}>
+        <thead><tr><th>Transaction</th><th>Item</th><th>Section</th><th>Recorded qty</th><th>Notes</th><th>Analyst / user</th><th>Timestamp</th></tr></thead>
+        <tbody>
+        {% for row in rows %}
+            <tr data-search-row>
+                <td><span class="inventory-badge inventory-badge--{{ row.transaction_type }}">{{ row.get_transaction_type_display }}</span></td>
+                <td><strong>{{ row.item.name }}</strong><small>{{ row.item.category.name|default:"Uncategorized" }}</small></td>
+                <td>{{ row.item.section.name }}<small>{{ row.item.section.treatment_plant.name|default:"Plant unassigned" }}</small></td>
+                <td class="inventory-number">{{ row.quantity|floatformat:2|intcomma }}</td>
+                <td>{{ row.notes|default:"—"|truncatechars:36 }}</td>
+                <td>{{ row.performed_by.get_full_name|default:row.performed_by.username|default:"System" }}</td>
+                <td>{{ row.created_at|date:"d M Y, H:i" }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="7"><div class="inventory-empty-state"><i class="fas fa-arrow-right-arrow-left" aria-hidden="true"></i><b>No transaction events in this view</b><span>New additions, removals and adjustments will appear here.</span></div></td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>

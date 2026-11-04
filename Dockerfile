@@ -219,6 +219,7 @@ RUN set -eux; \
         libblas3 \
         liblapack3 \
         libmagic1 \
+        espeak-ng \
         shared-mime-info \
     && apt-get purge -y --auto-remove \
     && apt-get clean \

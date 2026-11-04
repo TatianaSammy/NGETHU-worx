@@ -2,8 +2,6 @@
 import logging
 import copy
 import re
-from django.urls import reverse, NoReverseMatch
-from collections import Counter
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from collections import OrderedDict, defaultdict
@@ -666,57 +664,6 @@ class ModelRegistry:
         logger.info("Registered %s", key)
 
         return entry
-
-        # ======================================================
-        # FLAGS (UI/FEATURE CAPABILITIES)
-        # ======================================================
-        meta.update({
-            "has_create": True,
-            "has_export": bool(normalized.get("export_handler")),
-            "has_inline": bool(normalized.get("inline_edit_handler")),
-        })
-
-        # ======================================================
-        # BUILD REGISTRY ENTRY
-        # ======================================================
-        entry = RegistryEntry(
-            model=model,
-
-            config=MappingProxyType(normalized),
-            meta=MappingProxyType(meta),
-
-            custom_actions=MappingProxyType(
-                self._normalize_actions(normalized.get("custom_actions", {}))
-            ),
-
-            export_handler=normalized.get("export_handler"),
-            inline_edit_handler=normalized.get("inline_edit_handler"),
-            transition_handler=normalized.get("transition_handler"),
-
-            before_create=normalized.get("before_create"),
-            after_create=normalized.get("after_create"),
-            before_update=normalized.get("before_update"),
-            after_update=normalized.get("after_update"),
-            before_delete=normalized.get("before_delete"),
-            after_delete=normalized.get("after_delete"),
-
-            policy=normalized.get("policy"),
-            queryset=normalized.get("queryset"),
-            renderer=normalized.get("renderer"),
-
-            middleware=tuple(normalized.get("middleware", [])),
-            validators=tuple(normalized.get("validators", [])),
-            tags=frozenset(normalized.get("tags", [])),
-        )
-
-        # ======================================================
-        # REGISTER + EVENT EMIT
-        # ======================================================
-        self._registry[key] = entry
-        self.emit("registered", {"key": key})
-
-    from django.urls import reverse, NoReverseMatch
-    from collections import Counter
 
     def dashboard_models(self):
         """

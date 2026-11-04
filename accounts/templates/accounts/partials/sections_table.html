@@ -284,7 +284,7 @@
                     <td>
 
                         <span class="badge bg-info">
-                            {{ section.users.count }}
+                            {{ section.user_count|default:0 }}
                         </span>
 
                     </td>
@@ -473,10 +473,7 @@
 </div>
 
 <script>
-
-document.addEventListener(
-    "DOMContentLoaded",
-    function () {
+(() => {
 
         const sectionModal =
             document.getElementById(
@@ -594,7 +591,6 @@ document.addEventListener(
             }
         );
 
-    }
-);
+})();
 
 </script>

@@ -11,16 +11,11 @@
         <i class="fa-regular fa-clock" aria-hidden="true"></i>
         <p>
             {% if analysis_request.auto_assigned_at %}
-                <strong>Automatic assignment has already run.</strong>
-                The scheduled analyst team was assigned {{ analysis_request.auto_assigned_at|date:"d M Y, H:i" }}.
+                <strong>An analyst has already been assigned.</strong>
+                Replace the current assignment here if another eligible analyst should take over.
             {% else %}
-                <strong>The 30-minute automatic assignment fallback remains active.</strong>
-                If the request has no analysts when its window expires, the system assigns the scheduled analysts
-            {% endif %}
-            {% if analysis_request.assignment_due_at %}
-                (deadline <time datetime="{{ analysis_request.assignment_due_at|date:'c' }}">{{ analysis_request.assignment_due_at|date:"d M Y, H:i" }}</time>).
-            {% else %}
-                30 minutes after request creation.
+                <strong>Automatic assignment runs as soon as the request is created.</strong>
+                Select an eligible analyst here if you need to choose or reassign the work manually.
             {% endif %}
         </p>
     </aside>

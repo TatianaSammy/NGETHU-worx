@@ -1,119 +1,17 @@
-{% extends "core/cockpit/base_cockpit.html" %}
+{% extends "heavy_metal/base.html" %}
 {% load static %}
 
-{% block kpi_strip %}
-<div class="kpi-strip">
-    {% for kpi in kpis %}
-    <div class="kpi-card">
-        <div class="kpi-card__icon kpi-card__icon--{{ kpi.color }}"><i class="fa-solid {{ kpi.icon }}"></i></div>
-        <div class="kpi-card__body">
-            <div class="kpi-card__value">{{ kpi.value }}</div>
-            <div class="kpi-card__label">{{ kpi.label }}</div>
-        </div>
-    </div>
-    {% endfor %}
-</div>
+{% block title %}Heavy Metal Analytics | NCWSC WaterLab{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{% static 'core/css/analysis-workflow-dashboard.css' %}?v=20261031-overview-entry-workbench">
+<link rel="stylesheet" href="{% static 'core/css/analysis-result-entry.css' %}?v=20261031-overview-worksheets">
 {% endblock %}
 
-{% block cockpit_grid %}
-<div class="cockpit-grid cockpit-grid--3col">
-
-    <!-- ── PANEL 1: Daily Sampling Frequency ── -->
-    <div class="cyber-card cockpit-panel">
-        <div class="cockpit-panel__header">
-            <div class="cockpit-panel__title">
-                <i class="fa-solid fa-chart-line text-purple"></i> Sampling Cadence
-            </div>
-            <span class="cockpit-panel__badge">{{ period_days }}d Spectrum</span>
-        </div>
-        <div class="cockpit-panel__body">
-            <div class="cockpit-chart-container" style="height: 100%;">
-                <canvas id="chart-cadence"></canvas>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── PANEL 2: Mean Metal Concentrations (Bar Chart) ── -->
-    <div class="cyber-card cockpit-panel">
-        <div class="cockpit-panel__header">
-            <div class="cockpit-panel__title">
-                <i class="fa-solid fa-chart-column text-cyan"></i> Element Mean Values (ppm)
-            </div>
-            <span class="cockpit-panel__badge">AAS Detection</span>
-        </div>
-        <div class="cockpit-panel__body">
-            <div class="cockpit-chart-container" style="height: 100%;">
-                <canvas id="chart-metals"></canvas>
-            </div>
-        </div>
-    </div>
-
-    <!-- ── PANEL 3: Heavy Metal Analysis Slots Feed ── -->
-    <div class="cyber-card cockpit-panel">
-        <div class="cockpit-panel__header">
-            <div class="cockpit-panel__title">
-                <i class="fa-solid fa-microscope text-amber"></i> Live Testing Queue
-            </div>
-            <span class="cockpit-panel__badge">{{ recent_analyses|length }} Recorded</span>
-        </div>
-        <div class="cockpit-panel__body cockpit-panel__body--scrollable">
-            <table class="cockpit-table">
-                <thead>
-                    <tr>
-                        <th>Ref ID</th>
-                        <th>Plant / Phase</th>
-                        <th>State</th>
-                        <th>Slot</th>
-                        <th>Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for a in recent_analyses %}
-                    <tr>
-                        <td><code>{{ a.ref }}</code></td>
-                        <td><strong>{{ a.plant }}</strong> <span class="text-muted" style="font-size: 0.72rem;">({{ a.phase }})</span></td>
-                        <td>
-                            <span class="cockpit-pill {% if a.state == 'approved' %}cockpit-pill--emerald{% elif a.state == 'verified' or a.state == 'confirmed' %}cockpit-pill--cyan{% else %}cockpit-pill--purple{% endif %}">
-                                {{ a.state|upper }}
-                            </span>
-                        </td>
-                        <td>{{ a.time }}</td>
-                        <td style="color: var(--theme-muted); font-size: 0.72rem;">{{ a.date }}</td>
-                    </tr>
-                    {% empty %}
-                    <tr><td colspan="5" class="text-center text-muted py-3">No heavy metal analysis records found.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-</div>
+{% block page_content %}
+{% include "core/components/analysis_workflow_dashboard.html" %}
 {% endblock %}
 
-{% block dashboard_scripts %}
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-    const chartsData = {{ charts_json|safe }};
-    if (!chartsData) return;
-
-    if (chartsData.daily_trend && document.getElementById("chart-cadence")) {
-        QADCockpit.createLineChart(
-            document.getElementById("chart-cadence"),
-            chartsData.daily_trend.labels,
-            chartsData.daily_trend.data,
-            { label: "Analyses", color: "#c084fc", fill: true }
-        );
-    }
-
-    if (chartsData.metal_averages && document.getElementById("chart-metals")) {
-        QADCockpit.createBarChart(
-            document.getElementById("chart-metals"),
-            chartsData.metal_averages.labels,
-            chartsData.metal_averages.data,
-            { label: "Mean (ppm)", color: "#38bdf8" }
-        );
-    }
-});
-</script>
+{% block extra_scripts %}
+<script src="{% static 'core/js/analysis-workflow-dashboard.js' %}?v=20261031-overview-entry-workbench" defer></script>
 {% endblock %}

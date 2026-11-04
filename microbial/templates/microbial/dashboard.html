@@ -1,123 +1,115 @@
-{% extends "core/cockpit/base_cockpit.html" %}
+{% extends "microbial/base.html" %}
 {% load static %}
 
-{% block kpi_strip %}
-<div class="kpi-strip">
-    {% for kpi in kpis %}
-    <div class="kpi-card">
-        <div class="kpi-card__icon kpi-card__icon--{{ kpi.color }}"><i class="fa-solid {{ kpi.icon }}"></i></div>
-        <div class="kpi-card__body">
-            <div class="kpi-card__value">{{ kpi.value }}</div>
-            <div class="kpi-card__label">{{ kpi.label }}</div>
-        </div>
-    </div>
-    {% endfor %}
-</div>
+{% block title %}Microbial Analytical Worksheet | NCWSC WaterLab{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{% static 'microbial/css/microbial-worksheet.css' %}?v=20261031-sheet-dashboard">
 {% endblock %}
 
-{% block cockpit_grid %}
-<div class="cockpit-grid cockpit-grid--3col">
+{% block page_content %}
+<main class="microbial-workbook" data-microbial-workbook>
+    <header class="microbial-workbook__toolbar">
+        <div class="microbial-workbook__title">
+            <span class="microbial-workbook__eyebrow"><i class="fas fa-flask-vial" aria-hidden="true"></i> MICROBIAL QUALITY CONTROL · ANALYTICAL WORKSHEET</span>
+            <h1>Microbial results</h1>
+            <p>Plant-scoped microbial assays and linked treated-water measurements.</p>
+        </div>
+        <form method="get" class="microbial-workbook__filters" aria-label="Worksheet filters">
+            <input type="hidden" name="analysis" value="{{ active_analysis_id }}">
+            {% if can_select_all_plants %}
+                <label><span>Treatment plant</span><select name="plant" aria-label="Treatment plant"><option value="all" {% if selected_plant_id == "all" %}selected{% endif %}>All treatment plants</option>{% for item in available_plants %}<option value="{{ item.id }}" {% if selected_plant_id == item.id|stringformat:"s" %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+            {% else %}
+                <label><span>Treatment plant</span><strong class="microbial-workbook__fixed-scope">{{ plant.name|default:"No plant assigned" }}</strong></label>
+            {% endif %}
+            <label><span>Analysis window</span><select name="period" aria-label="Analysis window">{% for days in period_choices %}<option value="{{ days }}" {% if period_days == days %}selected{% endif %}>{{ days }} days</option>{% endfor %}</select></label>
+            <button class="microbial-workbook__apply" type="submit"><i class="fas fa-sliders" aria-hidden="true"></i> Apply</button>
+            <button class="microbial-workbook__refresh" type="button" data-workbook-refresh aria-label="Refresh worksheets" title="Refresh worksheets"><i class="fas fa-rotate-right" aria-hidden="true"></i></button>
+        </form>
+    </header>
 
-    <!-- ── PANEL 1: Daily Bio-Sampling Cadence ── -->
-    <div class="cyber-card cockpit-panel">
-        <div class="cockpit-panel__header">
-            <div class="cockpit-panel__title">
-                <i class="fa-solid fa-chart-line text-purple"></i> Bio-Sampling Cadence
-            </div>
-            <span class="cockpit-panel__badge">{{ period_days }}d Activity</span>
-        </div>
-        <div class="cockpit-panel__body">
-            <div class="cockpit-chart-container" style="height: 100%;">
-                <canvas id="chart-bio-trend"></canvas>
-            </div>
-        </div>
+    <div class="microbial-workbook__statusbar" role="status">
+        <span class="microbial-workbook__live"><i></i> LIVE WORKSHEET</span>
+        <span><i class="fas fa-arrows-rotate" aria-hidden="true"></i> Auto refresh · 60 sec when worksheet is untouched</span>
+        <span><i class="fas fa-calendar-days" aria-hidden="true"></i> {{ period_label }}</span>
+        <span><i class="fas fa-location-dot" aria-hidden="true"></i> {% if has_plant_scope %}{{ plant.name|default:"All treatment plants" }}{% else %}No assigned treatment plant{% endif %}</span>
+        <span class="microbial-workbook__updated"><i class="fas fa-clock" aria-hidden="true"></i> Updated {{ last_refreshed|date:"H:i:s" }}</span>
     </div>
 
-    <!-- ── PANEL 2: Methodology Distribution (Doughnut) ── -->
-    <div class="cyber-card cockpit-panel">
-        <div class="cockpit-panel__header">
-            <div class="cockpit-panel__title">
-                <i class="fa-solid fa-chart-pie text-emerald"></i> Incubation Methodologies
-            </div>
-            <span class="cockpit-panel__badge">Protocol Share</span>
-        </div>
-        <div class="cockpit-panel__body">
-            <div class="cockpit-chart-container" style="height: 100%;">
-                <canvas id="chart-methods"></canvas>
-            </div>
-        </div>
-    </div>
+    {% if not has_plant_scope %}
+        <div class="microbial-workbook__notice"><i class="fas fa-shield-halved" aria-hidden="true"></i><span><strong>No treatment plant is assigned to this account.</strong><small>Microbial worksheet data is withheld until plant access is configured.</small></span></div>
+    {% elif not has_analysis_permission %}
+        <div class="microbial-workbook__notice"><i class="fas fa-lock" aria-hidden="true"></i><span><strong>Analysis access is not configured for this account.</strong><small>Ask an administrator for access to microbial analysis records.</small></span></div>
+    {% endif %}
 
-    <!-- ── PANEL 3: Active Incubation & Cultures Feed ── -->
-    <div class="cyber-card cockpit-panel">
-        <div class="cockpit-panel__header">
-            <div class="cockpit-panel__title">
-                <i class="fa-solid fa-temperature-arrow-up text-amber"></i> Live Incubations
-            </div>
-            <span class="cockpit-panel__badge">{{ recent_analyses|length }} Batches</span>
-        </div>
-        <div class="cockpit-panel__body cockpit-panel__body--scrollable">
-            <table class="cockpit-table">
-                <thead>
-                    <tr>
-                        <th>Ref ID</th>
-                        <th>Plant / Phase</th>
-                        <th>Method</th>
-                        <th>Status</th>
-                        <th>Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for a in recent_analyses %}
-                    <tr>
-                        <td><code>{{ a.ref }}</code></td>
-                        <td><strong>{{ a.plant }}</strong> <span class="text-muted" style="font-size: 0.72rem;">({{ a.phase }})</span></td>
-                        <td><span style="font-size: 0.75rem;">{{ a.method }}</span></td>
-                        <td>
-                            {% if a.incubating %}
-                            <span class="cockpit-pill cockpit-pill--amber"><i class="fa-solid fa-fire-burner"></i> INCUBATING</span>
-                            {% elif a.state == 'approved' %}
-                            <span class="cockpit-pill cockpit-pill--emerald"><i class="fa-solid fa-check"></i> APPROVED</span>
-                            {% else %}
-                            <span class="cockpit-pill cockpit-pill--purple">{{ a.state|upper }}</span>
-                            {% endif %}
-                        </td>
-                        <td style="color: var(--theme-muted); font-size: 0.72rem;">{{ a.date }}</td>
-                    </tr>
+    {% if has_analysis_permission and not has_result_permission %}
+        <div class="microbial-workbook__notice"><i class="fas fa-lock" aria-hidden="true"></i><span><strong>Result access is not configured for this account.</strong><small>Ask an administrator for view or entry access to microbial result models.</small></span></div>
+    {% endif %}
+
+    {% if worksheet_cards %}
+        <nav class="microbial-workbook__assay-tabs" role="tablist" aria-label="Microbial analysis worksheets">
+            {% for card in worksheet_cards %}
+                <button type="button" role="tab" class="microbial-workbook__assay-tab" id="assay-tab-{{ card.reference|slugify }}" aria-controls="assay-panel-{{ card.reference|slugify }}" aria-selected="{% if active_analysis_id == card.reference %}true{% else %}false{% endif %}" data-workbook-tab="{{ card.reference }}">
+                    <span class="microbial-workbook__assay-mark"><i class="fas fa-vial" aria-hidden="true"></i></span>
+                    <span class="microbial-workbook__assay-copy"><strong>{{ card.reference }}</strong><small>{{ card.plant_name }} · {{ card.status_label }}</small></span>
+                    <i class="fas fa-chevron-right microbial-workbook__assay-arrow" aria-hidden="true"></i>
+                </button>
+            {% endfor %}
+        </nav>
+
+        {% for card in worksheet_cards %}
+            <section class="microbial-workbook__panel" id="assay-panel-{{ card.reference|slugify }}" role="tabpanel" aria-labelledby="assay-tab-{{ card.reference|slugify }}" data-workbook-panel="{{ card.reference }}" {% if active_analysis_id != card.reference %}hidden{% endif %}>
+                <header class="microbial-workbook__panel-head">
+                    <div class="microbial-workbook__panel-title">
+                        <span class="microbial-workbook__section-label">SAMPLE · {{ card.reference }}</span>
+                        <h2>{{ card.title }}</h2>
+                        <div class="microbial-workbook__metadata">
+                            {% for field in card.sample_fields %}<span><small>{{ field.label }}</small><strong>{{ field.value }}</strong></span>{% endfor %}
+                            <span><small>Analyst</small><strong>{% if card.can_save_inline %}{{ request.user.get_full_name|default:request.user.username }}{% else %}{{ card.analyst }}{% endif %}</strong></span>
+                            <span><small>Recorded</small><strong>{{ card.analysis_datetime|date:"d M Y · H:i" }}</strong></span>
+                        </div>
+                    </div>
+                    <span class="microbial-workbook__status microbial-workbook__status--{{ card.status|lower }}"><i></i>{{ card.status_label }}</span>
+                </header>
+
+                <form method="post" action="{{ card.entry_url|default:card.detail_url }}" class="microbial-workbook__form">
+                    {% csrf_token %}
+                    {% if card.plant_id %}<input type="hidden" name="plant" value="{{ card.plant_id }}">{% endif %}
+                    <input type="hidden" name="return_to" value="{{ card.return_url }}">
+                    {% for group in card.entry_groups %}
+                        <section class="microbial-result-set" aria-labelledby="microbial-set-{{ card.reference|slugify }}-{{ forloop.counter }}">
+                            <header class="microbial-result-set__head"><span class="microbial-result-set__icon"><i class="fas {% if 'Treated' in group.label %}fa-droplet{% else %}fa-microscope{% endif %}" aria-hidden="true"></i></span><div><span class="microbial-workbook__section-label">RESULT MATRIX {{ forloop.counter|stringformat:"02d" }}</span><h3 id="microbial-set-{{ card.reference|slugify }}-{{ forloop.counter }}">{{ group.label }}</h3></div><span class="microbial-result-set__tag">{{ group.rows|length }} parameters</span></header>
+                            <div class="microbial-result-set__scroll">
+                                <table class="microbial-matrix">
+                                    <thead><tr><th class="microbial-matrix__stub">MEASUREMENT</th>{% for row in group.rows %}<th scope="col"><strong>{{ row.parameter }}</strong><small>{{ row.unit|default:"Unit not configured" }}</small></th>{% empty %}<th scope="col">No parameters</th>{% endfor %}</tr></thead>
+                                    <tbody>
+                                        <tr class="microbial-matrix__limits"><th scope="row">Configured range</th>{% for row in group.rows %}<td>{{ row.limit }}</td>{% empty %}<td>Configure this result set to begin.</td>{% endfor %}</tr>
+                                        <tr class="microbial-matrix__readings"><th scope="row">Measured result</th>{% for row in group.rows %}<td>{% if row.editable %}<label class="microbial-matrix__input"><span class="visually-hidden">{{ row.parameter }} result{% if row.unit %} in {{ row.unit }}{% endif %}</span><input id="{{ card.reference|slugify }}-{{ row.input_key }}" type="number" name="result_{{ row.input_key }}" value="{{ row.value|default_if_none:'' }}" step="any" inputmode="decimal" autocomplete="off" aria-label="{{ row.parameter }} result" {% if row.error %}aria-invalid="true"{% endif %}></label>{% if row.error %}<small class="microbial-matrix__error">{{ row.error }}</small>{% endif %}{% else %}<strong class="microbial-matrix__value">{{ row.value_display }}{% if row.unit %}<small>{{ row.unit }}</small>{% endif %}</strong>{% endif %}</td>{% empty %}<td>—</td>{% endfor %}</tr>
+                                        <tr class="microbial-matrix__methods"><th scope="row">Analysis method</th>{% for row in group.rows %}<td>{% if row.editable and row.has_method %}<select name="method_{{ row.input_key }}" aria-label="{{ row.parameter }} analysis method">{% for method in row.method_options %}<option value="{{ method.id }}" {% if method.id == row.selected_method_id %}selected{% endif %}>{{ method.label }}</option>{% endfor %}</select>{% elif row.has_method %}{% for method in row.method_options %}{% if method.id == row.selected_method_id %}{{ method.label }}{% endif %}{% endfor %}{% else %}—{% endif %}</td>{% empty %}<td>—</td>{% endfor %}</tr>
+                                        <tr class="microbial-matrix__states"><th scope="row">Entry status</th>{% for row in group.rows %}<td><span class="microbial-workbook__entry-state{% if row.entry_status == 'recorded' %} is-recorded{% elif row.is_new or row.entry_status == 'pending' %} is-pending{% elif not row.entry_status and not row.is_new %} is-generated{% endif %}"><i></i>{% if not row.entry_status and not row.is_new %}Source-linked{% else %}{{ row.status_label }}{% endif %}</span></td>{% empty %}<td>—</td>{% endfor %}</tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
                     {% empty %}
-                    <tr><td colspan="5" class="text-center text-muted py-3">No microbiological analyses logged.</td></tr>
+                        <div class="microbial-workbook__empty"><i class="fas fa-table-cells-large" aria-hidden="true"></i><strong>No result parameters are configured for this assay.</strong><span>Configure plant-specific microbial and treated-water limits to populate the worksheet.</span></div>
                     {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-</div>
+                    <footer class="microbial-workbook__footer">
+                        <span><i class="fas fa-user-check" aria-hidden="true"></i> Analyst: {% if card.can_save_inline %}{{ request.user.get_full_name|default:request.user.username }}{% else %}{{ card.analyst }}{% endif %}</span>
+                        <div>{% if card.can_save_inline %}<button class="microbial-workbook__save" type="submit"><i class="fas fa-floppy-disk" aria-hidden="true"></i> Save results</button><button class="microbial-workbook__reset" type="reset"><i class="fas fa-rotate-left" aria-hidden="true"></i> Reset</button>{% else %}<span class="microbial-workbook__readonly"><i class="fas fa-eye" aria-hidden="true"></i> Read-only for this workflow stage or account</span>{% endif %}</div>
+                    </footer>
+                </form>
+            </section>
+        {% endfor %}
+    {% else %}
+        <section class="microbial-workbook__empty-state">
+            <span><i class="fas fa-vials" aria-hidden="true"></i></span>
+            <div><span class="microbial-workbook__section-label">ANALYTICAL WORKSHEETS</span><h2>No microbial worksheets in this analysis window</h2><p>New scheduled assays and available result sets will appear here when they match your plant access and permissions.</p></div>
+        </section>
+    {% endif %}
+</main>
 {% endblock %}
 
-{% block dashboard_scripts %}
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-    const chartsData = {{ charts_json|safe }};
-    if (!chartsData) return;
-
-    if (chartsData.daily_trend && document.getElementById("chart-bio-trend")) {
-        QADCockpit.createLineChart(
-            document.getElementById("chart-bio-trend"),
-            chartsData.daily_trend.labels,
-            chartsData.daily_trend.data,
-            { label: "Bio Batches", color: "#c084fc", fill: true }
-        );
-    }
-
-    if (chartsData.methods && document.getElementById("chart-methods")) {
-        QADCockpit.createDoughnutChart(
-            document.getElementById("chart-methods"),
-            chartsData.methods.labels,
-            chartsData.methods.data,
-            { cutout: "65%" }
-        );
-    }
-});
-</script>
+{% block extra_scripts %}
+<script src="{% static 'microbial/js/microbial-worksheet.js' %}?v=20261031-sheet-dashboard" defer></script>
 {% endblock %}

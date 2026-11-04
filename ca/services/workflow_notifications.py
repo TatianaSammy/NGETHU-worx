@@ -244,10 +244,6 @@ def escalate_due_chemical_workflows(*, now=None):
             status=ChemicalAnalysisRequest.Status.PENDING,
             assigned_analysts__isnull=True,
         )
-        .filter(
-            Q(assignment_due_at__lte=now)
-            | Q(assignment_due_at__isnull=True, created_at__lte=now - timedelta(minutes=30))
-        )
         .select_related("batch", "batch__chemical")
         .distinct()
     )
@@ -276,8 +272,8 @@ def escalate_due_chemical_workflows(*, now=None):
                 alert_type="ca_assignment_escalation",
                 title="Chemical analysis has no assigned analyst",
                 message=(
-                    f"No scheduled analyst was available for {batch.chemical.name} "
-                    f"batch {batch.batch_number}. Assign an eligible analyst or update the duty roster."
+                    f"No eligible analyst was available for {batch.chemical.name} "
+                    f"batch {batch.batch_number}. Assign an eligible analyst at this plant."
                 ),
                 url=f"/ca/requests/{request.pk}/assign-analyst/",
                 severity="high",

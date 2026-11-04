@@ -1,0 +1,17 @@
+<article class="analysis-result-card" data-result-card data-status="{{ card.status }}" data-result-state="{% if card.failure_count %}failed{% elif card.result_count == 0 %}empty{% elif card.result_state == 'In range' %}good{% elif card.result_state == 'Needs standard review' %}unrated{% else %}restricted{% endif %}" data-search-text="{{ card.title }} {{ card.reference }} {{ card.sample_title }} {{ card.plant_name }} {{ card.analyst }} {% for field in card.sample_fields %}{{ field.value }} {% endfor %} {% for result in card.results %}{{ result.name }} {% endfor %}">
+    <header class="analysis-result-card__head">
+        <span class="analysis-result-icon"><i class="fas fa-flask-vial" aria-hidden="true"></i></span>
+        <div class="analysis-result-title"><small>{{ card.title }} · {{ card.plant_name }}</small><h3>{{ card.reference }}</h3></div>
+        <span class="analysis-status-pill analysis-status-pill--{{ card.status|lower }}"><i></i>{{ card.status_label }}</span>
+    </header>
+    <div class="analysis-result-card__body">
+        <div class="analysis-sample-fields">{% for field in card.sample_fields %}<div><small>{{ field.label }}</small><strong>{{ field.value }}</strong></div>{% endfor %}</div>
+        <div class="analysis-result-heading"><span>Saved results</span><span class="analysis-result-state {% if card.failure_count %}is-failed{% elif card.result_count == 0 %}is-pending{% else %}is-good{% endif %}">{{ card.result_state }}</span></div>
+        {% if card.results_permitted and card.results %}
+            <div class="analysis-reading-list">{% for result in card.results %}<div class="analysis-reading-row"><span><strong>{{ result.name }}</strong><small>{{ result.limit }}</small><small>{{ result.method }} · {{ result.reference }}</small></span><span class="analysis-reading-value {% if result.failed %}is-failed{% else %}is-good{% endif %}"><b>{{ result.value }}</b><small>{{ result.unit }}</small></span></div>{% endfor %}</div>
+            {% if card.result_count > card.results|length %}<div class="analysis-more-results">Showing {{ card.results|length }} of {{ card.result_count }} saved readings.</div>{% endif %}
+        {% elif not card.results_permitted %}<div class="analysis-reading-empty"><i class="fas fa-lock" aria-hidden="true"></i> Result details require result view permission.</div>
+        {% else %}<div class="analysis-reading-empty"><i class="fas fa-clipboard-question" aria-hidden="true"></i> No numeric readings have been recorded for this analysis.</div>{% endif %}
+    </div>
+    <footer class="analysis-result-card__foot"><span><i class="fas fa-user-astronaut" aria-hidden="true"></i> {{ card.analyst }}</span><span><i class="fas fa-clock" aria-hidden="true"></i> {{ card.analysis_datetime|date:"d M Y, H:i" }}</span><span class="analysis-result-card__actions">{% if card.can_enter_results and card.entry_url %}<a class="analysis-entry-link" href="{{ card.entry_url }}"><i class="fas fa-pen-to-square" aria-hidden="true"></i> Enter results</a>{% endif %}<a href="{{ card.detail_url }}">Open record <i class="fas fa-arrow-right" aria-hidden="true"></i></a></span></footer>
+</article>

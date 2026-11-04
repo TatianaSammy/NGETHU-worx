@@ -151,7 +151,7 @@
             <div class="ca-sidebar-section">
 
                 <span class="ca-sidebar-section-title">
-                    Quality & Approval
+                    Chemist Review & Certificates
                 </span>
 
                 <a
@@ -164,21 +164,7 @@
                     </span>
 
                     <span class="ca-sidebar-label">
-                        QA Review
-                    </span>
-                </a>
-
-                <a
-                    href="{% url 'ca:pending-approval' %}"
-                    class="ca-sidebar-item {% if request.resolver_match.url_name == 'pending-approval' %}is-active{% endif %}"
-                    data-nav-item="approval"
-                >
-                    <span class="ca-sidebar-icon">
-                        <span class="ca-icon ca-icon-check" aria-hidden="true"></span>
-                    </span>
-
-                    <span class="ca-sidebar-label">
-                        Final Approval
+                        Chemist Review
                     </span>
                 </a>
 

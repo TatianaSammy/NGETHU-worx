@@ -400,6 +400,17 @@
         border-color: #2563eb;
     }
 
+    .icon-btn.batch-delete-action {
+        color: #dc2626;
+        border-color: rgba(220, 38, 38, .3);
+    }
+
+    .icon-btn.batch-delete-action:hover {
+        color: #fff;
+        border-color: #dc2626;
+        background: #dc2626;
+    }
+
     .empty-state {
         padding: 4rem 1.5rem;
         text-align: center;
@@ -998,6 +1009,17 @@
                                             ✎
                                         </a>
 
+                                    {% endif %}
+
+                                    {% if plant_context.is_superuser %}
+                                        <a
+                                            href="{% url 'ca:batch-delete' batch.pk %}{% if selected_plant_id %}?plant={{ selected_plant_id }}{% endif %}"
+                                            class="icon-btn batch-delete-action"
+                                            title="Delete batch permanently"
+                                            aria-label="Delete batch {{ batch.sample_id|default:batch.batch_number }} permanently"
+                                        >
+                                            <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                                        </a>
                                     {% endif %}
 
                                     {% if batch.workflow_action_url %}

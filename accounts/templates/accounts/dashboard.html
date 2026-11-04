@@ -1,86 +1,30 @@
 {% extends "accounts/base.html" %}
+{% load static %}
 
 {% block content %}
-
 <div class="container-fluid mt-3">
-
-    <!-- ================= CONTENT ================= -->
     <div class="card shadow-sm border-0">
         <div class="card-body">
-
-            <div class="tab-content">
-
-                <!-- OVERVIEW -->
-                <div class="tab-pane fade show active"
-                     id="overview-tab">
+            <div class="tab-content" id="accounts-dashboard-content">
+                <div class="tab-pane fade show active" id="overview-tab" role="tabpanel" aria-labelledby="accounts-overview-link">
                     {% include "accounts/partials/_tab_users_overview.html" %}
                 </div>
-
-                <div class="tab-pane fade"
-                     id="profile-tab">
-                    {% include "accounts/profile/profile.html" %}
+                {% for tab in account_dashboard_tabs %}
+                <div class="tab-pane fade" id="{{ tab.id }}" role="tabpanel" aria-labelledby="{{ tab.id }}-link"
+                     data-dashboard-fragment data-fragment-url="{% url 'accounts:dashboard' %}?tab={{ tab.key }}">
+                    <div class="d-flex align-items-center gap-3 py-5 text-muted" role="status">
+                        <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                        <span>Open this section to load its data.</span>
+                    </div>
                 </div>
-
-                <div class="tab-pane fade"
-                     id="users-tab">
-                    {% include "accounts/partials/users_table.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="sections-tab">
-                    {% include "accounts/partials/sections_table.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="groups-tab">
-                    {% include "accounts/partials/groups_table.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="permissions-tab">
-                    {% include "accounts/partials/permissions_table.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="plants-tab">
-                    {% include "accounts/partials/plants_table.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="labs-tab">
-                    {% include "accounts/partials/labs_table.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="sessions-tab">
-                    {% include "accounts/partials/sessions_table.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="security-tab">
-                    {% include "accounts/partials/security.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="password-tab">
-                    {% include "accounts/partials/reset_password_form.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="config-tab">
-                    {% include "accounts/partials/configuration.html" %}
-                </div>
-
-                <div class="tab-pane fade"
-                     id="system-tab">
-                    {% include "accounts/partials/system_information.html" %}
-                </div>
-
+                {% endfor %}
             </div>
-
         </div>
-
     </div>
-
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+    {{ block.super }}
+    <script src="{% static 'accounts/js/dashboard-tabs.js' %}?v=20261030-lazy-tabs" defer></script>
 {% endblock %}

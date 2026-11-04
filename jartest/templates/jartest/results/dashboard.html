@@ -4,9 +4,9 @@
 {% block title %}Jar Test Coagulation &amp; Flocculation Dashboard | {{ plant.name|default:"Jar Test" }}{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'jartest/css/jartest_dashboard.css' %}?v=20261020-compact-reports">
+    <link rel="stylesheet" href="{% static 'jartest/css/jartest_dashboard.css' %}?v=20261030-lovibond-current-source-v3">
     <script src="{% static 'js/plotly.min.js' %}" defer></script>
-    <script src="{% static 'jartest/js/jartest_dashboard.js' %}?v=20261020-compact-reports" defer></script>
+    <script src="{% static 'jartest/js/jartest_dashboard.js' %}?v=20261030-lovibond-current-source-v3" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -17,6 +17,12 @@
         <span class="jt-orbit-icon"><i class="fa-solid fa-satellite-dish"></i></span>
         <h1>No treatment plant assigned</h1>
         <p>Your jar-test workspace is hidden until your account is assigned to a treatment plant.</p>
+    </section>
+    {% elif not jartest %}
+    <section class="jt-no-plant-card jt-no-raw-water-card" role="alert">
+        <span class="jt-orbit-icon"><i class="fa-solid fa-water"></i></span>
+        <h1>No valid plant-scoped raw-water sample is available</h1>
+        <p>Record raw-water results for {{ plant.name }} in QC before starting this six-jar analysis. The workspace only uses samples belonging to the selected treatment plant.</p>
     </section>
     {% else %}
     <section id="jt-bench-panel" class="jt-tab-panel is-active" role="tabpanel" aria-labelledby="jt-bench-tab" data-jt-panel="bench">
@@ -39,21 +45,6 @@
             <div id="jt-loading-indicator" class="htmx-indicator realtime-loading-pill">
                 <span class="loading-spinner"></span>
                 <span>Recomputing jar-test performance…</span>
-            </div>
-            <div class="jt-footer-toolbar">
-                <div class="jt-hints-strip">
-                    <span class="jt-hint-badge"><kbd>Ctrl+S</kbd> Save bench</span>
-                    <span class="jt-hint-badge"><kbd>Space</kbd> Timer toggle</span>
-                    <span class="jt-hint-badge">Historical inputs: linked raw-water samples</span>
-                </div>
-                <div class="jt-actions-strip">
-                    <button type="submit" name="action" value="save_jars" class="btn-jt-save" id="saveJarTestBtn">
-                        <i class="fa-solid fa-floppy-disk"></i><span>Save Coagulation Data</span>
-                    </button>
-                    <button type="button" class="btn-jt-print" onclick="window.print();" title="Print Jar Test Lab Certificate">
-                        <i class="fa-solid fa-print"></i><span>Print Certificate</span>
-                    </button>
-                </div>
             </div>
         </form>
     </section>

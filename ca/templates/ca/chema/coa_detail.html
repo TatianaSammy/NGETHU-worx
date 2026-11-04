@@ -27,7 +27,9 @@
                 {{ coa.coa_number|default:coa.certificate_number|default:"Certificate of Analysis" }}
             </h2>
 
-            {% if coa.status == "APPROVED" %}
+            {% if coa.has_failed_results %}
+                <span class="badge badge-danger">Non-conforming report</span>
+            {% elif coa.is_approved %}
                 <span class="badge badge-success">Approved</span>
             {% elif coa.status == "VERIFIED" %}
                 <span class="badge badge-info">Verified</span>
@@ -196,6 +198,12 @@
     </div>
 </div>
 
+{% if coa.has_failed_results %}
+<div class="alert alert-danger" role="alert">
+    This certificate records one or more failed analytical results. It is available for reporting, but cannot be approved or used to authorize chemical use.
+</div>
+{% endif %}
+
 {% if coa.results.all %}
 <div class="card">
 
@@ -316,8 +324,7 @@
         {% endif %}
     {% endif %}
 
-    {% if coa.status != "APPROVED" %}
-
+    {% if not coa.is_approved and not coa.has_failed_results %}
         {% if coa.status != "VERIFIED" %}
             <a
                 href="{% url 'ca:coa-verify' coa.pk %}"

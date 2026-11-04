@@ -298,6 +298,134 @@ class ChemicalSpecification(models.Model):
         raise ValidationError("Chemical specification versions cannot be deleted.")
 
 
+class ChemicalMethodQualityPlan(models.Model):
+    """Plant scoped QC and interlaboratory decision settings for a method."""
+
+    class ConsensusRule(models.TextChoices):
+        EQUAL_LAB_MEAN = "EQUAL_LAB_MEAN", "Equal weight per laboratory"
+        POOLED_READINGS = "POOLED_READINGS", "Pool all numerical readings"
+        UNCERTAINTY_WEIGHTED = "UNCERTAINTY_WEIGHTED", "Inverse variance weighted laboratory means"
+
+    method = models.ForeignKey(
+        "analysis_methods.ChemicalAnalysisMethod",
+        on_delete=models.PROTECT,
+        related_name="ca_quality_plans",
+    )
+    treatment_plant = models.ForeignKey(
+        "t.TreatmentPlant",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="chemical_method_quality_plans",
+        help_text="Leave blank to provide a system-wide default for this method.",
+    )
+    version = models.PositiveSmallIntegerField(default=1)
+    is_active = models.BooleanField(default=True, db_index=True)
+    consensus_rule = models.CharField(max_length=24, choices=ConsensusRule.choices, default=ConsensusRule.EQUAL_LAB_MEAN)
+    interlab_tolerance_absolute = models.DecimalField(max_digits=24, decimal_places=10, null=True, blank=True)
+    interlab_tolerance_percent = models.DecimalField(max_digits=9, decimal_places=4, null=True, blank=True)
+    uncertainty_coverage_factor = models.DecimalField(max_digits=8, decimal_places=4, default=Decimal("2"))
+    require_measurement_uncertainty = models.BooleanField(default=False)
+    require_reference_standard_lot = models.BooleanField(default=False)
+    require_reagent_lot_numbers = models.BooleanField(default=False)
+    change_reason = models.TextField(blank=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="created_ca_quality_plans")
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["method__method", "treatment_plant__name", "-version"]
+        constraints = [
+            models.UniqueConstraint(fields=["method", "treatment_plant", "version"], nulls_distinct=False, name="ca_quality_plan_version_unique"),
+            models.CheckConstraint(condition=Q(version__gte=1), name="ca_quality_plan_version_positive"),
+            models.CheckConstraint(condition=Q(uncertainty_coverage_factor__gt=0), name="ca_quality_plan_k_positive"),
+            models.CheckConstraint(condition=Q(interlab_tolerance_absolute__isnull=True) | Q(interlab_tolerance_absolute__gte=0), name="ca_quality_abs_tol_nonnegative"),
+            models.CheckConstraint(condition=Q(interlab_tolerance_percent__isnull=True) | Q(interlab_tolerance_percent__gte=0), name="ca_quality_pct_tol_nonnegative"),
+            models.UniqueConstraint(fields=["method", "treatment_plant"], condition=Q(is_active=True), nulls_distinct=False, name="ca_one_active_quality_plan"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.consensus_rule not in self.ConsensusRule.values:
+            raise ValidationError({"consensus_rule": "Select a supported interlaboratory decision rule."})
+        if self.consensus_rule == self.ConsensusRule.UNCERTAINTY_WEIGHTED and not self.require_measurement_uncertainty:
+            raise ValidationError({"require_measurement_uncertainty": "Uncertainty-weighted consensus requires measurement uncertainty on each lab result."})
+
+    @classmethod
+    def current_for(cls, method, treatment_plant=None):
+        if not method:
+            return None
+        if treatment_plant is not None:
+            local = cls.objects.filter(method=method, treatment_plant=treatment_plant, is_active=True).order_by("-version").first()
+            if local:
+                return local
+        return cls.objects.filter(method=method, treatment_plant__isnull=True, is_active=True).order_by("-version").first()
+
+    def __str__(self):
+        scope = self.treatment_plant.name if self.treatment_plant_id else "System default"
+        return f"{self.method} · {scope} · QC v{self.version}"
+
+
+class ChemicalMethodQCControl(models.Model):
+    class CheckType(models.TextChoices):
+        BLANK = "BLANK", "Method blank"
+        REFERENCE = "REFERENCE", "Reference standard"
+        DUPLICATE = "DUPLICATE", "Duplicate / replicate"
+        SPIKE = "SPIKE", "Matrix spike"
+        INSTRUMENT = "INSTRUMENT", "Instrument verification"
+
+    class Evaluation(models.TextChoices):
+        DIRECT_RANGE = "DIRECT_RANGE", "Observed value range"
+        RECOVERY_PERCENT = "RECOVERY_PERCENT", "Percent recovery"
+        RPD_PERCENT = "RPD_PERCENT", "Relative percent difference"
+        BLANK_MAXIMUM = "BLANK_MAXIMUM", "Blank maximum"
+
+    plan = models.ForeignKey(ChemicalMethodQualityPlan, on_delete=models.PROTECT, related_name="controls")
+    code = models.SlugField(max_length=40)
+    label = models.CharField(max_length=120)
+    check_type = models.CharField(max_length=16, choices=CheckType.choices)
+    evaluation = models.CharField(max_length=20, choices=Evaluation.choices, default=Evaluation.DIRECT_RANGE)
+    required = models.BooleanField(default=True)
+    target_value = models.DecimalField(max_digits=24, decimal_places=10, null=True, blank=True)
+    spike_amount = models.DecimalField(max_digits=24, decimal_places=10, null=True, blank=True)
+    acceptance_min = models.DecimalField(max_digits=12, decimal_places=5, null=True, blank=True)
+    acceptance_max = models.DecimalField(max_digits=12, decimal_places=5, null=True, blank=True)
+    warning_sigma = models.DecimalField(max_digits=6, decimal_places=3, default=Decimal("2"))
+    corrective_instruction = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["plan", "label", "pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["plan", "code"], name="ca_qc_control_plan_code_unique"),
+            models.CheckConstraint(condition=Q(acceptance_min__isnull=True) | Q(acceptance_max__isnull=True) | Q(acceptance_min__lte=F("acceptance_max")), name="ca_qc_acceptance_min_lte_max"),
+            models.CheckConstraint(condition=Q(warning_sigma__gt=0), name="ca_qc_warning_sigma_positive"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.evaluation == self.Evaluation.RECOVERY_PERCENT and self.check_type not in {self.CheckType.REFERENCE, self.CheckType.SPIKE}:
+            raise ValidationError({"evaluation": "Recovery is supported for reference standards and matrix spikes."})
+        if self.evaluation == self.Evaluation.RPD_PERCENT and self.check_type != self.CheckType.DUPLICATE:
+            raise ValidationError({"evaluation": "Relative difference is supported for duplicate controls."})
+        if self.evaluation == self.Evaluation.BLANK_MAXIMUM and self.check_type != self.CheckType.BLANK:
+            raise ValidationError({"evaluation": "Blank maximum is supported only for blank controls."})
+        if self.evaluation == self.Evaluation.RECOVERY_PERCENT and self.check_type == self.CheckType.SPIKE and (self.spike_amount is None or self.spike_amount <= 0):
+            raise ValidationError({"spike_amount": "A matrix spike control requires a positive spike amount."})
+        if self.evaluation == self.Evaluation.RECOVERY_PERCENT and self.check_type == self.CheckType.REFERENCE and (self.target_value is None or self.target_value <= 0):
+            raise ValidationError({"target_value": "A reference standard control requires a positive target value."})
+        if self.evaluation == self.Evaluation.DIRECT_RANGE and self.acceptance_min is None and self.acceptance_max is None:
+            raise ValidationError({"acceptance_max": "Configure at least one direct acceptance bound."})
+        if self.evaluation == self.Evaluation.BLANK_MAXIMUM and self.acceptance_max is None:
+            raise ValidationError({"acceptance_max": "A blank control requires a maximum acceptable response."})
+        if self.evaluation == self.Evaluation.RPD_PERCENT and self.acceptance_max is None:
+            raise ValidationError({"acceptance_max": "A duplicate control requires a maximum acceptable relative percent difference."})
+        if self.evaluation == self.Evaluation.RECOVERY_PERCENT and (self.acceptance_min is None or self.acceptance_max is None):
+            raise ValidationError({"acceptance_min": "A recovery check requires both minimum and maximum acceptable recovery percentages."})
+
+    def __str__(self):
+        return f"{self.plan.method} · {self.label}"
+
+
 class ChemicalSpecificationRemark(models.Model):
     specification = models.ForeignKey(ChemicalSpecification, on_delete=models.CASCADE, related_name='remarks')
     on_pass = models.TextField()
@@ -582,10 +710,6 @@ class ChemicalBatch(models.Model):
             - Decimal(str(self.quantity_utilized or 0))
             - Decimal(str(self.quantity_returned or 0)),
         )
-        received = Decimal(str(self.quantity_received or 0))
-        utilized = self.quantity_utilized or Decimal("0")
-        returned = self.quantity_returned or Decimal("0")
-        return max(Decimal("0"), received - utilized - returned)
 
     def is_approved(self):
         return self.status == self.Status.APPROVED
@@ -630,7 +754,7 @@ class ChemicalAnalysisRequest(models.Model):
 
     REQUEST_DEADLINE_HOURS = 9
     CHEMICAL_ANALYSIS_TASK_NAME = "Water Treatment Chemical Analysis"
-    MAX_AUTO_ASSIGNED_ANALYSTS = 2
+    MAX_AUTO_ASSIGNED_ANALYSTS = 1
 
     request_id = models.CharField(
         max_length=50,
@@ -713,17 +837,15 @@ class ChemicalAnalysisRequest(models.Model):
         auto_now=True,
     )
 
-    ASSIGNMENT_TIMEOUT_MINUTES = 30
+    # Kept as a compatibility constant for older task payloads. Assignment is
+    # immediate; this value intentionally no longer represents a grace period.
+    ASSIGNMENT_TIMEOUT_MINUTES = 0
 
     assignment_due_at = models.DateTimeField(
         null=True,
         blank=True,
         db_index=True,
-        help_text=(
-            "Time after which the system may automatically assign "
-            "the scheduled chemical-analysis analysts if no manual "
-            "assignment has been made."
-        ),
+        help_text="Timestamp when this request became eligible for immediate analyst assignment.",
     )
 
     auto_assigned_at = models.DateTimeField(
@@ -879,15 +1001,10 @@ class ChemicalAnalysisRequest(models.Model):
 
     @property
     def assignment_overdue(self):
-        due_at = self.assignment_due_at
-        if due_at is None and self.created_at:
-            due_at = self.created_at + timedelta(
-                minutes=self.ASSIGNMENT_TIMEOUT_MINUTES
-            )
+        # Assignment eligibility starts as soon as the request is created.
         return (
-            self.assignment_pending
-            and due_at is not None
-            and timezone.now() >= due_at
+            self.status in {self.Status.PENDING, self.Status.IN_PROGRESS}
+            and not self.has_assigned_analysts
         )
 
     @property
@@ -1103,8 +1220,8 @@ class ChemicalAnalysisRequest(models.Model):
 
         type(self).objects.select_for_update().get(pk=self.pk)
         self.refresh_from_db()
-        if self.status != self.Status.PENDING:
-            raise ValidationError("Analysts can only be assigned while the request is pending.")
+        if self.status not in {self.Status.PENDING, self.Status.IN_PROGRESS}:
+            raise ValidationError("Analysts can only be assigned while the request is active.")
 
         if manual and assigned_by is None:
             raise ValidationError("An authorized user is required to assign analysts.")
@@ -1238,10 +1355,11 @@ class ChemicalAnalysisRequest(models.Model):
         return self
 
     def auto_assign_analysts_if_due(self, *, now=None):
-        """Automatically assign the scheduled analysts after 30 minutes.
+        """Immediately assign one available analyst to an unassigned request.
 
-        Manual assignments always take precedence. The method is idempotent
-        and safe to call repeatedly from a periodic Celery task.
+        A current duty-roster analyst is preferred. If the roster has no
+        eligible member, the least-loaded eligible analyst at the batch plant
+        is selected. Existing manual or automatic assignments are preserved.
         """
         if not self.pk:
             return get_user_model().objects.none()
@@ -1261,27 +1379,29 @@ class ChemicalAnalysisRequest(models.Model):
             if request.assigned_analysts.exists():
                 return request.assigned_analysts.all()
 
-            if request.assignment_due_at is None and request.created_at:
-                request.assignment_due_at = (
-                    request.created_at
-                    + timedelta(minutes=request.ASSIGNMENT_TIMEOUT_MINUTES)
-                )
-                request.save(update_fields=["assignment_due_at", "updated_at"])
+            analysts = request.get_current_assigned_analysts()[:1]
+            if not analysts.exists() and request.batch_id and request.batch.treatment_plant_id:
+                plant_id = request.batch.treatment_plant_id
+                analysts = request.eligible_analysts().filter(
+                    Q(is_superuser=True) | Q(assigned_treatment_plant_id=plant_id)
+                ).annotate(
+                    active_ca_workload=Count(
+                        "performed_chemical_analysis_processes",
+                        filter=Q(
+                            performed_chemical_analysis_processes__status__in=(
+                                ChemicalAnalysisProcess.WorkflowStatus.ANALYSIS,
+                                ChemicalAnalysisProcess.WorkflowStatus.RETEST,
+                            )
+                        ),
+                        distinct=True,
+                    )
+                ).order_by("active_ca_workload", "last_name", "first_name", "username")[:1]
 
-            if request.assignment_due_at is None or now < request.assignment_due_at:
+            analyst_ids = list(analysts.values_list("pk", flat=True))
+            if not analyst_ids:
                 return request.assigned_analysts.all()
 
-            # Send the request to a small qualified team rather than every
-            # person on the active duty roster. Least-loaded analysts are
-            # already ordered first by get_current_assigned_analysts().
-            analysts = request.get_current_assigned_analysts()[: self.MAX_AUTO_ASSIGNED_ANALYSTS]
-
-            if not analysts.exists():
-                return request.assigned_analysts.all()
-
-            request.assigned_analysts.set(
-                analysts.values_list("pk", flat=True)
-            )
+            request.assigned_analysts.set(analyst_ids)
 
             request.auto_assigned_at = now
             request.save(
@@ -1294,11 +1414,7 @@ class ChemicalAnalysisRequest(models.Model):
             return request.assigned_analysts.all()
 
     def populate_assigned_analysts(self):
-        """Backward-compatible entry point.
-
-        It intentionally performs no immediate assignment. Automatic
-        assignment is only permitted once the 30-minute deadline expires.
-        """
+        """Backward-compatible entry point for immediate assignment."""
         return self.auto_assign_analysts_if_due()
 
     def is_assigned_analyst(self, user):
@@ -1386,16 +1502,6 @@ class ChemicalAnalysisRequest(models.Model):
                 )
 
         if (
-            self.assignment_due_at
-            and self.created_at
-            and self.assignment_due_at < self.created_at
-        ):
-            errors["assignment_due_at"] = (
-                "The analyst-assignment deadline cannot be earlier "
-                "than the request creation time."
-            )
-
-        if (
             self.analysis_started_at
             and self.analysis_deadline
             and self.analysis_deadline < self.analysis_started_at
@@ -1435,10 +1541,7 @@ class ChemicalAnalysisRequest(models.Model):
             )
 
         if self.assignment_due_at is None:
-            self.assignment_due_at = (
-                timezone.now()
-                + timedelta(minutes=self.ASSIGNMENT_TIMEOUT_MINUTES)
-            )
+            self.assignment_due_at = timezone.now()
 
         captured_specifications = False
         if not (self.specification_snapshot or {}).get("captured") and self.batch_id:
@@ -2006,6 +2109,12 @@ class ChecklistForWaterTreatmentChemicalAnalysis(models.Model):
 
     expiry_date = models.DateField()
 
+    chemical_label_photo = models.ImageField(
+        upload_to="ca/chemical-labels/%Y/%m/",
+        blank=True,
+        help_text="Photo of the container label with the expiry date legible.",
+    )
+
     storage_conditions = models.CharField(
         max_length=255,
     )
@@ -2424,6 +2533,11 @@ class ChecklistForWaterTreatmentChemicalAnalysis(models.Model):
                 "The chemical batch has expired."
             )
 
+        if not self.chemical_label_photo:
+            errors["chemical_label_photo"] = (
+                "Attach a photo of the chemical container label showing its expiry date."
+            )
+
         if (
             self.net_weight is None
             or self.net_weight <= Decimal("0")
@@ -2710,7 +2824,7 @@ class ChemicalAnalysisProcess(Process):
         CHECKLIST = "CHECKLIST", "Checklist"
         ANALYSIS = "ANALYSIS", "Analysis"
         RETEST = "RETEST", "Retest"
-        QA = "QA", "Quality Assurance"
+        QA = "QA", "Chemist Review"
         APPROVED = "APPROVED", "Approved"
         REJECTED = "REJECTED", "Rejected"
         UTILIZED = "UTILIZED", "Utilized"
@@ -3329,7 +3443,7 @@ class ChemicalAnalysisProcess(Process):
 
         if target_status == self.WorkflowStatus.QA:
             if not self.is_analysis_complete or self.has_pending_tests:
-                raise ValidationError("Finalize every required analytical result before QA review.")
+                raise ValidationError("Finalize every required analytical result before chemist review.")
             if old_status == self.WorkflowStatus.RETEST:
                 retest_result = (
                     BatchTestResult.objects.select_for_update()
@@ -3359,7 +3473,7 @@ class ChemicalAnalysisProcess(Process):
     def request_retest(self, *, parameter, reason, performed_by):
         self._lock_for_transition()
         if self.status != self.WorkflowStatus.QA:
-            raise ValidationError("Retesting can only be requested while the process is in QA.")
+            raise ValidationError("Retesting can only be requested during chemist review.")
         if performed_by is None or not self.is_authorized_analyst(performed_by):
             raise ValidationError("Only an assigned active analyst can request the retest.")
         reason = str(reason or "").strip()
@@ -3594,7 +3708,7 @@ class ChemicalAnalysisProcess(Process):
                 )
 
         # Keep the inventory batch lifecycle in step with the process. Without
-        # this transition, the later QA approval (ANALYSED -> APPROVED) cannot
+        # this transition, the chemist review approval (ANALYSED -> APPROVED) cannot
         # succeed because newly received batches remain in RECEIVED state.
         if self.batch_id:
             self.batch.refresh_from_db()
@@ -3616,19 +3730,15 @@ class ChemicalAnalysisProcess(Process):
     def mark_approved(self, approved_by):
         self._lock_for_transition()
         if self.status != self.WorkflowStatus.QA:
-            raise ValidationError(
-                "Chemical analysis must be in QA before approval."
-            )
+            raise ValidationError("Chemical analysis must be in chemist review before approval.")
 
         if approved_by is None:
             raise ValidationError(
                 "An approving user is required."
             )
 
-        if not getattr(approved_by, "is_active", False) or not (
-            approved_by.is_superuser or approved_by.has_perm("ca.approve_chemical_batch")
-        ):
-            raise ValidationError("An active user with batch-approval permission is required.")
+        if not getattr(approved_by, "is_active", False):
+            raise ValidationError("An active chemist reviewer is required to approve the batch.")
         self._assert_actor_plant_scope(approved_by)
 
         if not self.analysis_completed_at:
@@ -3640,15 +3750,23 @@ class ChemicalAnalysisProcess(Process):
             raise ValidationError("An intake hold prevents batch approval.")
 
         if not self.qa_officer_id or not self.qa_reviewed_at:
-            raise ValidationError("An independent QA review is required before batch approval.")
+            raise ValidationError("A chemist review is required before the batch can be approved.")
         qa_officer = self.qa_officer
         if not qa_officer.is_active or not (
             qa_officer.is_superuser or qa_officer.has_perm("ca.review_chemical_analysis")
         ):
-            raise ValidationError("The recorded QA reviewer is no longer authorized to review chemical analysis.")
+            raise ValidationError("The recorded chemist reviewer is no longer authorized to review chemical analysis.")
         self._assert_actor_plant_scope(qa_officer)
-        if not self.is_independent_approver(approved_by):
-            raise ValidationError("Batch approval must be performed by someone independent of analysis and QA review.")
+        is_chemist_reviewer = self.qa_officer_id == approved_by.pk
+        if is_chemist_reviewer:
+            if self.is_analysis_performer(approved_by) or not (
+                approved_by.is_superuser or approved_by.has_perm("ca.review_chemical_analysis")
+            ):
+                raise ValidationError("The chemist approving this batch must be authorized and independent of its analysis.")
+        elif not (
+            approved_by.is_superuser or approved_by.has_perm("ca.approve_chemical_batch")
+        ) or not self.is_independent_approver(approved_by):
+            raise ValidationError("Batch approval must be performed by the recorded chemist reviewer or an authorized legacy approver.")
 
         if ChemicalCorrectiveAction.objects.filter(
             process_id=self.pk,
@@ -3673,6 +3791,7 @@ class ChemicalAnalysisProcess(Process):
         self.batch.transition_to(
             self.batch.Status.APPROVED,
             performed_by=approved_by,
+            permission=("ca.review_chemical_analysis" if is_chemist_reviewer else None),
         )
 
         self._save_workflow_transition(
@@ -4000,6 +4119,27 @@ class BatchTestResult(models.Model):
         blank=True,
         related_name="chemical_batch_results",
     )
+    inventory_equipment = models.ForeignKey(
+        "inventory.Equipment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="chemical_batch_results",
+        help_text="Laboratory equipment selected from the Inventory register.",
+    )
+    instrument_calibration = models.ForeignKey(
+        "instruments.InstrumentCalibration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chemical_batch_results",
+        editable=False,
+    )
+    reference_standard_name = models.CharField(max_length=180, blank=True)
+    reference_standard_lot = models.CharField(max_length=120, blank=True)
+    reagent_lot_numbers = models.CharField(max_length=500, blank=True)
+    expanded_uncertainty = models.DecimalField(max_digits=24, decimal_places=12, null=True, blank=True)
+    uncertainty_coverage_factor = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True)
     instrument_snapshot = models.JSONField(default=dict, blank=True, editable=False)
     specification_snapshot = models.JSONField(default=dict, blank=True, editable=False)
     method_snapshot = models.JSONField(default=dict, blank=True, editable=False)
@@ -4033,7 +4173,10 @@ class BatchTestResult(models.Model):
         super().clean()
         errors = {}
         flags = set(self.quality_flags or [])
-        flags.difference_update({"OUT_OF_SPEC_LOW", "OUT_OF_SPEC_HIGH", "INSTRUMENT_UNCALIBRATED"})
+        flags.difference_update({"OUT_OF_SPEC_LOW", "OUT_OF_SPEC_HIGH", "INSTRUMENT_UNCALIBRATED", "INSTRUMENT_UNAVAILABLE", "INSTRUMENT_MAINTENANCE_DUE"})
+        if self.inventory_equipment_id:
+            self.instrument = None
+            self.instrument_calibration = None
         if not self.batch_id:
             errors["batch"] = "A chemical batch is required."
         if not self.parameter_id:
@@ -4058,9 +4201,42 @@ class BatchTestResult(models.Model):
                         errors["value"] = "The analytical value must be finite."
                 except (InvalidOperation, TypeError, ValueError):
                     errors["value"] = "The analytical value must be a finite decimal number."
-            if parameter.requires_instrument and not self.instrument_id:
-                errors["instrument"] = "Select the calibrated instrument required by this specification."
-            if self.instrument_id:
+            if parameter.requires_instrument and not (self.inventory_equipment_id or self.instrument_id):
+                errors["inventory_equipment"] = "Select laboratory equipment from the Inventory register for this specification."
+            quality_plan = (
+                ChemicalMethodQualityPlan.current_for(parameter.method, self.batch.treatment_plant)
+                if parameter.method_id else None
+            )
+            if quality_plan and quality_plan.require_measurement_uncertainty and self.expanded_uncertainty is None:
+                errors["expanded_uncertainty"] = "This method requires a documented expanded measurement uncertainty."
+            if quality_plan and quality_plan.require_reference_standard_lot and not self.reference_standard_lot.strip():
+                errors["reference_standard_lot"] = "Record the reference-standard lot required by this method's quality plan."
+            if quality_plan and quality_plan.require_reagent_lot_numbers and not self.reagent_lot_numbers.strip():
+                errors["reagent_lot_numbers"] = "Record the reagent lot numbers required by this method's quality plan."
+            if self.expanded_uncertainty is not None and self.expanded_uncertainty < 0:
+                errors["expanded_uncertainty"] = "Expanded measurement uncertainty cannot be negative."
+            if self.uncertainty_coverage_factor is not None and self.uncertainty_coverage_factor <= 0:
+                errors["uncertainty_coverage_factor"] = "The uncertainty coverage factor must be positive."
+            if self.instrument_calibration_id and self.instrument_calibration.instrument_id != self.instrument_id:
+                errors["instrument_calibration"] = "The calibration record must belong to the selected instrument."
+            if self.inventory_equipment_id:
+                from .inventory_instruments import equipment_calibration_info, equipment_is_unavailable, equipment_maintenance_info
+
+                equipment = self.inventory_equipment
+                equipment_plant_id = equipment.section.treatment_plant_id if equipment.section_id else None
+                if equipment_plant_id != self.batch.treatment_plant_id:
+                    errors["inventory_equipment"] = "Select equipment assigned to a section at the batch's treatment plant."
+                if equipment_is_unavailable(equipment):
+                    flags.add("INSTRUMENT_UNAVAILABLE")
+                    self.status = self.Status.FAIL
+                calibration = equipment_calibration_info(equipment)
+                if not calibration["is_current"]:
+                    flags.add("INSTRUMENT_UNCALIBRATED")
+                    self.status = self.Status.FAIL
+                maintenance = equipment_maintenance_info(equipment)
+                if maintenance["status"] in {"DUE", "OVERDUE"}:
+                    flags.add("INSTRUMENT_MAINTENANCE_DUE")
+            elif self.instrument_id:
                 instrument = self.instrument
                 if instrument.treatment_plant_id != self.batch.treatment_plant_id:
                     errors["instrument"] = "The instrument must belong to the batch treatment plant."
@@ -4092,6 +4268,12 @@ class BatchTestResult(models.Model):
             raise ValidationError(errors)
 
     def _capture_instrument_snapshot(self):
+        if self.inventory_equipment_id:
+            from .inventory_instruments import equipment_snapshot
+
+            snapshot = equipment_snapshot(self.inventory_equipment)
+            snapshot["legacy_instrument_id"] = str(self.instrument_id or "")
+            return snapshot
         if not self.instrument_id:
             return {"instrument_id": None}
         instrument = self.instrument
@@ -4118,6 +4300,9 @@ class BatchTestResult(models.Model):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
+        if self.inventory_equipment_id:
+            self.instrument = None
+            self.instrument_calibration = None
         if self.parameter_id and not self.specification_snapshot:
             parameter = self.parameter
             method = parameter.method
@@ -4149,16 +4334,29 @@ class BatchTestResult(models.Model):
                 }
 
         if not self.pk:
+            if self.instrument_id and not self.inventory_equipment_id and not self.instrument_calibration_id:
+                self.instrument_calibration = self.instrument.calibrations.filter(
+                    performed_at__lte=timezone.now()
+                ).order_by("-performed_at", "-pk").first()
             self.instrument_snapshot = self._capture_instrument_snapshot()
 
         if self.pk:
             previous = type(self).objects.filter(pk=self.pk).values(
-                "batch_id", "parameter_id", "value", "textual_result", "status", "analyst_id", "instrument_id", "tested_at",
+                "batch_id", "parameter_id", "value", "textual_result", "status", "analyst_id", "instrument_id", "inventory_equipment_id", "tested_at",
+                "instrument_calibration_id", "reference_standard_name", "reference_standard_lot", "reagent_lot_numbers",
+                "expanded_uncertainty", "uncertainty_coverage_factor",
                 "instrument_snapshot", "specification_snapshot", "method_snapshot", "quality_flags",
             ).first()
             if previous:
-                if previous["instrument_id"] != self.instrument_id:
+                if (
+                    previous["instrument_id"] != self.instrument_id
+                    or previous["inventory_equipment_id"] != self.inventory_equipment_id
+                ):
                     self.instrument_snapshot = self._capture_instrument_snapshot()
+                    self.instrument_calibration = (
+                        self.instrument.calibrations.filter(performed_at__lte=timezone.now()).order_by("-performed_at", "-pk").first()
+                        if self.instrument_id and not self.inventory_equipment_id else None
+                    )
                 else:
                     self.instrument_snapshot = previous["instrument_snapshot"] or self._capture_instrument_snapshot()
                 if previous["batch_id"] != self.batch_id or previous["parameter_id"] != self.parameter_id:
@@ -4174,7 +4372,9 @@ class BatchTestResult(models.Model):
                 changed = any(
                     previous[field] != getattr(self, field)
                     for field in (
-                        "value", "textual_result", "status", "analyst_id", "instrument_id", "quality_flags", "tested_at",
+                        "value", "textual_result", "status", "analyst_id", "instrument_id", "inventory_equipment_id", "quality_flags", "tested_at",
+                        "instrument_calibration_id", "reference_standard_name", "reference_standard_lot", "reagent_lot_numbers",
+                        "expanded_uncertainty", "uncertainty_coverage_factor",
                     )
                 )
                 if changed:
@@ -4197,6 +4397,13 @@ class BatchTestResult(models.Model):
                             "status": previous["status"],
                             "analyst_id": previous["analyst_id"],
                             "instrument_id": str(previous["instrument_id"] or ""),
+                            "inventory_equipment_id": str(previous["inventory_equipment_id"] or ""),
+                            "instrument_calibration_id": str(previous["instrument_calibration_id"] or ""),
+                            "reference_standard_name": previous["reference_standard_name"],
+                            "reference_standard_lot": previous["reference_standard_lot"],
+                            "reagent_lot_numbers": previous["reagent_lot_numbers"],
+                            "expanded_uncertainty": format(previous["expanded_uncertainty"], "f") if previous["expanded_uncertainty"] is not None else None,
+                            "uncertainty_coverage_factor": format(previous["uncertainty_coverage_factor"], "f") if previous["uncertainty_coverage_factor"] is not None else None,
                             "instrument_snapshot": previous["instrument_snapshot"] or {},
                             "specification": previous["specification_snapshot"],
                             "method": previous["method_snapshot"],
@@ -4216,7 +4423,9 @@ class BatchTestResult(models.Model):
                     update_fields = kwargs.get("update_fields")
                     if update_fields is not None:
                         kwargs["update_fields"] = set(update_fields) | {
-                            "revision_number", "revision_reason", "tested_at", "quality_flags", "status", "instrument_snapshot"
+                            "revision_number", "revision_reason", "tested_at", "quality_flags", "status", "instrument_snapshot", "inventory_equipment",
+                            "instrument_calibration", "reference_standard_name", "reference_standard_lot", "reagent_lot_numbers",
+                            "expanded_uncertainty", "uncertainty_coverage_factor",
                         }
         self.full_clean()
         if self.parameter_id:
@@ -4239,6 +4448,8 @@ class BatchTestResult(models.Model):
                     self.auto_remark = remark.on_fail
                 elif "INSTRUMENT_UNCALIBRATED" in (self.quality_flags or []):
                     self.auto_remark = "Fail: the result was recorded using an instrument without a valid current calibration."
+                elif "INSTRUMENT_UNAVAILABLE" in (self.quality_flags or []):
+                    self.auto_remark = "Fail: the result was recorded using equipment marked unavailable in the Inventory register."
                 elif any(flag in (self.quality_flags or []) for flag in ("OUT_OF_SPEC_LOW", "OUT_OF_SPEC_HIGH")):
                     bounds = []
                     if self.parameter.min_limit is not None:
@@ -4254,6 +4465,12 @@ class BatchTestResult(models.Model):
                     self.auto_remark = "Fail: the analytical result was recorded as failing."
             else:
                 self.auto_remark = "Not applicable."
+            if "INSTRUMENT_MAINTENANCE_DUE" in (self.quality_flags or []):
+                maintenance_due = (self.instrument_snapshot or {}).get("maintenance_due_date") or "date not recorded"
+                self.auto_remark = (
+                    f"{self.auto_remark} Inventory equipment maintenance is due ({maintenance_due}); "
+                    "chemist review should consider equipment readiness."
+                )[:500]
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -5206,6 +5423,10 @@ class ChemicalCoA(models.Model):
 
         for result in self._get_results_queryset():
             parameter = result.parameter
+            consensus_value = (result.textual_result or "").startswith(
+                ("Interlaboratory ", "Qualitative interlaboratory comparison")
+            )
+            input_record = getattr(result, "inputs", None)
 
             chemical_name = ""
             parameter_name = "Unspecified Parameter"
@@ -5250,23 +5471,30 @@ class ChemicalCoA(models.Model):
                     "analyst_id": result.analyst_id or "",
                     **({
                         "instrument_id": str(result.instrument_id or ""),
+                        "inventory_equipment_id": str(result.inventory_equipment_id or ""),
+                        "instrument_calibration_id": str(result.instrument_calibration_id or ""),
                         "instrument_snapshot": result.instrument_snapshot or {},
+                        "reference_standard_name": result.reference_standard_name,
+                        "reference_standard_lot": result.reference_standard_lot,
+                        "reagent_lot_numbers": result.reagent_lot_numbers,
+                        "expanded_uncertainty": format(result.expanded_uncertainty, "f") if result.expanded_uncertainty is not None else None,
+                        "uncertainty_coverage_factor": format(result.uncertainty_coverage_factor, "f") if result.uncertainty_coverage_factor is not None else None,
                         "quality_flags": result.quality_flags or [],
                         "revision_number": result.revision_number,
                         "specification_snapshot": result.specification_snapshot or {},
                         "method_snapshot": result.method_snapshot or {},
-                        "method_inputs": getattr(
-                            getattr(result, "inputs", None), "inputs", {}
-                        ),
+                        "method_inputs": {} if consensus_value else getattr(input_record, "inputs", {}),
                         "calculated_value": (
-                            format(result.inputs.calculated_value, "f")
+                            format(input_record.calculated_value, "f")
                             if self.hash_version >= 5
-                            and getattr(result, "inputs", None) is not None
-                            and getattr(result.inputs, "calculated_value", None) is not None
+                            and not consensus_value
+                            and input_record is not None
+                            and getattr(input_record, "calculated_value", None) is not None
                             else (
-                                float(result.inputs.calculated_value)
-                                if getattr(result, "inputs", None) is not None
-                                and getattr(result.inputs, "calculated_value", None) is not None
+                                float(input_record.calculated_value)
+                                if not consensus_value
+                                and input_record is not None
+                                and getattr(input_record, "calculated_value", None) is not None
                                 else None
                             )
                         ),
@@ -5421,11 +5649,72 @@ class ChemicalCoA(models.Model):
         failed = queryset.filter(
             status=BatchTestResult.Status.FAIL
         ).exists()
+        consensus_event = None
+        if self.batch_id:
+            consensus_event = self.batch.workflow_events.filter(
+                event_type="interlaboratory_consensus_recorded"
+            ).order_by("-occurred_at", "-pk").first()
+        consensus_note = ""
+        if consensus_event:
+            details = consensus_event.details or {}
+            laboratory_count = details.get("laboratory_count") or 0
+            origin_name = self.batch.treatment_plant.name if self.batch.treatment_plant_id else "originating treatment plant"
+            consensus_note = (
+                f" Interlaboratory comparison included {laboratory_count} treatment-plant laboratories; "
+                f"quantitative results are reported as the mean of laboratory means. "
+                f"This final certificate is issued from {origin_name}, where the chemical batch was first received."
+            )
+            chemist_remarks = str(details.get("remarks") or "").strip()
+            if chemist_remarks:
+                consensus_note += f" Chemist comparison remarks: {chemist_remarks}"
+            laboratory_remarks = [
+                f"{item.get('treatment_plant')}: {item.get('remarks')}"
+                for item in details.get("laboratory_remarks", [])
+                if isinstance(item, dict) and str(item.get("remarks") or "").strip()
+            ]
+            if laboratory_remarks:
+                consensus_note += " Peer laboratory notes: " + "; ".join(laboratory_remarks)
+            discordant_parameters = [
+                str(item.get("parameter") or "")
+                for item in (details.get("comparison") or [])
+                if isinstance(item, dict)
+                and len({
+                    str(lab.get("status") or "")
+                    for lab in (item.get("laboratories") or [])
+                    if isinstance(lab, dict)
+                }) > 1
+                and str(item.get("parameter") or "").strip()
+            ]
+            if discordant_parameters:
+                consensus_note += (
+                    " Participating laboratories reported differing outcomes for "
+                    + ", ".join(discordant_parameters[:12])
+                    + "; the reported certificate values reflect the consolidated comparison."
+                )
+            spread_flags = [
+                str(item.get("parameter") or "")
+                for item in (details.get("comparison") or [])
+                if isinstance(item, dict) and item.get("tolerance_breached")
+            ]
+            if spread_flags:
+                consensus_note += " Configured interlaboratory spread tolerance was exceeded for " + ", ".join(spread_flags[:12]) + "; chemist acknowledgment is recorded in the audit trail."
+            uncertain = [
+                str(item.get("parameter") or "")
+                for item in (details.get("comparison") or [])
+                if isinstance(item, dict) and not item.get("uncertainty_complete", True)
+            ]
+            if uncertain:
+                consensus_note += " Measurement uncertainty was incomplete for " + ", ".join(uncertain[:12]) + "; use the reported values with this limitation."
+            rules = sorted({str(item.get("consensus_rule") or "") for item in (details.get("comparison") or []) if isinstance(item, dict) and item.get("consensus_rule")})
+            if rules:
+                consensus_note += " Configured consensus rule(s): " + ", ".join(rule.replace("_", " ").lower() for rule in rules) + "."
 
         if failed:
             return (
-                "Batch failed one or more quality specifications. "
+                "NON-CONFORMING: one or more final analytical results remain outside the approved specifications. "
+                "This certificate records the final outcome and does not authorize chemical use. "
                 "Not suitable for use."
+                + consensus_note
             )
 
         applicable_count = queryset.exclude(
@@ -5439,17 +5728,20 @@ class ChemicalCoA(models.Model):
         if applicable_count == 0:
             return (
                 "No applicable quality parameters were identified."
+                + consensus_note
             )
 
         if na_count:
             return (
                 "Batch passed all applicable quality specifications. "
                 "Some parameters were not applicable."
+                + consensus_note
             )
 
         return (
             "Batch passed all quality specifications. "
             "Approved for use."
+            + consensus_note
         )
 
     def generate_results_summary(self):
@@ -5506,7 +5798,21 @@ class ChemicalCoA(models.Model):
                 f"{label}: {value} ({status})"
             )
 
-        return "\n".join(lines)
+        summary = "\n".join(lines)
+        if self.batch_id:
+            consensus_event = self.batch.workflow_events.filter(
+                event_type="interlaboratory_consensus_recorded"
+            ).order_by("-occurred_at", "-pk").first()
+            if consensus_event:
+                details = consensus_event.details or {}
+                laboratory_count = details.get("laboratory_count") or 0
+                origin_name = self.batch.treatment_plant.name if self.batch.treatment_plant_id else "originating treatment plant"
+                summary += (
+                    f"\nInterlaboratory consensus: quantitative values use the configured method decision rule. "
+                    f"Comparison included {laboratory_count} treatment-plant laboratories. "
+                    f"Certificate issued by {origin_name}, the plant of initial receipt."
+                )
+        return summary
 
     def auto_populate(self, force=False):
         if not self.batch_id:
@@ -5821,12 +6127,6 @@ class ChemicalCoA(models.Model):
                     )
                 )
 
-        if self.has_failed_results:
-            raise ValidationError(
-                "Cannot generate an approval-ready CoA because "
-                "one or more analytical results failed."
-            )
-
     def can_generate(self):
         try:
             self.validate_generation_requirements()
@@ -5849,13 +6149,18 @@ class ChemicalCoA(models.Model):
         )
         if self.is_approved:
             raise ValidationError("This CoA has already been approved.")
+        if self.has_failed_results:
+            raise ValidationError(
+                "A Certificate of Analysis with failed results can be generated "
+                "for reporting, but it cannot be approved or released for use."
+            )
         self.validate_generation_requirements()
 
         process = getattr(batch, "analysis_process", None) if batch else None
         if process:
             performing_ids = process.performing_analyst_ids
             if approved_by.pk in performing_ids or process.qa_officer_id == approved_by.pk or process.approver_id == approved_by.pk:
-                raise ValidationError("CoA approval must be independent of the analyst, QA reviewer, and batch approver.")
+                raise ValidationError("CoA approval must be independent of the analyst and chemist batch reviewer.")
         if batch.status != ChemicalBatch.Status.APPROVED:
             raise ValidationError("The chemical batch must be approved before the CoA can be approved.")
 
@@ -6378,6 +6683,658 @@ class ChemicalWorkflowEvent(models.Model):
         raise ValidationError("Workflow journal events cannot be deleted.")
 
 
+class ChemicalLabReferral(models.Model):
+    """A controlled request for an independent laboratory to verify a batch."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Awaiting laboratory results"
+        COMPLETED = "COMPLETED", "Results submitted"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    process = models.ForeignKey(
+        ChemicalAnalysisProcess,
+        on_delete=models.PROTECT,
+        related_name="interlaboratory_referrals",
+    )
+    batch = models.ForeignKey(
+        ChemicalBatch,
+        on_delete=models.PROTECT,
+        related_name="interlaboratory_referrals",
+    )
+    treatment_plant = models.ForeignKey(
+        "t.TreatmentPlant",
+        on_delete=models.PROTECT,
+        related_name="received_chemical_lab_referrals",
+        help_text="The independent treatment-plant laboratory receiving this referral.",
+    )
+    parameter_ids = models.JSONField(default=list, blank=True)
+    comparison_rules_snapshot = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING, db_index=True)
+    remarks = models.TextField(blank=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_chemical_lab_referrals",
+    )
+    requested_at = models.DateTimeField(default=timezone.now, db_index=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="submitted_chemical_lab_referrals",
+    )
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    submission_remarks = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["status", "requested_at", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["process", "treatment_plant"],
+                name="ca_interlab_process_plant_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["PENDING", "COMPLETED", "CANCELLED"]),
+                name="ca_interlab_referral_status_valid",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["treatment_plant", "status", "requested_at"], name="ca_interlab_plant_status_idx"),
+            models.Index(fields=["batch", "status"], name="ca_interlab_batch_status_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if not self.batch_id or not self.process_id:
+            errors["batch"] = "A batch and its analysis process are required for a laboratory referral."
+        elif self.process.batch_id != self.batch_id:
+            errors["process"] = "The referral process must belong to the selected batch."
+        if self.batch_id and self.treatment_plant_id:
+            if self.batch.treatment_plant_id == self.treatment_plant_id:
+                errors["treatment_plant"] = "Choose a laboratory at another treatment plant."
+            if not type(self.treatment_plant).objects.filter(
+                pk=self.treatment_plant_id,
+                laboratory__isnull=False,
+            ).exists():
+                errors["treatment_plant"] = "The selected treatment plant has no registered laboratory."
+        if not isinstance(self.parameter_ids, list) or not self.parameter_ids:
+            errors["parameter_ids"] = "At least one failed parameter must be included in the referral."
+        else:
+            try:
+                requested_ids = {int(value) for value in self.parameter_ids}
+            except (TypeError, ValueError):
+                requested_ids = set()
+            if not requested_ids:
+                errors["parameter_ids"] = "The referral parameter list is invalid."
+            elif self.batch_id and not ChemicalSpecification.objects.filter(
+                pk__in=requested_ids,
+                chemical_id=self.batch.chemical_id,
+            ).count() == len(requested_ids):
+                errors["parameter_ids"] = "Every referred parameter must belong to this batch chemical."
+        if self.status == self.Status.COMPLETED and (not self.submitted_by_id or not self.submitted_at):
+            errors["status"] = "A completed referral must record who submitted results and when."
+        if errors:
+            raise ValidationError(errors)
+
+    @transaction.atomic
+    def mark_completed(self, *, actor, remarks=""):
+        referral = type(self).objects.select_for_update().get(pk=self.pk)
+        if referral.status != self.Status.PENDING:
+            raise ValidationError("This laboratory referral is no longer awaiting results.")
+        required_ids = {int(value) for value in referral.parameter_ids}
+        recorded_ids = set(
+            referral.results.values_list("parameter_id", flat=True)
+        )
+        if required_ids != recorded_ids:
+            raise ValidationError("Record a result for every referred failed parameter before submitting.")
+        if actor is None or not getattr(actor, "is_active", False):
+            raise ValidationError("An active laboratory analyst is required to submit results.")
+        if not (actor.is_superuser or actor.has_perm("ca.record_chemical_result")):
+            raise ValidationError("You do not have permission to submit laboratory results.")
+        if not actor.is_superuser and actor.assigned_treatment_plant_id != referral.treatment_plant_id:
+            raise ValidationError("Only staff at the receiving laboratory can submit these results.")
+        referral.status = self.Status.COMPLETED
+        referral.submitted_by = actor
+        referral.submitted_at = timezone.now()
+        referral.submission_remarks = str(remarks or "").strip()
+        referral._allow_status_transition = True
+        try:
+            referral.full_clean()
+            referral.save(update_fields=["status", "submitted_by", "submitted_at", "submission_remarks", "updated_at"])
+        finally:
+            referral.__dict__.pop("_allow_status_transition", None)
+        return referral
+
+    def save(self, *args, **kwargs):
+        if self.pk and not getattr(self, "_allow_status_transition", False):
+            old_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            if old_status is not None and old_status != self.status:
+                raise ValidationError("Laboratory referral status can only change through result submission.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Chemical laboratory referrals cannot be deleted.")
+
+    def __str__(self):
+        return f"{self.batch.sample_id} → {self.treatment_plant.code} [{self.status}]"
+
+
+class ChemicalLabComparisonResult(models.Model):
+    """Immutable source, reassignment, and peer-laboratory readings for consensus."""
+
+    class Source(models.TextChoices):
+        ORIGINAL = "ORIGINAL", "Originating analysis"
+        REASSIGNMENT = "REASSIGNMENT", "Independent local repeat"
+        INTERLAB = "INTERLAB", "Independent laboratory"
+
+    batch = models.ForeignKey(
+        ChemicalBatch,
+        on_delete=models.PROTECT,
+        related_name="lab_comparison_results",
+    )
+    process = models.ForeignKey(
+        ChemicalAnalysisProcess,
+        on_delete=models.PROTECT,
+        related_name="lab_comparison_results",
+    )
+    treatment_plant = models.ForeignKey(
+        "t.TreatmentPlant",
+        on_delete=models.PROTECT,
+        related_name="chemical_lab_comparison_results",
+    )
+    referral = models.ForeignKey(
+        ChemicalLabReferral,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="results",
+    )
+    parameter = models.ForeignKey(
+        ChemicalSpecification,
+        on_delete=models.PROTECT,
+        related_name="laboratory_comparison_results",
+    )
+    source = models.CharField(max_length=16, choices=Source.choices, db_index=True)
+    run_number = models.PositiveIntegerField(default=1)
+    value = models.DecimalField(max_digits=26, decimal_places=12, null=True, blank=True)
+    textual_result = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=10,
+        choices=(("PASS", "Pass"), ("FAIL", "Fail"), ("NA", "Not applicable")),
+    )
+    analyst = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chemical_lab_comparison_results",
+    )
+    instrument = models.ForeignKey(
+        "instruments.Instrument",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chemical_lab_comparison_results",
+    )
+    inventory_equipment = models.ForeignKey(
+        "inventory.Equipment",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="chemical_lab_comparison_results",
+    )
+    instrument_snapshot = models.JSONField(default=dict, blank=True)
+    instrument_calibration = models.ForeignKey(
+        "instruments.InstrumentCalibration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="chemical_lab_comparison_results",
+        editable=False,
+    )
+    reference_standard_name = models.CharField(max_length=180, blank=True)
+    reference_standard_lot = models.CharField(max_length=120, blank=True)
+    reagent_lot_numbers = models.CharField(max_length=500, blank=True)
+    expanded_uncertainty = models.DecimalField(max_digits=24, decimal_places=12, null=True, blank=True)
+    uncertainty_coverage_factor = models.DecimalField(max_digits=8, decimal_places=4, null=True, blank=True)
+    specification_snapshot = models.JSONField(default=dict, blank=True)
+    method_snapshot = models.JSONField(default=dict, blank=True)
+    remarks = models.TextField(blank=True)
+    recorded_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["parameter__parameter_name", "treatment_plant__name", "run_number", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["batch", "treatment_plant", "parameter", "source", "run_number"],
+                name="ca_lab_result_reading_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=["PASS", "FAIL", "NA"]),
+                name="ca_lab_result_status_valid",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["batch", "parameter", "source"], name="ca_lab_result_compare_idx"),
+            models.Index(fields=["treatment_plant", "recorded_at"], name="ca_lab_result_plant_time_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.inventory_equipment_id:
+            self.instrument = None
+            self.instrument_calibration = None
+        if not self.batch_id or not self.process_id or self.process.batch_id != self.batch_id:
+            errors["process"] = "A comparison result must belong to the batch analysis process."
+        if self.parameter_id and self.batch_id and self.parameter.chemical_id != self.batch.chemical_id:
+            errors["parameter"] = "The comparison parameter must belong to the batch chemical."
+        if self.source == self.Source.INTERLAB:
+            if not self.referral_id:
+                errors["referral"] = "An independent laboratory result must be attached to a referral."
+            elif (
+                self.referral.batch_id != self.batch_id
+                or self.referral.process_id != self.process_id
+                or self.referral.treatment_plant_id != self.treatment_plant_id
+                or int(self.parameter_id or 0) not in {int(value) for value in self.referral.parameter_ids}
+            ):
+                errors["referral"] = "The result does not match its laboratory referral."
+        elif self.referral_id:
+            errors["referral"] = "Only independent laboratory results can be attached to a referral."
+        if self.source == self.Source.ORIGINAL and self.batch_id and self.treatment_plant_id != self.batch.treatment_plant_id:
+            errors["treatment_plant"] = "The original analysis must belong to the originating treatment plant."
+        if self.source == self.Source.REASSIGNMENT and self.batch_id and self.treatment_plant_id != self.batch.treatment_plant_id:
+            errors["treatment_plant"] = "A local reassignment must remain at the originating treatment plant."
+        equipment_failed = False
+        if self.parameter_id and self.parameter.requires_instrument and not (self.inventory_equipment_id or self.instrument_id):
+            errors["inventory_equipment"] = "Select laboratory equipment from the Inventory register for this parameter."
+        if self.parameter_id and self.parameter.method_id:
+            quality_plan = ChemicalMethodQualityPlan.current_for(self.parameter.method, self.treatment_plant)
+            rule_snapshot = (
+                (self.referral.comparison_rules_snapshot or {}).get(str(self.parameter_id), {})
+                if self.source == self.Source.INTERLAB and self.referral_id
+                else {}
+            )
+            require_uncertainty = rule_snapshot.get("require_measurement_uncertainty", quality_plan and quality_plan.require_measurement_uncertainty)
+            require_standard_lot = rule_snapshot.get("require_reference_standard_lot", quality_plan and quality_plan.require_reference_standard_lot)
+            require_reagent_lots = rule_snapshot.get("require_reagent_lot_numbers", quality_plan and quality_plan.require_reagent_lot_numbers)
+            if require_uncertainty and self.expanded_uncertainty is None:
+                errors["expanded_uncertainty"] = "This method requires a documented expanded measurement uncertainty."
+            if require_standard_lot and not self.reference_standard_lot.strip():
+                errors["reference_standard_lot"] = "Record the reference-standard lot required by this method's quality plan."
+            if require_reagent_lots and not self.reagent_lot_numbers.strip():
+                errors["reagent_lot_numbers"] = "Record the reagent lot numbers required by this method's quality plan."
+        if self.expanded_uncertainty is not None and self.expanded_uncertainty < 0:
+            errors["expanded_uncertainty"] = "Expanded measurement uncertainty cannot be negative."
+        if self.uncertainty_coverage_factor is not None and self.uncertainty_coverage_factor <= 0:
+            errors["uncertainty_coverage_factor"] = "The uncertainty coverage factor must be positive."
+        if self.instrument_id:
+            instrument = self.instrument
+            if instrument.treatment_plant_id != self.treatment_plant_id:
+                errors["instrument"] = "The instrument must belong to the laboratory recording the result."
+            elif not instrument.is_active:
+                errors["instrument"] = "Only active instruments can be used for laboratory comparison results."
+            else:
+                latest_calibration = instrument.calibrations.filter(
+                    performed_at__lte=timezone.now()
+                ).order_by("-performed_at", "-pk").first()
+                if (
+                    latest_calibration is None
+                    or not latest_calibration.valid_until
+                    or latest_calibration.valid_until < timezone.localdate()
+                    or latest_calibration.performed_at > timezone.now()
+                ):
+                    errors["instrument"] = "The laboratory instrument must have a valid current calibration."
+        if self.inventory_equipment_id:
+            from .inventory_instruments import equipment_calibration_info, equipment_is_unavailable, equipment_snapshot
+
+            equipment = self.inventory_equipment
+            equipment_plant_id = equipment.section.treatment_plant_id if equipment.section_id else None
+            if equipment_plant_id != self.treatment_plant_id:
+                errors["inventory_equipment"] = "Select equipment assigned to the laboratory recording this result."
+            calibration = equipment_calibration_info(equipment)
+            equipment_failed = equipment_is_unavailable(equipment) or not calibration["is_current"]
+            self.instrument_snapshot = equipment_snapshot(equipment)
+            if equipment_is_unavailable(equipment):
+                self.remarks = (self.remarks + " Equipment is marked unavailable in Inventory.").strip()
+            if not calibration["is_current"]:
+                self.remarks = (
+                    self.remarks + f" Inventory calibration status: {calibration['status']} (due {calibration['due_date'] or 'date not recorded'})."
+                ).strip()
+        if self.value is not None:
+            try:
+                number = Decimal(str(self.value))
+                if not number.is_finite():
+                    raise InvalidOperation
+                self.value = number
+            except (InvalidOperation, TypeError, ValueError):
+                errors["value"] = "The laboratory reading must be a finite number."
+            else:
+                minimum = self.parameter.min_limit if self.parameter_id else None
+                maximum = self.parameter.max_limit if self.parameter_id else None
+                if minimum is not None or maximum is not None:
+                    self.status = (
+                        BatchTestResult.Status.PASS
+                        if (minimum is None or number >= minimum) and (maximum is None or number <= maximum)
+                        else BatchTestResult.Status.FAIL
+                    )
+        if equipment_failed:
+            self.status = BatchTestResult.Status.FAIL
+        if self.value is None and not (self.textual_result or "").strip():
+            errors["value"] = "Enter a numeric or textual result."
+        if self.status not in BatchTestResult.Status.values:
+            errors["status"] = "Select a valid laboratory result outcome."
+        if errors:
+            raise ValidationError(errors)
+
+        if self.instrument_id and not self.instrument_calibration_id:
+            self.instrument_calibration = self.instrument.calibrations.filter(
+                performed_at__lte=timezone.now()
+            ).order_by("-performed_at", "-pk").first()
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("Laboratory comparison results are immutable; submit a new documented run.")
+        if self.parameter_id and not self.specification_snapshot:
+            parameter = self.parameter
+            self.specification_snapshot = {
+                "id": parameter.pk,
+                "chemical_id": parameter.chemical_id,
+                "treatment_plant_id": parameter.treatment_plant_id,
+                "parameter_name": parameter.parameter_name,
+                "unit": parameter.unit,
+                "minimum": str(parameter.min_limit) if parameter.min_limit is not None else None,
+                "maximum": str(parameter.max_limit) if parameter.max_limit is not None else None,
+                "version": parameter.version,
+            }
+            if parameter.method_id:
+                method = parameter.method
+                self.method_snapshot = {
+                    "id": str(method.pk),
+                    "name": method.method,
+                    "version": method.version,
+                    "reference": method.kebs_reference,
+                    "formula_hash": method.formula_hash,
+                }
+        if self.inventory_equipment_id and not self.instrument_snapshot:
+            from .inventory_instruments import equipment_snapshot
+
+            self.instrument_snapshot = equipment_snapshot(self.inventory_equipment)
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Laboratory comparison results cannot be deleted.")
+
+
+class ChemicalQCCheckResult(models.Model):
+    """Immutable QC observation and evaluated control result for one run."""
+
+    class Status(models.TextChoices):
+        PASS = "PASS", "Within control limits"
+        FAIL = "FAIL", "Outside control limits"
+
+    batch = models.ForeignKey(ChemicalBatch, on_delete=models.PROTECT, related_name="qc_checks")
+    process = models.ForeignKey(ChemicalAnalysisProcess, on_delete=models.PROTECT, related_name="qc_checks")
+    control = models.ForeignKey(ChemicalMethodQCControl, on_delete=models.PROTECT, related_name="results")
+    parameter = models.ForeignKey(ChemicalSpecification, on_delete=models.PROTECT, related_name="qc_check_results")
+    run_number = models.PositiveIntegerField(default=1)
+    observed_value = models.DecimalField(max_digits=24, decimal_places=12)
+    evaluated_value = models.DecimalField(max_digits=24, decimal_places=12)
+    comparison_value = models.DecimalField(max_digits=24, decimal_places=12, null=True, blank=True)
+    status = models.CharField(max_length=8, choices=Status.choices, db_index=True)
+    limits_snapshot = models.JSONField(default=dict, blank=True)
+    instrument = models.ForeignKey("instruments.Instrument", on_delete=models.SET_NULL, null=True, blank=True, related_name="chemical_qc_checks")
+    inventory_equipment = models.ForeignKey("inventory.Equipment", on_delete=models.PROTECT, null=True, blank=True, related_name="chemical_qc_checks")
+    instrument_calibration = models.ForeignKey("instruments.InstrumentCalibration", on_delete=models.SET_NULL, null=True, blank=True, related_name="chemical_qc_checks")
+    instrument_snapshot = models.JSONField(default=dict, blank=True)
+    remarks = models.TextField(blank=True)
+    analyst = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="chemical_qc_checks")
+    recorded_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-recorded_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["batch", "control", "parameter", "run_number"], name="ca_qc_batch_control_param_run_unique"),
+            models.CheckConstraint(condition=Q(run_number__gte=1), name="ca_qc_run_positive"),
+        ]
+        indexes = [
+            models.Index(fields=["control", "status", "recorded_at"], name="ca_qc_control_status_time_idx"),
+            models.Index(fields=["batch", "parameter", "recorded_at"], name="ca_qc_batch_param_time_idx"),
+        ]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.process_id and self.batch_id and self.process.batch_id != self.batch_id:
+            errors["process"] = "The QC run must belong to the selected chemical batch process."
+        if self.parameter_id and self.control_id and self.parameter.method_id != self.control.plan.method_id:
+            errors["parameter"] = "The QC control method must match the affected analytical parameter method."
+        if self.batch_id and self.control_id and self.control.plan.treatment_plant_id not in (None, self.batch.treatment_plant_id):
+            errors["control"] = "The QC plan is not configured for the batch's originating treatment plant."
+        if self.control_id and self.control.check_type == ChemicalMethodQCControl.CheckType.INSTRUMENT and not (self.inventory_equipment_id or self.instrument_id):
+            errors["inventory_equipment"] = "Select the Inventory equipment used for this instrument verification control."
+        if self.instrument_id:
+            if self.instrument.treatment_plant_id != self.batch.treatment_plant_id:
+                errors["instrument"] = "The QC instrument must belong to the batch treatment plant."
+            latest_calibration = self.instrument.calibrations.filter(performed_at__lte=timezone.now()).order_by("-performed_at", "-pk").first()
+            if latest_calibration is None or not latest_calibration.valid_until or latest_calibration.valid_until < timezone.localdate():
+                errors["instrument"] = "The instrument must have a current calibration for QC verification."
+            elif self.instrument_calibration_id and self.instrument_calibration.instrument_id != self.instrument_id:
+                errors["instrument_calibration"] = "The calibration record must belong to the selected QC instrument."
+            elif not self.instrument_calibration_id:
+                self.instrument_calibration = latest_calibration
+            self.instrument_snapshot = {
+                "instrument_id": str(self.instrument.pk),
+                "name": self.instrument.name,
+                "serial_number": self.instrument.serial_number,
+                "treatment_plant_id": self.instrument.treatment_plant_id,
+                "calibration_id": self.instrument_calibration_id,
+                "calibration_valid_until": self.instrument_calibration.valid_until.isoformat() if self.instrument_calibration and self.instrument_calibration.valid_until else None,
+            }
+        if self.inventory_equipment_id:
+            from .inventory_instruments import equipment_calibration_info, equipment_is_unavailable, equipment_snapshot
+
+            equipment = self.inventory_equipment
+            equipment_plant_id = equipment.section.treatment_plant_id if equipment.section_id else None
+            if equipment_plant_id != self.batch.treatment_plant_id:
+                errors["inventory_equipment"] = "Select equipment assigned to a section at the batch's treatment plant."
+            self.instrument_snapshot = equipment_snapshot(equipment)
+            calibration = equipment_calibration_info(equipment)
+            if equipment_is_unavailable(equipment) or not calibration["is_current"]:
+                self.status = self.Status.FAIL
+                details = []
+                if equipment_is_unavailable(equipment):
+                    details.append("equipment marked unavailable in Inventory")
+                if not calibration["is_current"]:
+                    details.append(f"calibration {calibration['status'].lower()}")
+                note = "Instrument QC failed: " + " and ".join(details) + "."
+                self.remarks = f"{self.remarks} {note}".strip()
+        if not Decimal(str(self.observed_value)).is_finite() or not Decimal(str(self.evaluated_value)).is_finite():
+            errors["observed_value"] = "QC values must be finite decimals."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("QC check results are immutable; repeat the control as a new run.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("QC check results cannot be deleted.")
+
+
+class ChemicalOOSInvestigation(models.Model):
+    """Auditable investigation linking original, repeat and final outcomes."""
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Investigation open"
+        CLOSED = "CLOSED", "Investigation closed"
+
+    process = models.ForeignKey(ChemicalAnalysisProcess, on_delete=models.PROTECT, related_name="oos_investigations")
+    batch = models.ForeignKey(ChemicalBatch, on_delete=models.PROTECT, related_name="oos_investigations")
+    parameter = models.ForeignKey(ChemicalSpecification, on_delete=models.PROTECT, related_name="oos_investigations")
+    initial_result_snapshot = models.JSONField(default=dict)
+    repeat_result_snapshots = models.JSONField(default=list, blank=True)
+    comparison_snapshot = models.JSONField(default=dict, blank=True)
+    assignable_cause = models.TextField()
+    chemist_decisions = models.JSONField(default=list, blank=True)
+    corrective_action = models.TextField(blank=True)
+    final_disposition = models.TextField(blank=True)
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN, db_index=True)
+    opened_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="opened_ca_oos_investigations")
+    opened_at = models.DateTimeField(default=timezone.now, db_index=True)
+    closed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="closed_ca_oos_investigations")
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-opened_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(fields=["process", "parameter"], condition=Q(status="OPEN"), name="ca_oos_one_open_process_param"),
+        ]
+        indexes = [models.Index(fields=["batch", "status", "opened_at"], name="ca_oos_batch_status_time_idx")]
+
+    @staticmethod
+    def result_snapshot(result):
+        if result is None:
+            return {}
+        return {
+            "result_id": result.pk,
+            "value": str(result.value) if result.value is not None else None,
+            "textual_result": result.textual_result,
+            "status": result.status,
+            "analyst_id": result.analyst_id,
+            "analyst": str(result.analyst) if result.analyst_id else "",
+            "inventory_equipment_id": str(result.inventory_equipment_id or ""),
+            "instrument_snapshot": result.instrument_snapshot or {},
+            "method_snapshot": result.method_snapshot or {},
+            "specification_snapshot": result.specification_snapshot or {},
+            "quality_flags": result.quality_flags or [],
+            "tested_at": result.tested_at.isoformat() if result.tested_at else None,
+            "revision_number": result.revision_number,
+            "revision_reason": result.revision_reason,
+        }
+
+    @classmethod
+    def record_decision(cls, *, process, result, actor, cause, decision, remarks, corrective_action=""):
+        if not str(cause or "").strip():
+            raise ValidationError("Record the potential assignable cause for every failed result.")
+        record, created = cls.objects.get_or_create(
+            process=process,
+            parameter=result.parameter,
+            status=cls.Status.OPEN,
+            defaults={
+                "batch": process.batch,
+                "initial_result_snapshot": cls.result_snapshot(result),
+                "assignable_cause": str(cause).strip(),
+                "corrective_action": str(corrective_action or "").strip(),
+                "opened_by": actor,
+            },
+        )
+        if not created:
+            latest = list(record.chemist_decisions or [])
+            latest.append({"decision": str(decision), "remarks": str(remarks or "").strip(), "actor_id": actor.pk, "at": timezone.now().isoformat()})
+            cls.objects.filter(pk=record.pk, status=cls.Status.OPEN).update(chemist_decisions=latest)
+        else:
+            cls.objects.filter(pk=record.pk).update(chemist_decisions=[{"decision": str(decision), "remarks": str(remarks or "").strip(), "actor_id": actor.pk, "at": timezone.now().isoformat()}])
+        return record
+
+    @transaction.atomic
+    def append_repeat(self, result):
+        record = type(self).objects.select_for_update().get(pk=self.pk)
+        if record.status != self.Status.OPEN:
+            raise ValidationError("A closed out-of-specification investigation cannot receive new results.")
+        snapshots = list(record.repeat_result_snapshots or [])
+        snapshots.append(self.result_snapshot(result))
+        type(self).objects.filter(pk=record.pk).update(repeat_result_snapshots=snapshots)
+        self.repeat_result_snapshots = snapshots
+        return self
+
+    @transaction.atomic
+    def close(self, *, actor, disposition, comparison=None):
+        record = type(self).objects.select_for_update().get(pk=self.pk)
+        if record.status != self.Status.OPEN:
+            raise ValidationError("This investigation has already been closed.")
+        disposition = str(disposition or "").strip()
+        if not disposition:
+            raise ValidationError("Record the final batch disposition before closing the investigation.")
+        type(self).objects.filter(pk=record.pk).update(
+            status=self.Status.CLOSED,
+            closed_by=actor,
+            closed_at=timezone.now(),
+            final_disposition=disposition,
+            comparison_snapshot=comparison or record.comparison_snapshot,
+        )
+        return type(self).objects.get(pk=record.pk)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("OOS investigation records change only through audited workflow actions.")
+        if self.process_id and self.batch_id and self.process.batch_id != self.batch_id:
+            raise ValidationError("The OOS investigation must belong to its analysis process batch.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("OOS investigation records cannot be deleted.")
+
+
+class ChemicalKEBSReferral(models.Model):
+    """Documented failed-chemical referral and physical transfer to KEBS."""
+
+    class Status(models.TextChoices):
+        DISPATCHED = "DISPATCHED", "Dispatched to KEBS"
+
+    batch = models.OneToOneField(ChemicalBatch, on_delete=models.PROTECT, related_name="kebs_referral")
+    process = models.OneToOneField(ChemicalAnalysisProcess, on_delete=models.PROTECT, related_name="kebs_referral")
+    coa = models.ForeignKey("ChemicalCoA", on_delete=models.PROTECT, related_name="kebs_referrals")
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DISPATCHED)
+    destination = models.CharField(max_length=255, default="Kenya Bureau of Standards (KEBS)")
+    kebs_reference = models.CharField(max_length=120, blank=True)
+    dispatch_method = models.CharField(max_length=80)
+    shipment_reference = models.CharField(max_length=120, blank=True)
+    assignable_cause = models.TextField()
+    comparison_summary = models.JSONField(default=dict, blank=True)
+    remarks = models.TextField(blank=True)
+    evidence = models.FileField(upload_to="ca/kebs-referrals/%Y/%m/", null=True, blank=True)
+    dispatched_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="dispatched_ca_kebs_referrals")
+    dispatched_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-dispatched_at", "-pk"]
+        indexes = [models.Index(fields=["status", "dispatched_at"], name="ca_kebs_status_time_idx")]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.process_id and self.batch_id and self.process.batch_id != self.batch_id:
+            errors["process"] = "The KEBS referral must use the batch's analysis process."
+        if self.coa_id and self.coa.batch_id != self.batch_id:
+            errors["coa"] = "The attached certificate must belong to the referred chemical batch."
+        if self.coa_id and not self.coa.pdf_file:
+            errors["coa"] = "Generate the failed-result Certificate of Analysis before referring the chemical to KEBS."
+        process = ChemicalAnalysisProcess.objects.filter(pk=self.process_id).first()
+        if process is None or not process.failed_tests.exists():
+            errors["process"] = "A failed final analysis is required for KEBS referral."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("KEBS dispatch records are immutable.")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("KEBS dispatch records cannot be deleted.")
+
+
 class ChemicalCustodyEvent(models.Model):
     class EventType(models.TextChoices):
         RECEIVED = "RECEIVED", "Received"
@@ -6639,11 +7596,21 @@ class ChemicalWorkflowAlert(models.Model):
         alert = type(self).objects.select_for_update().select_related(
             "batch", "analysis_request"
         ).get(pk=self.pk)
-        plant_id = alert.batch.treatment_plant_id if alert.batch_id else (
-            alert.analysis_request.batch.treatment_plant_id
-            if alert.analysis_request_id and alert.analysis_request.batch_id
-            else None
-        )
+        if alert.alert_type == "ca_interlab_referral":
+            try:
+                referral_id = int(str(alert.dedupe_key).rsplit(":", 1)[-1])
+                referral = ChemicalLabReferral.objects.get(pk=referral_id)
+            except (TypeError, ValueError, ChemicalLabReferral.DoesNotExist):
+                raise ValidationError("The laboratory referral for this alert could not be found.")
+            if referral.status != ChemicalLabReferral.Status.PENDING:
+                raise ValidationError("This laboratory referral has already been submitted.")
+            plant_id = referral.treatment_plant_id
+        else:
+            plant_id = alert.batch.treatment_plant_id if alert.batch_id else (
+                alert.analysis_request.batch.treatment_plant_id
+                if alert.analysis_request_id and alert.analysis_request.batch_id
+                else None
+            )
         require_ca_actor(actor, plant_id=plant_id)
         if alert.alert_type == "ca_analysis_assignment":
             if not alert.analysis_request_id or not alert.analysis_request.is_assigned_analyst(actor):
@@ -6692,7 +7659,7 @@ class ChemicalCorrectiveAction(models.Model):
     """Append-only CAPA submissions with an independently recorded review."""
 
     class Status(models.TextChoices):
-        OPEN = "OPEN", "Awaiting independent QA verification"
+        OPEN = "OPEN", "Awaiting independent chemist verification"
         VERIFIED = "VERIFIED", "Verified"
         REJECTED = "REJECTED", "Rejected"
 
@@ -6748,7 +7715,7 @@ class ChemicalCorrectiveAction(models.Model):
             raise ValidationError("A saved chemical analysis process is required for CAPA.")
         process = ChemicalAnalysisProcess.objects.select_for_update().get(pk=process.pk)
         if process.status != ChemicalAnalysisProcess.WorkflowStatus.QA:
-            raise ValidationError("CAPA can only be submitted while the process is in QA.")
+            raise ValidationError("CAPA can only be submitted during chemist review.")
         if not process.analysis_completed_at or not process.is_analysis_complete or process.has_pending_tests:
             raise ValidationError("Finalize the required analytical results before submitting CAPA.")
         if actor is None or not getattr(actor, "is_active", False):
@@ -6794,7 +7761,7 @@ class ChemicalCorrectiveAction(models.Model):
         if record.status != self.Status.OPEN:
             raise ValidationError("This corrective action has already been reviewed.")
         if actor is None or not getattr(actor, "is_active", False):
-            raise ValidationError("An active QA reviewer is required to review CAPA.")
+            raise ValidationError("An active chemist reviewer is required to review CAPA.")
         if not (actor.is_superuser or actor.has_perm("ca.review_chemical_analysis")):
             raise ValidationError("You do not have permission to review CAPA.")
         if (
@@ -6808,7 +7775,7 @@ class ChemicalCorrectiveAction(models.Model):
         if record.submitted_by_id == actor.pk or process.assigned_analysts.filter(pk=actor.pk).exists():
             raise ValidationError("CAPA verification must be independent of its submitter and assigned analysts.")
         if process.status != ChemicalAnalysisProcess.WorkflowStatus.QA:
-            raise ValidationError("CAPA can only be reviewed while the process is in QA.")
+            raise ValidationError("CAPA can only be reviewed during chemist review.")
         if not process.analysis_completed_at or not process.is_analysis_complete or process.has_pending_tests:
             raise ValidationError("Finalize the required analytical results before reviewing CAPA.")
         if process.qa_officer_id == actor.pk:

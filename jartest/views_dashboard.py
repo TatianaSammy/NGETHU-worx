@@ -249,38 +249,68 @@ class JarTestDashboardView(WanjalaMixin, View):
             coagulants = list(Chemical.objects.order_by("name")[:10])
         return coagulants
 
-    def get_or_create_raw_water(self, plant: TreatmentPlant, test_date: dt_date, coagulant: Optional[Chemical]) -> RawWater:
-        # Match by plant and date
-        rw = RawWater.objects.filter(
-            treatment_plant=plant,
-            sampled_at__date=test_date
-        ).first()
+    def get_current_qc_raw_water_analysis(self, plant: TreatmentPlant, test_date: dt_date):
+        """Return the newest raw-water QC sample for this plant, no later than the test date."""
+        if not plant:
+            return None
+        return (
+            WaterAnalysis.objects.filter(
+                treatment_plant=plant,
+                analysis_date__lte=test_date,
+                analysis_time__schedule__water_type=SamplingSchedule.RAW,
+                analysis_time__schedule__treatment_plant=plant,
+                rawwaterresults__isnull=False,
+            )
+            .select_related("analysis_time", "analysis_time__schedule")
+            .order_by("-analysis_date", "-analysis_time__time", "-pk")
+            .first()
+        )
 
-        if not rw:
-            # Create a fallback coagulant if none provided
+    def get_or_create_raw_water(self, plant: TreatmentPlant, test_date: dt_date, coagulant: Optional[Chemical]) -> Optional[RawWater]:
+        """Bind the jar test to the selected plant's current QC sample when available."""
+        qc_analysis = self.get_current_qc_raw_water_analysis(plant, test_date)
+        if qc_analysis:
+            sampled_at = timezone.make_aware(
+                timezone.datetime.combine(
+                    qc_analysis.analysis_date,
+                    qc_analysis.analysis_time.time,
+                )
+            )
+            rw = RawWater.objects.filter(
+                treatment_plant=plant,
+                sampled_at=sampled_at,
+            ).first()
+            if rw:
+                return rw
+
             if not coagulant:
-                coagulant = self.get_available_coagulants()[0] if self.get_available_coagulants() else None
-
+                coagulant = next(iter(self.get_available_coagulants()), None)
             if not coagulant:
                 coagulant, _ = Chemical.objects.get_or_create(
                     name="Alum (Aluminium Sulphate)",
                     defaults={"code": "ALUM", "description": "Aluminium Sulphate Coagulant"}
                 )
 
-            sampled_dt = timezone.make_aware(
-                timezone.datetime.combine(test_date, timezone.datetime.min.time())
-            )
-            rw = RawWater.objects.create(
+            return RawWater.objects.create(
                 treatment_plant=plant,
-                sampled_at=sampled_dt,
-                source_name=f"{plant.name} River Intake",
-                location_description="Raw Water Primary Intake Channel",
+                sampled_at=sampled_at,
+                source_name=f"{plant.name} Raw Water · {qc_analysis.reference_id}",
+                location_description=f"QC sample {qc_analysis.reference_id}",
                 coagulant=coagulant,
                 coagulant_concentration_ppm=Decimal("18.50"),
-                remarks="Baseline raw water for daily jar test optimization"
+                remarks=f"Linked to current plant raw-water QC sample {qc_analysis.reference_id}.",
             )
 
-        return rw
+        # A manually captured raw-water record is still valid when QC has no
+        # sample for this plant and date. Never borrow another plant's source.
+        return (
+            RawWater.objects.filter(
+                treatment_plant=plant,
+                sampled_at__date__lte=test_date,
+            )
+            .order_by("-sampled_at", "-pk")
+            .first()
+        )
 
     def get_or_create_jartest(self, plant: TreatmentPlant, test_date: dt_date, user) -> Optional[JarTest]:
         if not plant:
@@ -295,6 +325,8 @@ class JarTestDashboardView(WanjalaMixin, View):
             )
 
         raw_water = self.get_or_create_raw_water(plant, test_date, default_coagulant)
+        if not raw_water:
+            return None
 
         jartest, created = JarTest.objects.get_or_create(
             treatment_plant=plant,
@@ -303,9 +335,26 @@ class JarTestDashboardView(WanjalaMixin, View):
                 "raw_water": raw_water,
                 "coagulant": default_coagulant,
                 "analyst": user if user.is_authenticated else None,
-                "remarks": "Automated analytical session initialized"
             }
         )
+
+        # Keep an in-progress test attached to the latest source sample for its
+        # plant/date. Preserve the source once review has started.
+        if (
+            not created
+            and jartest.raw_water_id != raw_water.pk
+            and not (jartest.verified_at or jartest.confirmed_at or jartest.approved_at)
+        ):
+            jartest.raw_water = raw_water
+            jartest.save(update_fields=["raw_water"])
+        if jartest.raw_water.treatment_plant_id != plant.pk:
+            logger.error(
+                "Jar test source plant mismatch test=%s selected_plant=%s source_plant=%s",
+                jartest.pk,
+                plant.pk,
+                jartest.raw_water.treatment_plant_id,
+            )
+            return None
 
         # Ensure all 6 Jars exist with stepped progressive dosages
         default_dosages = [
@@ -389,36 +438,12 @@ class JarTestDashboardView(WanjalaMixin, View):
             return metrics, ticker, meta
 
         try:
-            # 1. Look for results on the exact test_date
+            latest_analysis = self.get_current_qc_raw_water_analysis(plant, test_date)
             qc_results = list(
-                RawWaterResult.objects
-                .filter(
-                    analysis__treatment_plant=plant,
-                    analysis__analysis_date=test_date,
-                    analysis__analysis_time__schedule__water_type=SamplingSchedule.RAW,
-                )
+                RawWaterResult.objects.filter(analysis=latest_analysis)
                 .select_related("parameter__parameter", "analysis")
                 .order_by("-id")
-            )
-
-            # 2. Fallback to latest available analysis if none for current date
-            if not qc_results:
-                latest_analysis = (
-                    WaterAnalysis.objects
-                    .filter(
-                        treatment_plant=plant,
-                        analysis_time__schedule__water_type=SamplingSchedule.RAW,
-                    )
-                    .order_by("-analysis_date", "-id")
-                    .first()
-                )
-                if latest_analysis:
-                    qc_results = list(
-                        RawWaterResult.objects
-                        .filter(analysis=latest_analysis)
-                        .select_related("parameter__parameter", "analysis")
-                        .order_by("-id")
-                    )
+            ) if latest_analysis else []
 
             if qc_results:
                 meta["is_live"] = True
@@ -476,36 +501,21 @@ class JarTestDashboardView(WanjalaMixin, View):
         """
         Copies/updates parameter values from QC RawWaterResult into jartest.raw_water.analyses
         """
-        if not jartest or not plant or not jartest.raw_water:
+        if (
+            not jartest
+            or not plant
+            or not jartest.raw_water
+            or jartest.raw_water.treatment_plant_id != plant.pk
+        ):
             return 0
 
         synced = 0
         try:
+            latest_analysis = self.get_current_qc_raw_water_analysis(plant, test_date)
             qc_results = list(
-                RawWaterResult.objects
-                .filter(
-                    analysis__treatment_plant=plant,
-                    analysis__analysis_date=test_date,
-                    analysis__analysis_time__schedule__water_type=SamplingSchedule.RAW,
-                )
+                RawWaterResult.objects.filter(analysis=latest_analysis)
                 .select_related("parameter__parameter")
-            )
-            if not qc_results:
-                latest_analysis = (
-                    WaterAnalysis.objects
-                    .filter(
-                        treatment_plant=plant,
-                        analysis_time__schedule__water_type=SamplingSchedule.RAW,
-                    )
-                    .order_by("-analysis_date", "-id")
-                    .first()
-                )
-                if latest_analysis:
-                    qc_results = list(
-                        RawWaterResult.objects
-                        .filter(analysis=latest_analysis)
-                        .select_related("parameter__parameter")
-                    )
+            ) if latest_analysis else []
 
             coag_limits = {
                 l.parameter_id: l
@@ -542,6 +552,15 @@ class JarTestDashboardView(WanjalaMixin, View):
         # Live Raw Water telemetry from QC module
         qc_metrics, raw_water_ticker, telemetry_meta = self.get_qc_raw_water_telemetry(plant, test_date)
 
+        # The active jar test follows the latest raw-water sample for this
+        # plant/date. Keep its local measurement snapshot aligned with QC.
+        if (
+            jartest
+            and telemetry_meta.get("is_live")
+            and not (jartest.verified_at or jartest.confirmed_at or jartest.approved_at)
+        ):
+            self.sync_qc_raw_water_to_jartest(jartest, plant, test_date)
+
         # Baseline metrics (default or imported from QC)
         raw_metrics = {
             "turbidity": qc_metrics.get("turbidity", Decimal("48.5")),
@@ -574,7 +593,10 @@ class JarTestDashboardView(WanjalaMixin, View):
             raw_turb = raw_metrics["turbidity"] or Decimal("1")
             raw_col = raw_metrics["color"] or Decimal("1")
 
-            for jar in jartest.jar_results.prefetch_related("measurements__parameter__parameter").order_by("jar_number"):
+        for jar in (
+            jartest.jar_results.prefetch_related("measurements__parameter__parameter").order_by("jar_number")
+            if jartest else []
+        ):
                 measurements_dict = {}
                 turbidity_val = None
                 color_val = None
@@ -629,7 +651,7 @@ class JarTestDashboardView(WanjalaMixin, View):
                     status_label = "Over-Dose"
                 else:
                     status_class = "standard"
-                    status_label = f"Bench #{jar.jar_number}"
+                    status_label = "Awaiting readings"
 
                 jar_data = {
                     "obj": jar,
@@ -853,15 +875,12 @@ class JarTestDashboardView(WanjalaMixin, View):
             remarks = request.POST.get("remarks")
             if remarks is not None:
                 jartest.remarks = remarks
-            if not jartest.analyst_id and request.user.is_authenticated:
+            if request.user.is_authenticated:
                 jartest.analyst = request.user
 
             # Update raw water properties if provided (RawWater.source_name / coagulant_concentration_ppm)
             if jartest.raw_water:
-                rw_src = request.POST.get("raw_water_source")
                 rw_ppm = request.POST.get("coagulant_concentration_ppm")
-                if rw_src:
-                    jartest.raw_water.source_name = rw_src.strip()
                 if rw_ppm:
                     try:
                         jartest.raw_water.coagulant_concentration_ppm = Decimal(str(rw_ppm).strip())

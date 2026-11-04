@@ -32,6 +32,7 @@ class WaterFilterViewSet(viewsets.ModelViewSet):
     """
     queryset = WaterFilter.objects.all()
     serializer_class = WaterFilterSerializer
+    filterset_fields = ["filter_status__status", "treatment_plant", "phase"]
     permission_classes = [ViewModelPermissions]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status']

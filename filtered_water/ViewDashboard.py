@@ -60,7 +60,7 @@ def _filters_for_plant(plant):
             | Q(treatment_plant=plant, phase__treatment_plant=plant)
             | Q(treatment_plant__isnull=True, phase__treatment_plant=plant)
         )
-        .select_related("filter_type", "treatment_plant", "phase", "phase__treatment_plant")
+        .select_related("filter_type", "treatment_plant", "phase", "phase__treatment_plant", "filter_status")
         .order_by("name", "pk")
     )
 
@@ -211,11 +211,11 @@ def _filter_health(water_filter, readings):
 
 def _filter_card(water_filter, readings):
     health = _filter_health(water_filter, readings)
-    design_capacity = _decimal(water_filter.design_capacity)
+    capacity = _decimal(water_filter.capacity)
     flow_rate = _decimal(water_filter.flow_rate)
     utilization = None
-    if design_capacity and design_capacity > 0 and flow_rate is not None:
-        utilization = float((flow_rate / design_capacity) * Decimal("100"))
+    if capacity and capacity > 0 and flow_rate is not None:
+        utilization = float((flow_rate / capacity) * Decimal("100"))
 
     return {
         "id": water_filter.pk,
@@ -227,7 +227,7 @@ def _filter_card(water_filter, readings):
         "status": water_filter.get_status_display(),
         "status_key": water_filter.status,
         "flow_rate": float(flow_rate) if flow_rate is not None else None,
-        "design_capacity": float(design_capacity) if design_capacity is not None else None,
+        "capacity": float(capacity) if capacity is not None else None,
         "utilization": utilization,
         "utilization_bar": min(max(utilization, 0), 100) if utilization is not None else 0,
         "tone": health["tone"],
@@ -511,9 +511,11 @@ class FilterDetailView(WanjalaMixin, View):
         compliant_count = sum(sum(sample["within_limits"] is True for sample in row["history"]) for row in matrix)
         compliance_rate = round(compliant_count * 100 / valid_count, 1) if valid_count else None
         flow = _decimal(water_filter.flow_rate)
-        capacity = _decimal(water_filter.design_capacity)
+        capacity = _decimal(water_filter.capacity)
         utilization = float(flow / capacity * Decimal("100")) if flow is not None and capacity and capacity > 0 else None
-        days_since_service = (now.date() - water_filter.last_maintenance_date).days if water_filter.last_maintenance_date else None
+        filter_status = getattr(water_filter, "filter_status", None)
+        last_maintenance_date = filter_status.last_maintenance_date if filter_status else None
+        days_since_service = (now.date() - last_maintenance_date).days if last_maintenance_date else None
 
         trend_payload = {
             "parameters": [
@@ -529,7 +531,7 @@ class FilterDetailView(WanjalaMixin, View):
                 for row in matrix
             ],
             "performance": {"labels": performance_labels, "values": performance_values},
-            "capacity": {"labels": ["Current flow", "Design capacity"], "values": [float(flow) if flow is not None else 0, float(capacity) if capacity is not None else 0]},
+            "capacity": {"labels": ["Current flow", "Rated capacity"], "values": [float(flow) if flow is not None else 0, float(capacity) if capacity is not None else 0]},
         }
 
         context = {
@@ -547,7 +549,9 @@ class FilterDetailView(WanjalaMixin, View):
             "compliance_rate": compliance_rate,
             "utilization": utilization,
             "days_since_service": days_since_service,
-            "maintenance_due": water_filter.needs_maintenance(),
+            "maintenance_due": bool(filter_status and filter_status.maintenance_due),
+            "filter_status": filter_status,
+            "last_maintenance_date": last_maintenance_date,
             "trend_payload": trend_payload,
         }
         return HttpResponse(render_to_string(self.template_name, context, request=request))

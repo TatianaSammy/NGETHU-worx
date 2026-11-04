@@ -77,3 +77,6 @@ def ensure_group_permissions_on_create(sender, instance, created, **kwargs):
         return
 
     transaction.on_commit(lambda: _sync_permissions(instance))
+
+
+\r\n

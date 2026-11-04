@@ -122,12 +122,12 @@
 
             <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
 
-            <!-- Stage 6: QA Review & Decision Gate -->
-            <div class="ca-pipe-step {% if queue_counts.qa %}is-hot{% endif %}" onclick="caFilterWorkflowStage('QA')" style="cursor: pointer;" title="QA validation, Retest or CAPA decision">
+            <!-- Stage 6: Chemist Review & Decision Gate -->
+            <div class="ca-pipe-step {% if queue_counts.qa %}is-hot{% endif %}" onclick="caFilterWorkflowStage('QA')" style="cursor: pointer;" title="Chemist validation, retest or CAPA decision">
                 <div class="ca-pipe-step__badge"><i class="fa fa-shield-halved"></i></div>
                 <div class="ca-pipe-step__content">
-                    <span class="ca-pipe-step__num">06. QA GATE</span>
-                    <span class="ca-pipe-step__name">QA Decision</span>
+                    <span class="ca-pipe-step__num">06. CHEMIST REVIEW</span>
+                    <span class="ca-pipe-step__name">Chemist Review</span>
                     <span class="ca-pipe-step__count">{{ queue_counts.qa|default:0 }}</span>
                     <span class="ca-pipe-link">Review Gate</span>
                 </div>
@@ -135,24 +135,11 @@
 
             <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
 
-            <!-- Stage 7: Final Approval -->
-            <div class="ca-pipe-step {% if queue_counts.approval %}is-active{% endif %}" onclick="caFilterWorkflowStage('APPROVAL')" style="cursor: pointer;" title="Formal technical manager approval">
-                <div class="ca-pipe-step__badge"><i class="fa fa-circle-check"></i></div>
-                <div class="ca-pipe-step__content">
-                    <span class="ca-pipe-step__num">07. APPROVAL</span>
-                    <span class="ca-pipe-step__name">Batch Approval</span>
-                    <span class="ca-pipe-step__count">{{ queue_counts.approval|default:0 }}</span>
-                    <span class="ca-pipe-link">Authorized</span>
-                </div>
-            </div>
-
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
-
-            <!-- Stage 8: CoA Sign-off -->
+            <!-- Stage 7: CoA Sign-off -->
             <div class="ca-pipe-step {% if queue_counts.coa %}is-active{% endif %}" onclick="caFilterWorkflowStage('COA')" style="cursor: pointer;" title="Digital signature and CoA stamp">
                 <div class="ca-pipe-step__badge"><i class="fa fa-certificate"></i></div>
                 <div class="ca-pipe-step__content">
-                    <span class="ca-pipe-step__num">08. CERTIFICATE</span>
+                    <span class="ca-pipe-step__num">07. CERTIFICATE</span>
                     <span class="ca-pipe-step__name">CoA Sign-off</span>
                     <span class="ca-pipe-step__count">{{ queue_counts.coa|add:queue_counts.coa_approval|default:0 }}</span>
                     <span class="ca-pipe-link">ChemicalCoA</span>
@@ -165,7 +152,7 @@
             <div class="ca-pipe-step {% if queue_counts.disposition %}is-active{% endif %}" onclick="caFilterWorkflowStage('DISPOSITION')" style="cursor: pointer;" title="Utilization in treatment works or return to supplier">
                 <div class="ca-pipe-step__badge"><i class="fa fa-water"></i></div>
                 <div class="ca-pipe-step__content">
-                    <span class="ca-pipe-step__num">09. RELEASE</span>
+                    <span class="ca-pipe-step__num">08. RELEASE</span>
                     <span class="ca-pipe-step__name">Utilization / RTS</span>
                     <span class="ca-pipe-step__count">{{ queue_counts.disposition|add:queue_counts.return|default:0 }}</span>
                     <span class="ca-pipe-link">Plant Stock</span>
@@ -179,9 +166,8 @@
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('ALL')" style="font-size: 0.68rem; padding: 4px 8px;">Show All Processes</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('INTAKE')">Intake ({{ queue_counts.received|default:0 }})</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('TESTING')">Testing ({{ queue_counts.analysis|default:0 }})</button>
-            <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('QA')">QA Review ({{ queue_counts.qa|default:0 }})</button>
+            <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('QA')">Chemist review ({{ queue_counts.qa|default:0 }})</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('ASSIGNMENT')">Analyst assignment ({{ queue_counts.assignment_pending|add:queue_counts.assignment_overdue|default:0 }})</button>
-            <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('APPROVAL')">Batch approval ({{ queue_counts.approval|default:0 }})</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('APPROVED')">Approved ({{ counts.approved_batches|default:0 }})</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('RETEST')">Retest ({{ queue_counts.retest|default:0 }})</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('COA')">CoA ({{ queue_counts.coa|default:0 }})</button>
@@ -252,7 +238,7 @@
                             {% elif p.status == 'ASSIGNED' or p.status == 'ANALYSIS' or p.status == 'RETEST' %}
                                 <span class="pbi-pill pbi-pill--warning"><i class="fa fa-flask"></i> {{ p.status }}</span>
                             {% elif p.status == 'QA' %}
-                                <span class="pbi-pill pbi-pill--danger"><i class="fa fa-shield"></i> QA REVIEW</span>
+                                <span class="pbi-pill pbi-pill--danger"><i class="fa fa-shield"></i> CHEMIST REVIEW</span>
                             {% elif p.status == 'APPROVED' %}
                                 <span class="pbi-pill pbi-pill--success"><i class="fa fa-circle-check"></i> APPROVED</span>
                             {% elif p.status == 'UTILIZED' %}
@@ -340,8 +326,6 @@ function caFilterWorkflowStage(stage) {
         } else if (stage === "QA" && (rowStage === "QA")) {
             r.style.display = "";
         } else if (stage === "ASSIGNMENT" && rowStage === "ASSIGNMENT") {
-            r.style.display = "";
-        } else if (stage === "APPROVAL" && rowStage === "APPROVAL") {
             r.style.display = "";
         } else if (stage === "APPROVED" && r.getAttribute("data-status") === "APPROVED") {
             r.style.display = "";

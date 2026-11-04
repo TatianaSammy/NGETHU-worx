@@ -1,0 +1,76 @@
+.ca-interlab-review,
+.ca-interlab-referral-list {
+    display: grid;
+    gap: 12px;
+    margin: 18px 0;
+}
+
+.ca-interlab-review {
+    padding: 16px;
+    border: 1px solid #bfd7e7;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #f3f9fc, #fff);
+}
+
+.ca-interlab-review h3,
+.ca-interlab-parameter h4 {
+    margin: 0;
+    color: #12354d;
+}
+
+.ca-interlab-referrals,
+.ca-interlab-labs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+}
+
+.ca-interlab-referrals .ca-context-chip,
+.ca-interlab-labs > div,
+.ca-interlab-parameter,
+.ca-interlab-referral-card {
+    display: grid;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid #d7e3ed;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.ca-interlab-referrals small,
+.ca-interlab-labs span,
+.ca-interlab-parameter small {
+    color: #627589;
+}
+
+.ca-interlab-comparison {
+    display: grid;
+    gap: 10px;
+}
+
+.ca-interlab-parameter > p {
+    margin: 4px 0 0;
+    color: #12354d;
+}
+
+.ca-interlab-referral-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    padding: 18px;
+}
+
+.ca-interlab-referral-card h2,
+.ca-interlab-referral-card p {
+    margin: 0 0 5px;
+}
+
+.ca-interlab-referral-card p {
+    color: #627589;
+}
+
+@media (max-width: 680px) {
+    .ca-interlab-referral-card {
+        grid-template-columns: 1fr;
+    }
+}

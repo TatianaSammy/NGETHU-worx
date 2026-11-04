@@ -1,0 +1,4 @@
+<div class="analysis-card-grid" data-analysis-cards>
+    {% for card in cards %}{% include "core/components/analysis_workflow_card.html" with card=card %}
+    {% empty %}<div class="analysis-empty"><i class="fas fa-vials" aria-hidden="true"></i><strong>No analysis records in this scope and time window.</strong><span>Scheduled work is generated from configured slots or existing sample records.</span></div>{% endfor %}
+</div>

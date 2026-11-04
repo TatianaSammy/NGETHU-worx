@@ -11,6 +11,8 @@ from django.views.decorators.http import require_GET, require_POST
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.core.exceptions import PermissionDenied
+from core.plant_section_scope import scoped_queryset, user_plant_section
 
 from sc.models import Shift, ShiftHandover, ShiftAssignment, Apparatus, ApparatusCondition, AuditLog
 from sc.services.shift_service import (
@@ -43,7 +45,10 @@ def shift_handover_modal_data(request):
         return JsonResponse({"success": False, "message": "No active shift configured for treatment plant."}, status=400)
 
     # Ensure baseline apparatus exists
-    apparatus_qs = seed_default_apparatus_if_needed(plant)
+    section_id = getattr(user, "section_id", None)
+    if not user.is_superuser and not section_id:
+        return JsonResponse({"success": False, "message": "A section assignment is required for shift handover access."}, status=403)
+    apparatus_qs = seed_default_apparatus_if_needed(plant, None if user.is_superuser else section_id)
     apparatus_list = [
         {
             "id": a.id,
@@ -54,7 +59,12 @@ def shift_handover_modal_data(request):
     ]
 
     # Eligible incoming supervisors belonging to next shift
-    eligible_incoming = get_eligible_supervisors_for_shift(next_shift or current_shift, timezone.localdate())
+    eligible_incoming = get_eligible_supervisors_for_shift(
+        next_shift or current_shift,
+        timezone.localdate(),
+        section_id=None if user.is_superuser else section_id,
+        allow_cross_scope=user.is_superuser,
+    )
     incoming_list = [
         {
             "id": u.id,
@@ -66,7 +76,12 @@ def shift_handover_modal_data(request):
     ]
 
     # Eligible outgoing supervisors belonging to current shift
-    eligible_outgoing = get_eligible_supervisors_for_shift(current_shift, timezone.localdate())
+    eligible_outgoing = get_eligible_supervisors_for_shift(
+        current_shift,
+        timezone.localdate(),
+        section_id=None if user.is_superuser else section_id,
+        allow_cross_scope=user.is_superuser,
+    )
     outgoing_list = [
         {
             "id": u.id,
@@ -136,13 +151,55 @@ def shift_handover_submit(request):
 
     try:
         current_shift = Shift.objects.get(pk=shift_id)
-        next_shift = Shift.objects.get(pk=next_shift_id) if next_shift_id else get_next_shift(current_shift, current_shift.treatment_plant)
+        next_shift = Shift.objects.get(pk=next_shift_id) if next_shift_id else get_next_shift(
+            current_shift,
+            current_shift.treatment_plant,
+            None if user.is_superuser else user.section_id,
+        )
         outgoing_user = User.objects.get(pk=outgoing_sup_id)
         incoming_user = User.objects.get(pk=incoming_sup_id)
     except Exception as e:
         return JsonResponse({"success": False, "message": f"Entity not found: {str(e)}"}, status=400)
 
     today = timezone.localdate()
+
+    if not user.is_superuser:
+        plant_id, section_id = user_plant_section(user)
+        valid_shift = bool(
+            plant_id
+            and section_id
+            and current_shift.treatment_plant_id == plant_id
+            and current_shift.section_requirements.filter(section_id=section_id).exists()
+        )
+        valid_next = not next_shift or bool(
+            next_shift.treatment_plant_id == plant_id
+            and next_shift.section_requirements.filter(section_id=section_id).exists()
+        )
+        assigned_parties = all(
+            person.assigned_treatment_plant_id == plant_id and person.section_id == section_id and not person.is_superuser
+            for person in (outgoing_user, incoming_user)
+        )
+        if not valid_shift or not valid_next or not assigned_parties:
+            return JsonResponse({"success": False, "message": "The shift, section, and supervisors must match your assigned scope."}, status=403)
+
+    apparatus_by_id = {}
+    if isinstance(apparatus_conditions, list):
+        apparatus_ids = {item.get("apparatus_id") for item in apparatus_conditions if item.get("apparatus_id")}
+        apparatus_by_id = {
+            item.pk: item
+            for item in scoped_queryset(Apparatus.objects.select_related("equipment", "equipment__section"), user)
+            .filter(pk__in=apparatus_ids)
+        }
+        if len(apparatus_by_id) != len(apparatus_ids):
+            return JsonResponse({"success": False, "message": "An apparatus item is outside your plant or section."}, status=403)
+        if any(
+            not ShiftSectionRequirement.objects.filter(
+                shift_id=current_shift.pk,
+                section_id=apparatus.equipment.section_id,
+            ).exists()
+            for apparatus in apparatus_by_id.values()
+        ):
+            return JsonResponse({"success": False, "message": "Apparatus must belong to a section configured for this shift."}, status=403)
 
     # Verify both parties belong to their respective shifts
     if not user_belongs_to_shift(outgoing_user, current_shift, today):
@@ -195,7 +252,7 @@ def shift_handover_submit(request):
                 status = item.get("status", "working")
                 remarks = item.get("remarks", "")
                 if app_id:
-                    app = Apparatus.objects.filter(pk=app_id).first()
+                    app = apparatus_by_id.get(int(app_id))
                     if app:
                         ApparatusCondition.objects.update_or_create(
                             handover=handover,
@@ -257,7 +314,10 @@ def shift_takeover_confirm(request):
         return JsonResponse({"success": False, "message": "Handover record, username, and password are required."}, status=400)
 
     try:
-        handover = ShiftHandover.objects.select_related("shift", "shift__treatment_plant", "outgoing_supervisor", "incoming_supervisor").get(pk=handover_id)
+        handover = scoped_queryset(
+            ShiftHandover.objects.select_related("shift", "shift__treatment_plant", "outgoing_supervisor", "incoming_supervisor"),
+            request.user,
+        ).get(pk=handover_id)
     except ShiftHandover.DoesNotExist:
         return JsonResponse({"success": False, "message": "Shift Handover record not found."}, status=404)
 
@@ -271,6 +331,20 @@ def shift_takeover_confirm(request):
         logger.warning("Shift takeover authentication failed for username=%s", auth_username)
         return JsonResponse({"success": False, "message": "Invalid supervisor username or password. Transition rejected."}, status=401)
 
+    if not request.user.is_superuser:
+        plant_id, section_id = user_plant_section(request.user)
+        if (
+            not plant_id
+            or not section_id
+            or handover.shift.treatment_plant_id != plant_id
+            or not handover.shift.section_requirements.filter(section_id=section_id).exists()
+        ):
+            return JsonResponse({"success": False, "message": "This handover is outside your assigned plant or section."}, status=403)
+        if not auth_user.is_superuser and (
+            auth_user.assigned_treatment_plant_id != plant_id or auth_user.section_id != section_id
+        ):
+            return JsonResponse({"success": False, "message": "The incoming supervisor belongs to another plant or section."}, status=403)
+
     # Verify that authenticated user matches the designated incoming supervisor (or is superuser)
     if not auth_user.is_superuser and auth_user.id != handover.incoming_supervisor_id:
         return JsonResponse({
@@ -279,7 +353,11 @@ def shift_takeover_confirm(request):
         }, status=403)
 
     today = handover.date
-    next_shift = get_next_shift(handover.shift, handover.shift.treatment_plant)
+    next_shift = get_next_shift(
+        handover.shift,
+        handover.shift.treatment_plant,
+        None if auth_user.is_superuser else auth_user.section_id,
+    )
 
     # Re-verify that both parties belong to their respective shifts
     if not user_belongs_to_shift(handover.outgoing_supervisor, handover.shift, today):
@@ -303,11 +381,14 @@ def shift_takeover_confirm(request):
         handover.save()
 
         # Update active roster assignments to point to new supervisor
-        ShiftAssignment.objects.filter(
+        assignment_updates = ShiftAssignment.objects.filter(
             shift=handover.shift,
             date=today,
             is_deleted=False
-        ).update(handover_to=auth_user)
+        )
+        if not request.user.is_superuser:
+            assignment_updates = assignment_updates.filter(staff__assigned_treatment_plant_id=plant_id, staff__section_id=section_id)
+        assignment_updates.update(handover_to=auth_user)
 
         # Audit log entry
         from django.contrib.contenttypes.models import ContentType

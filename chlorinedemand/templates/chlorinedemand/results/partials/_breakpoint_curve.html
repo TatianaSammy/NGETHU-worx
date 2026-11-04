@@ -5,7 +5,7 @@
             <h6 class="m-0 fw-bold">Breakpoint Chlorination Curve</h6>
         </div>
         <div class="cl-curve-legend">
-            <span class="legend-item"><span class="dot dot-target"></span> Target (0.20 mg/L)</span>
+            <span class="legend-item"><span class="dot dot-target"></span>{% if target_residual != None %}Plant F.R.C. target ({{ target_residual }} mg/L){% else %}Treated-water F.R.C. target unavailable{% endif %}</span>
             <span class="legend-item"><span class="dot dot-residual"></span> Residual Cl₂</span>
             <span class="legend-item"><span class="dot dot-demand"></span> Chlorine Demand</span>
             <span class="legend-item"><span class="dot dot-optimal"></span> Optimal Dose</span>
@@ -54,9 +54,8 @@
             <text x="50" y="80" text-anchor="end" fill="#64748b" font-size="10">0.6</text>
             <text x="50" y="30" text-anchor="end" fill="#64748b" font-size="10">0.8</text>
 
-            <!-- Target Residual Guide Line (0.20 mg/L) -->
-            <line x1="60" y1="190" x2="680" y2="190" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.8" />
-            <text x="670" y="185" text-anchor="end" fill="#f59e0b" font-size="10" font-weight="bold">TARGET 0.20 mg/L</text>
+            <line id="clTargetLine" x1="60" y1="190" x2="680" y2="190" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.8" {% if target_residual == None %}display="none"{% endif %}/>
+            <text id="clTargetLabel" x="670" y="185" text-anchor="end" fill="#f59e0b" font-size="10" font-weight="bold" {% if target_residual == None %}display="none"{% endif %}>{% if target_residual != None %}TARGET {{ target_residual }} mg/L{% endif %}</text>
 
             <!-- Curve Paths (Rendered dynamically by JavaScript) -->
             <path id="clResidualArea" d="" fill="url(#clAreaGrad)" />
@@ -85,7 +84,7 @@
         <div class="insight-pill">
             <span class="ins-title">Free Residual @ Optimal</span>
             <span class="ins-val text-cyan" id="ins-free-residual">
-                {% if optimal_jar %}{{ optimal_jar.residual }} mg/L{% else %}0.20 mg/L{% endif %}
+                {% if optimal_jar %}{{ optimal_jar.residual }} mg/L{% elif target_residual != None %}{{ target_residual }} mg/L{% else %}—{% endif %}
             </span>
         </div>
     </div>

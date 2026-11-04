@@ -1404,22 +1404,6 @@ class Dashboard2View(CaWanjalaMixin, TemplateView):
         except Exception:
             return []
 
-        return [
-            {
-                "date": index.isoformat(),
-                "value": (
-                    None
-                    if pd.isna(value)
-                    else round(
-                        float(value),
-                        3,
-                    )
-                ),
-            }
-            for index, value
-            in rolling.items()
-        ]
-
     def _correlation(self, df):
         if df.empty:
             return []

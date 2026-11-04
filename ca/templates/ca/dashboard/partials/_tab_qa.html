@@ -4,18 +4,18 @@
 <!-- QA TELEMETRY STRIP -->
 <div class="ca-mt-kpis">
     <div class="ca-mt-kpi">
-        <div class="ca-mt-kpi__label"><i class="fa fa-user-shield"></i> QA Review Queue</div>
+        <div class="ca-mt-kpi__label"><i class="fa fa-user-shield"></i> Chemist Review Queue</div>
         <div class="ca-mt-kpi__value ca-val--amber">{{ queue_counts.qa|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Awaiting QA chemist review & decision</div>
+        <div class="ca-mt-kpi__sub">Awaiting chemist review and batch decision</div>
     </div>
     <div class="ca-mt-kpi">
         <div class="ca-mt-kpi__label"><i class="fa fa-list-check"></i> CAPA Verification</div>
         <div class="ca-mt-kpi__value ca-val--purple">{{ queue_counts.capa_open|default:0 }}</div>
-        <div class="ca-mt-kpi__sub">Open actions awaiting independent QA review</div>
+        <div class="ca-mt-kpi__sub">Open actions awaiting independent chemist verification</div>
     </div>
     <div class="ca-mt-kpi">
         <div class="ca-mt-kpi__label"><i class="fa fa-stamp"></i> CoA Authorization Queue</div>
-        <div class="ca-mt-kpi__value ca-val--cyan">{{ queue_counts.approval|default:0 }}</div>
+        <div class="ca-mt-kpi__value ca-val--cyan">{{ queue_counts.coa_approval|default:0 }}</div>
         <div class="ca-mt-kpi__sub">Pending digital sign-off and stamp</div>
     </div>
     <div class="ca-mt-kpi">
@@ -77,19 +77,7 @@
                         <strong>CoA Approval & Sign-Off</strong>
                         <span>Apply digital cryptographic signature & lab rubber stamp</span>
                     </div>
-                    <span class="ca-action-card__badge">{{ queue_counts.approval|default:0 }}</span>
-                </a>
-                {% endif %}
-
-                {% if permissions.approve_batch %}
-                <a class="ca-action-card" href="{% url 'ca:pending-approval' %}">
-                    <div class="ca-action-card__icon ca-action-card__icon--emerald">
-                        <i class="fa fa-check-double"></i>
-                    </div>
-                    <div class="ca-action-card__content">
-                        <strong>Batch Release Sign-Off</strong>
-                        <span>Authorize chemical batch for water treatment dosing</span>
-                    </div>
+                    <span class="ca-action-card__badge">{{ queue_counts.coa_approval|default:0 }}</span>
                 </a>
                 {% endif %}
 
@@ -256,9 +244,6 @@
                             <i class="fa fa-certificate ca-empty-state__icon"></i>
                             <h3>No Certificates of Analysis Generated</h3>
                             <p>Once chemical batches pass laboratory analysis and receiving checklists, their CoAs will appear here for review and digital sign-off.</p>
-                            {% if permissions.approve_batch %}<a class="ca-mt-btn ca-mt-btn--primary" href="{% url 'ca:pending-approval' %}">
-                                <i class="fa fa-clipboard-check"></i> Pending Approvals
-                            </a>{% endif %}
                         </div>
                     </td>
                 </tr>

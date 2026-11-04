@@ -1,6 +1,7 @@
 #heavy_metal/models.py
 import string
 import random
+import logging
 from datetime import datetime, timedelta, time as dt_time
 
 from django.db import models
@@ -23,6 +24,7 @@ User = CustomUser
 
 MAX_DIGITS = 10
 DECIMAL_PLACES = 3
+logger = logging.getLogger(__name__)
 
 # ==========================================================
 # 🧱 BASE UTILITIES
@@ -154,7 +156,7 @@ class HeavyMetalAnalysis(TimeStampedModel):
     remarks = models.TextField(blank=True, null=True)
 
     class Meta:
-        unique_together = ("treatment_plant", "analysis_date", "sampling_time", "shift")
+        unique_together = ("treatment_plant", "treatment_plant_phase", "analysis_date", "sampling_time", "shift")
         ordering = ["analysis_date", "sampling_time__time"]
 
     def __str__(self):
@@ -202,7 +204,12 @@ class HeavyMetalAnalysis(TimeStampedModel):
 
         if placeholders:
             HeavyMetalParameter.objects.bulk_create(placeholders)
-            trigger_alerts(self, source="heavymetal")
+            try:
+                from alerts.engine import AlertEngine
+
+                AlertEngine.trigger_alert(self, alert_type="heavymetal_creation")
+            except Exception:
+                logger.exception("Could not raise the heavy metal analysis creation alert")
 
 # ==========================================================
 # 🔬 PARAMETER RESULTS

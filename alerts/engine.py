@@ -49,6 +49,7 @@ def _instance_reference(instance):
 def _plant_id(instance):
     for candidate in (
         getattr(instance, "treatment_plant_id", None),
+        getattr(getattr(instance, "section", None), "treatment_plant_id", None),
         getattr(getattr(instance, "analysis", None), "treatment_plant_id", None),
         getattr(getattr(instance, "batch", None), "treatment_plant_id", None),
         getattr(getattr(instance, "treatment_plant", None), "pk", None),
@@ -129,11 +130,14 @@ class AlertEngine:
         alert_type=None,
         audit_notes=None,
         alert_config_id=None,
+        context_data=None,
     ):
         if alert_type and not alert_types:
             alert_types = [alert_type]
 
         serialized = InstanceSerializer.serialize(instance)
+        if isinstance(serialized, dict) and isinstance(context_data, dict):
+            serialized.update(context_data)
         plant_id = _plant_id(instance)
         geo_context = GeoContextAnalyzer.detect(serialized) or {}
         if plant_id:

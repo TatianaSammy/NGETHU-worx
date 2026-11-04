@@ -4,14 +4,17 @@
 {% block title %}Breakpoint Chlorination &amp; Demand Dashboard | {{ plant.name|default:"Chlorine Demand" }}{% endblock %}
 
 {% block extra_head %}
-    <link rel="stylesheet" href="{% static 'chlorinedemand/css/chlorinedemand_dashboard.css' %}?v=20261020-compact-reports">
+    <link rel="stylesheet" href="{% static 'chlorinedemand/css/chlorinedemand_dashboard.css' %}?v=20261030-plant-frc-v3">
     <script src="{% static 'js/plotly.min.js' %}" defer></script>
-    <script src="{% static 'chlorinedemand/js/chlorinedemand_dashboard.js' %}?v=20261020-compact-reports" defer></script>
+    <script src="{% static 'chlorinedemand/js/chlorinedemand_dashboard.js' %}?v=20261030-plant-frc-v3" defer></script>
     <script>document.documentElement.classList.add("dashboard-locked");document.addEventListener("DOMContentLoaded",function(){document.body.classList.add("dashboard-fullscreen");});</script>
 {% endblock %}
 
 {% block content %}
-<main class="cl-workspace-root">
+<main class="cl-workspace-root"
+      data-target-residual="{{ target_residual|default_if_none:'' }}"
+      data-frc-min="{% if frc_limits %}{{ frc_limits.0 }}{% endif %}"
+      data-frc-max="{% if frc_limits %}{{ frc_limits.1 }}{% endif %}">
 {% if not plant %}
     <section class="cl-no-plant-card" role="status"><h1>No treatment plant assigned</h1><p>Your chlorine demand workspace is hidden until your account is assigned to a treatment plant.</p></section>
 {% elif request.GET.tab == 'reports' %}
@@ -19,7 +22,7 @@
     {{ chlorine_reports|json_script:"cd-report-data" }}
 {% else %}
     <section class="cl-bench-panel">
-    <form method="post" action="" hx-post="{{ request.get_full_path }}" hx-target="#chlorine-matrix-container" hx-swap="outerHTML" hx-indicator="#cl-loading-indicator" class="cl-bench-form" data-target-residual="{{ target_residual|default:'0.20' }}">
+    <form method="post" action="" hx-post="{{ request.get_full_path }}" hx-target="#chlorine-matrix-container" hx-swap="outerHTML" hx-indicator="#cl-loading-indicator" class="cl-bench-form">
         {% csrf_token %}<input type="hidden" name="plant" value="{{ plant.pk }}"><input type="hidden" name="date" value="{{ test_date|date:'Y-m-d' }}">
         {% include "chlorinedemand/results/partials/_topbar.html" %}
         <div class="cl-main-layout">
@@ -27,7 +30,7 @@
             <div class="cl-side-col">{% include "chlorinedemand/results/partials/_breakpoint_curve.html" %}{% include "chlorinedemand/results/partials/_timer_calculator.html" %}</div>
         </div>
         <div id="cl-loading-indicator" class="htmx-indicator realtime-loading-pill"><span class="loading-spinner"></span><span>Recomputing breakpoint curve and optimal dosage…</span></div>
-        <div class="cl-footer-toolbar"><div class="cl-hints-strip"><span class="cl-hint-badge"><kbd>Ctrl+S</kbd> Save bench</span><span class="cl-hint-badge"><kbd>Space</kbd> Timer toggle</span><span class="cl-hint-badge"><kbd>Tab</kbd> Next jar</span></div><div class="cl-actions-strip"><button type="submit" name="action" value="save_jars" class="btn-cl-save" id="saveChlorineBtn"><i class="fa-solid fa-floppy-disk"></i><span>Save Disinfection Data</span></button><button type="button" class="btn-cl-print" onclick="window.print();" title="Print Disinfection Lab Certificate"><i class="fa-solid fa-print"></i><span>Print Certificate</span></button></div></div>
+        <div class="cl-footer-toolbar"><div class="cl-actions-strip"><button type="submit" name="action" value="save_jars" class="btn-cl-save" id="saveChlorineBtn"><i class="fa-solid fa-floppy-disk"></i><span>Save Disinfection Data</span></button><button type="button" class="btn-cl-print" onclick="window.print();" title="Print Disinfection Lab Certificate"><i class="fa-solid fa-print"></i><span>Print Certificate</span></button></div></div>
     </form>
     </section>
     {{ chart_points|json_script:"chlorine-chart-data" }}

@@ -3,6 +3,7 @@
 <div class="notification-container"
      data-feed-url="{% url 'accounts:notifications' %}"
      data-ack-url="{% url 'accounts:notification-ack' alert_id='__ID__' %}"
+     data-user-id="{{ request.user.pk }}"
      data-plant-id="{% if notification_plant_id %}{{ notification_plant_id }}{% elif plant %}{{ plant.pk }}{% elif treatment_plant %}{{ treatment_plant.pk }}{% elif plant_context.plant %}{{ plant_context.plant.pk }}{% elif request.GET.plant %}{{ request.GET.plant }}{% elif request.user.assigned_treatment_plant_id %}{{ request.user.assigned_treatment_plant_id }}{% endif %}">
     <button id="notificationBtn"
             class="notification-btn"

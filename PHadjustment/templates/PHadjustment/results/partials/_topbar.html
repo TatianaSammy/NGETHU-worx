@@ -75,7 +75,7 @@
             <div class="ph-meta-pill">
                 <i class="fa-solid fa-user-gear text-muted"></i>
                 <span class="small text-muted">Analyst:</span>
-                <span class="fw-semibold">{{ ph_test.analyst.get_username|default:request.user.username }}</span>
+                <span class="fw-semibold">{{ request.user.get_full_name|default:request.user.get_username }}</span>
             </div>
         </div>
 

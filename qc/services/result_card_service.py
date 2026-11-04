@@ -592,7 +592,6 @@ class ResultCardService:
             *,
             treatment_plant,
             selected_date=None,
-            dismiss_completed=False,
     ):
 
         generated_at = timezone.localtime()

@@ -108,13 +108,13 @@
             </li>
             {% endif %}
 
-            <!-- 7. QA REVIEW & COA APPROVAL (ChemicalCoA, ChemicalCertApprover) -->
+            <!-- 7. CHEMIST REVIEW & COA APPROVAL (ChemicalCoA, ChemicalCertApprover) -->
             {% if permissions.can_view_qa_tab %}
             <li class="pbi-nav-item">
                 <a class="pbi-nav-link {% if active_tab == 'qa' or active_tab == 'quality' %}is-active{% endif %}"
-                   href="?tab=qa" role="tab" data-label="QA Reviews & CoAs" title="QA Review Decisions & CoA Signoffs">
+                   href="?tab=qa" role="tab" data-label="Chemist Reviews & CoAs" title="Chemist Review Decisions & CoA Signoffs">
                     <i class="fa fa-certificate"></i>
-                    <span>QA Reviews & CoAs</span>
+                    <span>Chemist Reviews & CoAs</span>
                 </a>
             </li>
             {% endif %}
@@ -315,8 +315,8 @@
                             <option value="REQUESTED" {% if request.GET.pbi_stage == 'REQUESTED' %}selected{% endif %}>2. Analysis Request</option>
                             <option value="CHECKLIST" {% if request.GET.pbi_stage == 'CHECKLIST' %}selected{% endif %}>3. Receiving Checklist</option>
                             <option value="ANALYSIS" {% if request.GET.pbi_stage == 'ANALYSIS' %}selected{% endif %}>4. Laboratory Testing</option>
-                            <option value="QA_REVIEW" {% if request.GET.pbi_stage == 'QA_REVIEW' %}selected{% endif %}>5. QA Review</option>
-                            <option value="APPROVED" {% if request.GET.pbi_stage == 'APPROVED' %}selected{% endif %}>6. Technical Approval</option>
+                            <option value="CHEMIST_REVIEW" {% if request.GET.pbi_stage == 'CHEMIST_REVIEW' %}selected{% endif %}>5. Chemist Review</option>
+                            <option value="APPROVED" {% if request.GET.pbi_stage == 'APPROVED' %}selected{% endif %}>6. Batch Approved</option>
                             <option value="COA_ISSUED" {% if request.GET.pbi_stage == 'COA_ISSUED' %}selected{% endif %}>7. CoA Issued</option>
                             <option value="UTILIZED" {% if request.GET.pbi_stage == 'UTILIZED' %}selected{% endif %}>8. Dosed / Utilized</option>
                         </select>

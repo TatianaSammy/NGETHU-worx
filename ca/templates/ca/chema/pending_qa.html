@@ -1,20 +1,20 @@
 {% extends "ca/dashboard/layout/app.html" %}
 
-{% block title %}Pending QA Reviews{% endblock %}
+{% block title %}Pending Chemist Reviews{% endblock %}
 
 {% block content %}
 
 <div class="page-header">
     <div>
-        <h1>Pending QA Reviews</h1>
-        <p>Chemical analysis processes awaiting quality assurance review.</p>
+        <h1>Pending Chemist Reviews</h1>
+        <p>Chemical analysis processes awaiting an independent chemist review.</p>
     </div>
 </div>
 
 <div class="card">
     <div class="card-header">
         <div>
-            <h2>QA Review Queue</h2>
+            <h2>Chemist Review Queue</h2>
             <span>{{ processes|length }} pending review{{ processes|length|pluralize }}</span>
         </div>
     </div>
@@ -71,7 +71,7 @@
 
                     <td>
                         <span class="badge badge-warning">
-                            QA Review
+                            Chemist Review
                         </span>
                     </td>
 
@@ -98,8 +98,8 @@
     </div>
 {% else %}
     <div class="empty-state">
-        <h3>No pending QA reviews</h3>
-        <p>There are currently no chemical analysis processes awaiting QA review.</p>
+        <h3>No pending chemist reviews</h3>
+        <p>There are currently no chemical analysis processes awaiting chemist review.</p>
     </div>
 {% endif %}
 </div>

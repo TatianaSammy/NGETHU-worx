@@ -18,7 +18,7 @@
             </div>
 
             <div class="badge bg-primary fs-6">
-                {{ permissions|length }} Permissions
+                {{ paginator.count }} Permissions
             </div>
 
         </div>
@@ -148,7 +148,7 @@
                         </th>
 
                         <th>
-                            {{ permissions|length }}
+                            {{ paginator.count }}
                         </th>
 
                     </tr>
@@ -162,10 +162,20 @@
 
     </div>
 
+    {% if is_paginated %}
+    <div class="card-footer d-flex justify-content-between align-items-center">
+        <span class="small text-muted">Page {{ page_obj.number }} of {{ paginator.num_pages }} · search filters this page</span>
+        <nav class="d-flex gap-2" aria-label="Permission pages">
+            {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" data-dashboard-page href="?tab=permissions&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}
+            {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" data-dashboard-page href="?tab=permissions&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+        </nav>
+    </div>
+    {% endif %}
+
 </div>
 
 <script>
-document.addEventListener("DOMContentLoaded", function () {
+(() => {
 
     const input = document.getElementById("permissionSearch");
 
@@ -188,5 +198,5 @@ document.addEventListener("DOMContentLoaded", function () {
 
     });
 
-});
+})();
 </script>

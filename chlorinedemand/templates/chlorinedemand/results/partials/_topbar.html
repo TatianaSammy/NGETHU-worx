@@ -6,7 +6,11 @@
         <div class="cl-live-badge">
             <span class="cl-pulse-beacon"></span>
             <span>{% if telemetry.is_live %}QC DISINFECTION TELEMETRY{% else %}BASELINE DISINFECTION TELEMETRY{% endif %}</span>
-            <span class="badge bg-emerald-subtle text-emerald px-1 py-0" style="font-size:0.65rem; border:1px solid #10b981;">Target Cl₂: {{ target_residual }} mg/L</span>
+            {% if frc_limits %}
+            <span class="badge bg-emerald-subtle text-emerald px-1 py-0" style="font-size:0.65rem; border:1px solid #10b981;" title="Plant treated-water F.R.C. limits: {{ frc_limits.0 }} to {{ frc_limits.1 }} mg/L">Treated F.R.C.: {{ frc_limits.0 }}–{{ frc_limits.1 }} · target {{ target_residual }} mg/L</span>
+            {% else %}
+            <span class="badge bg-warning-subtle text-warning px-1 py-0" style="font-size:0.65rem; border:1px solid #f59e0b;" title="Configure lower and upper treated-water F.R.C. limits for this plant">Treated F.R.C. target not configured</span>
+            {% endif %}
         </div>
 
         <div class="cl-telemetry-ticker">
@@ -69,7 +73,7 @@
             <div class="cl-meta-pill">
                 <i class="fa-solid fa-user-gear text-muted"></i>
                 <span class="small text-muted">Analyst:</span>
-                <span class="fw-semibold">{{ chlorine_test.analyst.username|default:current_user.username }}</span>
+                <span class="fw-semibold">{{ request.user.get_full_name|default:request.user.get_username }}</span>
             </div>
         </div>
 

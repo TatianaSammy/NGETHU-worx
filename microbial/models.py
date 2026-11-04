@@ -1,6 +1,7 @@
 #microbial/models.py
 import string
 import random
+import logging
 from datetime import datetime, timedelta, time as dt_time
 
 from django.db import models
@@ -26,6 +27,7 @@ User = CustomUser
 
 MAX_DIGITS = 10
 DECIMAL_PLACES = 3
+logger = logging.getLogger(__name__)
 
 # ==========================================================
 # 🧱 BASE UTILITIES
@@ -172,7 +174,7 @@ class MicrobialAnalysis(TimeStampedModel):
     remarks = models.TextField(blank=True, null=True)
 
     class Meta:
-        unique_together = ("treatment_plant", "analysis_date", "sampling_time", "shift")
+        unique_together = ("treatment_plant", "treatment_plant_phase", "method", "analysis_date", "sampling_time", "shift")
         ordering = ["analysis_date", "sampling_time__time"]
 
     def __str__(self):
@@ -248,7 +250,13 @@ class MicrobialAnalysis(TimeStampedModel):
         if treated_placeholders:
             TreatedWaterParameterResult.objects.bulk_create(treated_placeholders)
 
-        trigger_alerts(self, source="microbial")
+        if microbial_placeholders or treated_placeholders:
+            try:
+                from alerts.engine import AlertEngine
+
+                AlertEngine.trigger_alert(self, alert_type="water_analysis_creation")
+            except Exception:
+                logger.exception("Could not raise the microbial analysis creation alert")
 
 # ==========================================================
 # 🔬 RESULT MODELS

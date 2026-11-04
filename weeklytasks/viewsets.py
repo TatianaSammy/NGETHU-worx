@@ -5,6 +5,8 @@ from core.permissions import ViewModelPermissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.utils import timezone
+from rest_framework.exceptions import PermissionDenied
+from core.plant_section_scope import scoped_queryset
 
 from .models import (
     StandardWeeklyTask,
@@ -36,6 +38,14 @@ class StandardWeeklyTaskViewSet(viewsets.ModelViewSet):
     serializer_class = StandardWeeklyTaskSerializer
     permission_classes = [ViewModelPermissions]
 
+    def get_queryset(self):
+        return scoped_queryset(super().get_queryset(), self.request.user)
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        if request.method not in permissions.SAFE_METHODS and not request.user.is_superuser:
+            raise PermissionDenied("Only a superuser can change the shared task library.")
+
 
 # ============
 # MonthlyDutySchedule
@@ -44,6 +54,9 @@ class MonthlyDutyScheduleViewSet(viewsets.ModelViewSet):
     queryset = MonthlyDutySchedule.objects.prefetch_related('weeks__weekly_tasks__daily_assignments').all()
     serializer_class = MonthlyDutyScheduleSerializer
     permission_classes = [ViewModelPermissions]
+
+    def get_queryset(self):
+        return scoped_queryset(super().get_queryset(), self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -69,6 +82,9 @@ class DutyWeekViewSet(viewsets.ModelViewSet):
     serializer_class = DutyWeekSerializer
     permission_classes = [ViewModelPermissions]
 
+    def get_queryset(self):
+        return scoped_queryset(super().get_queryset(), self.request.user)
+
 
 # ============
 # WeeklyDutyTask
@@ -77,6 +93,9 @@ class WeeklyDutyTaskViewSet(viewsets.ModelViewSet):
     queryset = WeeklyDutyTask.objects.select_related('week', 'task_template', 'treatment_plant').prefetch_related('daily_assignments__user').all()
     serializer_class = WeeklyDutyTaskSerializer
     permission_classes = [ViewModelPermissions]
+
+    def get_queryset(self):
+        return scoped_queryset(super().get_queryset(), self.request.user)
 
     @action(detail=True, methods=['get'])
     def assigned_users(self, request, pk=None):
@@ -105,6 +124,9 @@ class DailyTaskAssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = DailyTaskAssignmentSerializer
     permission_classes = [ViewModelPermissions]
 
+    def get_queryset(self):
+        return scoped_queryset(super().get_queryset(), self.request.user)
+
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
@@ -112,7 +134,7 @@ class DailyTaskAssignmentViewSet(viewsets.ModelViewSet):
     def my_tasks(self, request):
         """Return today's tasks assigned to the current user."""
         today = timezone.now().date()
-        qs = self.queryset.filter(user=request.user, date=today)
+        qs = self.get_queryset().filter(user=request.user, date=today)
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
 
@@ -124,6 +146,9 @@ class DutyConfirmationViewSet(viewsets.ModelViewSet):
     queryset = DutyConfirmation.objects.select_related('assignment', 'confirmed_by').all()
     serializer_class = DutyConfirmationSerializer
     permission_classes = [ViewModelPermissions]
+
+    def get_queryset(self):
+        return scoped_queryset(super().get_queryset(), self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(confirmed_by=self.request.user, confirmed_at=timezone.now())

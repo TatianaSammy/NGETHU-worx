@@ -546,15 +546,16 @@ class ShiftSectionRequirement(models.Model):
     def clean(self):
         super().clean()
         if self.shift_id and self.section_id:
-            shift_plant_id = getattr(self.shift, "treatment_plant_id", None)
-            sec_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if shift_plant_id and sec_plant_id and shift_plant_id != sec_plant_id:
+            shift_plant_id = self.shift.treatment_plant_id
+            sec_plant_id = self.section.treatment_plant_id
+            if not sec_plant_id or shift_plant_id != sec_plant_id:
                 raise ValidationError({
-                    "section": (
-                        f"Section '{self.section.name}' belongs to plant '{self.section.treatment_plant.name}', "
-                        f"which does not match shift's treatment plant '{self.shift.treatment_plant.name}'."
-                    )
+                    "section": "The section must belong to the same treatment plant as the shift."
                 })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 class ShiftSupervisor(AuditMixin, models.Model):
     treatment_plant: TreatmentPlant = models.ForeignKey(
@@ -601,65 +602,219 @@ class ShiftSupervisor(AuditMixin, models.Model):
         if not self.user_id:
             return
 
-        # 1. User active status validation
         if not self.user.is_active:
             errors["user"] = f"Inactive user '{self.user.username}' cannot be designated as a shift supervisor."
 
-        # 2. Treatment Plant Integrity
-        if self.treatment_plant_id:
-            user_plant = getattr(self.user, "assigned_treatment_plant", None)
-            if user_plant and user_plant.id != self.treatment_plant_id:
-                errors["treatment_plant"] = (
-                    f"Treatment plant integrity violation: User '{self.user.username}' is assigned to "
-                    f"'{user_plant.name}', but is being designated as supervisor for '{self.treatment_plant.name}'."
-                )
-
-        # 3. Section Integrity
-        # If section is not set on the model, default from user's assigned section
-        if not self.section_id and getattr(self.user, "section_id", None):
-            self.section = self.user.section
-
+        is_superuser = bool(self.user.is_superuser)
         if self.section_id:
-            # Check section's plant vs designated treatment_plant
             sec_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if sec_plant_id and self.treatment_plant_id and sec_plant_id != self.treatment_plant_id:
-                errors["section"] = (
-                    f"Treatment plant integrity violation: Section '{self.section.name}' belongs to "
-                    f"'{self.section.treatment_plant.name}', but supervisor is being designated for '{self.treatment_plant.name}'."
-                )
-
-            user_sec = getattr(self.user, "section", None)
-            if user_sec and user_sec.id != self.section_id:
-                errors["section"] = (
-                    f"Section integrity violation: User '{self.user.username}' belongs to section "
-                    f"'{user_sec.name}', but supervisor role is assigned to section '{self.section.name}'."
-                )
-
-            # Ensure section is active
+            if not sec_plant_id or sec_plant_id != self.treatment_plant_id:
+                errors["section"] = "The section must belong to the designated treatment plant."
             if hasattr(self.section, "is_active") and not self.section.is_active:
                 errors["section"] = f"Section '{self.section.name}' is inactive and cannot have supervisors assigned."
+        elif not is_superuser:
+            errors["section"] = "A section is required for non-superuser shift supervisors."
+
+        if not is_superuser:
+            if self.user.assigned_treatment_plant_id != self.treatment_plant_id:
+                errors["treatment_plant"] = "The supervisor and treatment plant must match the user's assigned plant."
+            if not self.user.section_id or self.user.section_id != self.section_id:
+                errors["section"] = "The supervisor section must match the user's assigned section."
 
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
-        # Auto-synchronize section from user if missing
-        if not self.section_id and getattr(self.user, "section_id", None):
-            self.section = self.user.section
-
-        # Synchronize user plant if previously unassigned
-        if self.user_id and self.treatment_plant_id:
-            if not getattr(self.user, "assigned_treatment_plant_id", None):
-                self.user.assigned_treatment_plant = self.treatment_plant
-                self.user.save(update_fields=["assigned_treatment_plant"])
-
-            # Synchronize user section if previously unassigned
-            if self.section_id and not getattr(self.user, "section_id", None):
-                self.user.section = self.section
-                self.user.save(update_fields=["section"])
-
         self.full_clean()
         super().save(*args, **kwargs)
+
+
+class AnnualLeave(AuditMixin, models.Model):
+    STATUS_ANNUAL_LEAVE = "annual_leave"
+    STATUS_OFF_DUTY = "off_duty"
+    STATUS_CHOICES = [
+        (STATUS_ANNUAL_LEAVE, "Annual leave"),
+        (STATUS_OFF_DUTY, "Off duty"),
+    ]
+    UNAVAILABLE_STATUSES = (STATUS_ANNUAL_LEAVE, STATUS_OFF_DUTY)
+
+    staff = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="annual_leave_records",
+    )
+    treatment_plant = models.ForeignKey(
+        TreatmentPlant,
+        on_delete=models.CASCADE,
+        related_name="annual_leave_records",
+    )
+    start_date = models.DateField(db_index=True)
+    end_date = models.DateField(db_index=True)
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_ANNUAL_LEAVE,
+        db_index=True,
+    )
+    reason = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_sc_annual_leaves",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_sc_annual_leaves",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Staff availability"
+        verbose_name_plural = "Staff availability"
+        ordering = ["start_date", "staff__last_name", "staff__first_name"]
+        permissions = [
+            ("manage_staff_availability", "Can set staff annual leave and off-duty periods"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_date__gte=models.F("start_date")),
+                name="sc_leave_end_after_start",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["treatment_plant", "status", "start_date"],
+                name="sc_leave_plant_status_idx",
+            ),
+            models.Index(
+                fields=["staff", "status", "start_date", "end_date"],
+                name="sc_leave_staff_period_idx",
+            ),
+        ]
+
+    def __str__(self):
+        staff_name = self.staff.get_full_name() or self.staff.get_username()
+        return f"{staff_name}: {self.start_date}–{self.end_date} ({self.get_status_display()})"
+
+    @property
+    def duration_days(self):
+        if not self.start_date or not self.end_date:
+            return 0
+        return (self.end_date - self.start_date).days + 1
+
+    @classmethod
+    def is_unavailable(cls, staff_id, target_date):
+        if not staff_id or not target_date:
+            return False
+        return cls.objects.filter(
+            staff_id=staff_id,
+            status__in=cls.UNAVAILABLE_STATUSES,
+            start_date__lte=target_date,
+            end_date__gte=target_date,
+        ).exists()
+
+    def clean(self):
+        super().clean()
+        errors = {}
+
+        if self.status not in self.UNAVAILABLE_STATUSES:
+            errors["status"] = "Choose annual leave or off duty."
+
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            errors["end_date"] = "The end date cannot be earlier than the start date."
+
+        if self.staff_id and self.treatment_plant_id and not self.staff.is_superuser:
+            assigned_plant_id = self.staff.assigned_treatment_plant_id
+            section_plant_id = getattr(getattr(self.staff, "section", None), "treatment_plant_id", None)
+            if assigned_plant_id != self.treatment_plant_id or section_plant_id != self.treatment_plant_id:
+                errors["staff"] = "The staff member, section, and annual leave must belong to the same treatment plant."
+            if not self.staff.section_id:
+                errors["staff"] = "A section assignment is required before staff availability can be recorded."
+
+        if self.staff_id and self.start_date and self.end_date:
+            overlapping_leave = AnnualLeave.objects.filter(
+                staff_id=self.staff_id,
+                start_date__lte=self.end_date,
+                end_date__gte=self.start_date,
+            )
+            if self.pk:
+                overlapping_leave = overlapping_leave.exclude(pk=self.pk)
+            if overlapping_leave.exists():
+                errors["start_date"] = "This staff member already has an overlapping availability period."
+
+            existing_duties = ShiftAssignment.objects.filter(
+                is_deleted=False,
+                date__range=(self.start_date, self.end_date),
+            ).filter(
+                models.Q(staff_id=self.staff_id)
+                | models.Q(supervisor_id=self.staff_id)
+                | models.Q(temp_supervisor_id=self.staff_id)
+                | models.Q(handover_to_id=self.staff_id)
+            )
+            conflict_messages = []
+            if existing_duties.exists():
+                conflict_messages.append("Reassign or remove overlapping shift duties before setting this status.")
+
+            from django.apps import apps
+
+            daily_task_assignment = apps.get_model("weeklytasks", "DailyTaskAssignment")
+            existing_tasks = daily_task_assignment.objects.filter(
+                user_id=self.staff_id,
+                date__range=(self.start_date, self.end_date),
+            )
+            if existing_tasks.exists():
+                conflict_messages.append("Reassign or remove overlapping task duties before setting this status.")
+
+            existing_handovers = ShiftHandover.objects.filter(
+                date__range=(self.start_date, self.end_date),
+            ).filter(
+                models.Q(outgoing_supervisor_id=self.staff_id)
+                | models.Q(incoming_supervisor_id=self.staff_id)
+            )
+            if existing_handovers.exists():
+                conflict_messages.append("Reassign or remove overlapping shift handovers before setting this status.")
+            if conflict_messages:
+                errors["start_date"] = " ".join(conflict_messages)
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            previous = None
+            if self.pk:
+                previous = AnnualLeave.objects.filter(pk=self.pk).values(
+                    "staff_id", "treatment_plant_id", "start_date", "end_date", "status"
+                ).first()
+                if previous:
+                    previous["start_date"] = previous["start_date"].isoformat()
+                    previous["end_date"] = previous["end_date"].isoformat()
+            staff_ids = {self.staff_id} if self.staff_id else set()
+            if previous and previous["staff_id"]:
+                staff_ids.add(previous["staff_id"])
+            list(User.objects.select_for_update().filter(pk__in=sorted(staff_ids)).order_by("pk"))
+            self.full_clean()
+            super().save(*args, **kwargs)
+            AuditMixin.create_audit(
+                user=self.updated_by or self.created_by,
+                action="update" if previous else "create",
+                instance=self,
+                before=previous,
+                after={
+                    "staff_id": self.staff_id,
+                    "treatment_plant_id": self.treatment_plant_id,
+                    "start_date": self.start_date.isoformat() if self.start_date else None,
+                    "end_date": self.end_date.isoformat() if self.end_date else None,
+                    "status": self.status,
+                },
+            )
 
 
 class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
@@ -754,6 +909,133 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
     class Meta:
         unique_together = ('staff', 'date', 'shift')
         ordering = ['date', 'shift']
+
+    def _assignment_period_changed(self):
+        if self._state.adding:
+            return True
+        previous = type(self).objects.filter(pk=self.pk).values(
+            "staff_id", "shift_id", "date", "duty_roster_id", "supervisor_id", "handover_to_id",
+            "temp_supervisor_id", "reassigned_from_id", "is_deleted"
+        ).first()
+        return previous is None or any(
+            previous[field] != value
+            for field, value in (
+                ("staff_id", self.staff_id),
+                ("shift_id", self.shift_id),
+                ("date", self.date),
+                ("duty_roster_id", self.duty_roster_id),
+                ("supervisor_id", self.supervisor_id),
+                ("handover_to_id", self.handover_to_id),
+                ("temp_supervisor_id", self.temp_supervisor_id),
+                ("reassigned_from_id", self.reassigned_from_id),
+                ("is_deleted", self.is_deleted),
+            )
+        )
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        period_changed = self._assignment_period_changed()
+
+        if self.staff_id and self.shift_id and not self.staff.is_superuser:
+            if self.staff.assigned_treatment_plant_id != self.shift.treatment_plant_id:
+                errors["staff"] = "The staff member and shift must belong to the same treatment plant."
+            if not self.staff.section_id or not ShiftSectionRequirement.objects.filter(
+                shift_id=self.shift_id,
+                section_id=self.staff.section_id,
+            ).exists():
+                errors["staff"] = "The shift must be configured for the staff member's assigned section."
+
+        if self.duty_roster_id and self.shift_id:
+            if self.duty_roster.treatment_plant_id != self.shift.treatment_plant_id:
+                errors["duty_roster"] = "The roster and shift must belong to the same treatment plant."
+            if self.date and (self.date.month != self.duty_roster.month or self.date.year != self.duty_roster.year):
+                errors["date"] = "The assignment date must fall within the roster month."
+
+        assignment_section_id = getattr(self.staff, "section_id", None) if self.staff_id else None
+        for field_name in ("supervisor", "temp_supervisor", "handover_to"):
+            person = getattr(self, field_name, None)
+            if not person or person.is_superuser:
+                continue
+            if self.shift_id and person.assigned_treatment_plant_id != self.shift.treatment_plant_id:
+                errors[field_name] = "The assigned supervisor must belong to the shift's treatment plant."
+            if not assignment_section_id or person.section_id != assignment_section_id:
+                errors[field_name] = "The assigned supervisor must belong to the staff member's section."
+
+        if self.reassigned_from_id and self.shift_id:
+            source = self.reassigned_from
+            if source.shift.treatment_plant_id != self.shift.treatment_plant_id:
+                errors["reassigned_from"] = "The source assignment must belong to the same treatment plant."
+            if source.staff.section_id != assignment_section_id:
+                errors["reassigned_from"] = "The source assignment must belong to the same section."
+
+        if (
+            self.staff_id
+            and self.date
+            and period_changed
+            and AnnualLeave.is_unavailable(self.staff_id, self.date)
+        ):
+            errors["staff"] = "This staff member is marked on annual leave or off duty for the selected date."
+        if self.date and period_changed:
+            for field_name in ("supervisor", "temp_supervisor"):
+                user_id = getattr(self, f"{field_name}_id")
+                if user_id and AnnualLeave.is_unavailable(user_id, self.date):
+                    errors[field_name] = "A staff member marked on annual leave or off duty cannot supervise a duty on this date."
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        assignment_fields = {
+            "staff", "staff_id", "shift", "shift_id", "date", "duty_roster", "duty_roster_id",
+            "supervisor", "supervisor_id", "handover_to", "handover_to_id", "temp_supervisor",
+            "temp_supervisor_id", "reassigned_from", "reassigned_from_id", "is_deleted",
+        }
+        validate_assignment = not update_fields or assignment_fields.intersection(update_fields)
+        with transaction.atomic():
+            period_changed = validate_assignment and self._assignment_period_changed()
+            if validate_assignment:
+                previous = None
+                if self.pk:
+                    previous = type(self).objects.filter(pk=self.pk).values(
+                        "staff_id", "supervisor_id", "temp_supervisor_id"
+                    ).first()
+                user_ids = sorted({
+                    user_id
+                    for user_id in (
+                        previous.get("staff_id") if previous else None,
+                        previous.get("supervisor_id") if previous else None,
+                        previous.get("temp_supervisor_id") if previous else None,
+                        previous.get("handover_to_id") if previous else None,
+                        self.staff_id,
+                        self.supervisor_id,
+                        self.handover_to_id,
+                        self.temp_supervisor_id,
+                    )
+                    if user_id
+                })
+                list(User.objects.select_for_update().filter(pk__in=user_ids).order_by("pk"))
+            if (
+                period_changed
+                and not self.is_deleted
+                and self.staff_id
+                and self.date
+                and AnnualLeave.is_unavailable(self.staff_id, self.date)
+            ):
+                raise ValidationError({
+                    "staff": "This staff member is marked on annual leave or off duty for the selected date."
+                })
+            if period_changed and not self.is_deleted and self.date:
+                for field_name in ("supervisor", "temp_supervisor"):
+                    user_id = getattr(self, f"{field_name}_id")
+                    if user_id and AnnualLeave.is_unavailable(user_id, self.date):
+                        raise ValidationError({
+                            field_name: "A staff member marked on annual leave or off duty cannot supervise a duty on this date."
+                        })
+            if validate_assignment:
+                self.full_clean()
+            super().save(*args, **kwargs)
 
     # -----------------------------
     # Properties
@@ -890,7 +1172,17 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
             return
 
         assignment_ids = [a.id for a in assignments]
-        cls.objects.filter(id__in=assignment_ids).update(handover_to=handover.incoming_supervisor)
+        assignments_qs = cls.objects.filter(id__in=assignment_ids)
+        if not handover.incoming_supervisor.is_superuser:
+            assignments_qs = assignments_qs.filter(
+                shift__treatment_plant_id=handover.shift.treatment_plant_id,
+                staff__assigned_treatment_plant_id=handover.shift.treatment_plant_id,
+                staff__section_id=handover.incoming_supervisor.section_id,
+                shift__section_requirements__section_id=handover.incoming_supervisor.section_id,
+            ).distinct()
+        assignments = list(assignments_qs.select_related("staff", "handover_to"))
+        assignment_ids = [assignment.pk for assignment in assignments]
+        cls.objects.filter(pk__in=assignment_ids).update(handover_to=handover.incoming_supervisor)
 
         # Batch audit logs
         audit_logs = []
@@ -912,6 +1204,9 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
     def reassign_to_shift(self, new_shift):
         if self.shift == new_shift:
             return self
+
+        if AnnualLeave.is_unavailable(self.staff_id, self.date):
+            raise ValidationError("A staff member marked on annual leave or off duty cannot be assigned to a duty shift.")
 
         old_shift = self.shift
         old_handover_to = self.handover_to
@@ -1006,8 +1301,11 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
             duty_roster: "MonthlyDutyRoster",
             section,
             holidays: Optional[list[date]] = None,
+            start_date: Optional[date] = None,
     ) -> None:
         holidays = set(holidays or [])
+        if not section or section.treatment_plant_id != duty_roster.treatment_plant_id:
+            raise ValidationError("The requested roster section must belong to the roster's treatment plant.")
 
         with transaction.atomic():
 
@@ -1029,20 +1327,40 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                 for shift in shifts
                 for req in shift.section_requirements.all()}
             staff_list = list(
-                settings.AUTH_USER_MODEL.objects.filter(
+                User.objects.filter(
                     assigned_treatment_plant=duty_roster.treatment_plant,
                     section=section,
                     is_active=True,
-                ).order_by("id"))
+                ).select_for_update().order_by("id"))
 
             if not staff_list:
                 return
+
+            staff_ids = [staff.id for staff in staff_list]
+            unavailable_days_by_staff = defaultdict(set)
+            month_start = date(duty_roster.year, duty_roster.month, 1)
+            month_end = date(duty_roster.year, duty_roster.month, monthrange(duty_roster.year, duty_roster.month)[1])
+            unavailable_periods = AnnualLeave.objects.filter(
+                staff_id__in=staff_ids,
+                treatment_plant=duty_roster.treatment_plant,
+                status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+                start_date__lte=month_end,
+                end_date__gte=month_start,
+            ).values_list("staff_id", "start_date", "end_date")
+            for staff_id, unavailable_start, unavailable_end in unavailable_periods:
+                current_unavailable_day = max(unavailable_start, month_start)
+                unavailable_end = min(unavailable_end, month_end)
+                while current_unavailable_day <= unavailable_end:
+                    unavailable_days_by_staff[staff_id].add(current_unavailable_day)
+                    current_unavailable_day += timedelta(days=1)
 
             staff_lookup = {s.id: s for s in staff_list}
             supervisors = list(
                 ShiftSupervisor.objects.filter(
                     treatment_plant=duty_roster.treatment_plant,
+                    user__assigned_treatment_plant=duty_roster.treatment_plant,
                     user__section=section,
+                    user__is_active=True,
                     is_active=True,
                 ).select_related("user")
             )
@@ -1051,7 +1369,9 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
             existing = list(
                 ShiftAssignment.objects.filter(
                     duty_roster=duty_roster,
+                    staff__assigned_treatment_plant=duty_roster.treatment_plant,
                     staff__section=section,
+                    staff__is_active=True,
                     is_deleted=False,
                 ).select_related("staff", "shift")
             )
@@ -1079,9 +1399,11 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                     (s.id + rotation_seed) % len(staff_list),),)
             new_assignments = []
 
+            assignment_start = max(month_start, start_date) if start_date else month_start
+
             for week_start, week_end in MonthlyDutyRoster.get_weeks_in_month(duty_roster.year,duty_roster.month,):
 
-                current = week_start
+                current = max(week_start, assignment_start)
 
                 while current <= week_end:
 
@@ -1115,7 +1437,7 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
 
                         candidates = []
                         for staff in staff_order:
-                            if staff.id in assigned:
+                            if staff.id in assigned or current in unavailable_days_by_staff.get(staff.id, set()):
                                 continue
                             previous = last_shift.get(staff.id)
                             if previous:
@@ -1165,7 +1487,10 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
             assignments = list(
                 ShiftAssignment.objects.filter(
                     duty_roster=duty_roster,
+                    staff__assigned_treatment_plant=duty_roster.treatment_plant,
                     staff__section=section,
+                    staff__is_active=True,
+                    date__gte=assignment_start,
                     is_deleted=False,
                 )
                 .select_related("shift")
@@ -1181,9 +1506,15 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
 
             for assignment in assignments:
 
-                supervisor = supervisor_cycle[
-                    supervisor_index % len(supervisor_cycle)
-                    ]
+                available_supervisors = [
+                    supervisor
+                    for supervisor in supervisor_cycle
+                    if assignment.date not in unavailable_days_by_staff.get(supervisor.id, set())
+                ]
+                if not available_supervisors:
+                    continue
+
+                supervisor = available_supervisors[supervisor_index % len(available_supervisors)]
 
                 supervisor_index += 1
 
@@ -1292,6 +1623,7 @@ class ShiftHandover(AuditMixin, models.Model):
 
     def clean(self):
         """Ensure handover/takeover occur within ±15 minutes of expected shift times."""
+        self.validate_scope_integrity()
         for dt_field, expected_time, label in [
             ('handed_over_at', self.expected_handover_time, "Handover"),
             ('taken_over_at', self.expected_takeover_time, "Takeover")
@@ -1308,6 +1640,43 @@ class ShiftHandover(AuditMixin, models.Model):
                         f"{label} must occur within ±15 minutes of {expected_time.strftime('%H:%M')}."
                     )
 
+    def validate_scope_integrity(self):
+        errors = {}
+        if self.shift_id:
+            ordinary_sections = set()
+            for field_name in ("outgoing_supervisor", "incoming_supervisor"):
+                person = getattr(self, field_name, None)
+                if not person or person.is_superuser:
+                    continue
+                if person.assigned_treatment_plant_id != self.shift.treatment_plant_id:
+                    errors[field_name] = "The supervisor must belong to the shift's treatment plant."
+                if not person.section_id or not ShiftSectionRequirement.objects.filter(
+                    shift_id=self.shift_id,
+                    section_id=person.section_id,
+                ).exists():
+                    errors[field_name] = "The supervisor must belong to a section configured for this shift."
+                else:
+                    ordinary_sections.add(person.section_id)
+            if len(ordinary_sections) > 1:
+                errors["incoming_supervisor"] = "Both supervisors must belong to the same treatment plant section."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        user_ids = sorted({
+            user_id
+            for user_id in (self.outgoing_supervisor_id, self.incoming_supervisor_id)
+            if user_id
+        })
+        with transaction.atomic():
+            list(User.objects.select_for_update().filter(pk__in=user_ids).order_by("pk"))
+            self.validate_scope_integrity()
+            if self.date:
+                for user_id in user_ids:
+                    if AnnualLeave.is_unavailable(user_id, self.date):
+                        raise ValidationError("A staff member marked on annual leave or off duty cannot be assigned a shift handover.")
+            super().save(*args, **kwargs)
+
     @classmethod
     def create_for_shift_bulk(cls, shift, date_, outgoing_supervisor=None, incoming_supervisor=None, notes=""):
         """
@@ -1320,6 +1689,10 @@ class ShiftHandover(AuditMixin, models.Model):
         ).select_related('staff', 'supervisor')
 
         assignments = list(assignments_qs)
+        assignment_sections = {assignment.staff.section_id for assignment in assignments}
+        if len(assignment_sections) > 1:
+            raise ValidationError("A shift handover cannot combine assignments from multiple sections.")
+        assignment_section_id = next(iter(assignment_sections), None)
 
         # Compile pending work
         pending_summary = "\n".join(
@@ -1333,13 +1706,28 @@ class ShiftHandover(AuditMixin, models.Model):
             eligible = ShiftSupervisor.objects.filter(
                 treatment_plant=shift.treatment_plant,
                 user__section=section_name,
-                is_active=True
+                is_active=True,
             ).order_by('user__id')
+            eligible = eligible.exclude(user_id__in=AnnualLeave.objects.filter(
+                status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+                start_date__lte=date_,
+                end_date__gte=date_,
+            ).values("staff_id"))
             outgoing_supervisor = eligible.first().user if eligible.exists() else None
 
         # Default incoming supervisor
         if not incoming_supervisor:
             incoming_supervisor = outgoing_supervisor
+
+        supervisor_sections = {
+            person.section_id
+            for person in (outgoing_supervisor, incoming_supervisor)
+            if person and not person.is_superuser and person.section_id
+        }
+        if assignment_section_id and any(section_id != assignment_section_id for section_id in supervisor_sections):
+            raise ValidationError("The handover supervisors must belong to the assigned staff section.")
+        if len(supervisor_sections) > 1:
+            raise ValidationError("Both handover supervisors must belong to the same section.")
 
         with transaction.atomic():
             # Create handover
@@ -1391,6 +1779,18 @@ class Apparatus(AuditMixin, models.Model):
     def __str__(self):
         return self.name
 
+    def clean(self):
+        super().clean()
+        if self.equipment_id and (
+            not self.equipment.section_id
+            or not self.equipment.section.treatment_plant_id
+        ):
+            raise ValidationError({"equipment": "Apparatus equipment must belong to a section and treatment plant."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
 APPARATUS_STATUS_CHOICES = [
     ('working', 'Working'),
     ('needs_repair', 'Needs Repair'),
@@ -1420,6 +1820,29 @@ class ApparatusCondition(AuditMixin, models.Model):
 
     def __str__(self):
         return f"{self.apparatus.name}: {self.status}"
+
+    def clean(self):
+        super().clean()
+        if not self.handover_id or not self.apparatus_id:
+            return
+        equipment = self.apparatus.equipment
+        section = equipment.section
+        if (
+            not section.treatment_plant_id
+            or section.treatment_plant_id != self.handover.shift.treatment_plant_id
+            or not ShiftSectionRequirement.objects.filter(
+                shift_id=self.handover.shift_id,
+                section_id=section.pk,
+            ).exists()
+        ):
+            raise ValidationError({"apparatus": "The apparatus and handover must belong to the same treatment plant and section."})
+        supervisor_sections = {
+            person.section_id
+            for person in (self.handover.outgoing_supervisor, self.handover.incoming_supervisor)
+            if person and not person.is_superuser and person.section_id
+        }
+        if supervisor_sections and section.pk not in supervisor_sections:
+            raise ValidationError({"apparatus": "The apparatus must belong to the handover supervisors' section."})
 
     def save(self, *args, **kwargs):
         self.full_clean()

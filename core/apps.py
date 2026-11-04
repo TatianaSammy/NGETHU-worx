@@ -45,6 +45,10 @@ class CoreConfig(AppConfig):
 
         install_superuser_authorization()
 
+        from core.admin_enhancements import register_local_admin_models
+
+        register_local_admin_models(os.path.dirname(os.path.dirname(__file__)))
+
         # Register post-commit live refresh events even for lightweight
         # management startup modes; registration itself performs no I/O.
         from core.realtime_signals import register_realtime_signals

@@ -1,0 +1,63 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block bodyclass %}{{ block.super }} qad-admin-index{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div class="qad-admin-home">
+  <section class="qad-admin-welcome" aria-labelledby="qad-admin-title">
+    <div>
+      <span class="qad-admin-eyebrow">CONTROL ROOM · ADMINISTRATION</span>
+      <h1 id="qad-admin-title">Operations console</h1>
+      <p>Manage water quality, treatment operations, laboratory workflows, and system configuration.</p>
+    </div>
+    <div class="qad-admin-live"><i></i> Admin services available</div>
+  </section>
+
+  <section class="qad-admin-kpis" aria-label="Administration overview">
+    <a class="qad-admin-kpi" href="#qad-apps"><span class="qad-admin-kpi__icon">◈</span><span class="qad-admin-kpi__label">Available applications</span><strong>{{ admin_overview.apps|default:0 }}</strong><small>Scoped to your account permissions</small></a>
+    <a class="qad-admin-kpi" href="#qad-apps"><span class="qad-admin-kpi__icon qad-admin-kpi__icon--blue">▦</span><span class="qad-admin-kpi__label">Accessible data areas</span><strong>{{ admin_overview.models|default:0 }}</strong><small>Models available for review</small></a>
+    <div class="qad-admin-kpi"><span class="qad-admin-kpi__icon qad-admin-kpi__icon--green">＋</span><span class="qad-admin-kpi__label">Create records</span><strong>{{ admin_overview.addable|default:0 }}</strong><small>Areas with add permission</small></div>
+  </section>
+
+  <section class="qad-admin-section" id="qad-apps" aria-labelledby="qad-apps-title">
+    <header class="qad-admin-section__heading"><div><span class="qad-admin-eyebrow">WORKSPACES</span><h2 id="qad-apps-title">Application directory</h2></div><span>{{ app_list|length }} workspaces</span></header>
+    {% if app_list %}
+      <div class="qad-admin-app-grid">
+        {% for app in app_list %}
+          <article class="qad-admin-app">
+            <header><span class="qad-admin-app__glyph">{{ app.name|slice:":1"|upper }}</span><div><h3>{% if app.app_url %}<a href="{{ app.app_url }}">{{ app.name }}</a>{% else %}{{ app.name }}{% endif %}</h3><small>{{ app.models|length }} data {% if app.models|length == 1 %}area{% else %}areas{% endif %}</small></div></header>
+            <div class="qad-admin-model-list">
+              {% for model in app.models %}
+                <div class="qad-admin-model-row">
+                  {% if model.admin_url %}<a class="qad-admin-model-name" href="{{ model.admin_url }}">{{ model.name }}</a>{% else %}<span class="qad-admin-model-name">{{ model.name }}</span>{% endif %}
+                  <div class="qad-admin-model-actions">
+                    {% if model.add_url %}<a href="{{ model.add_url }}" aria-label="Add {{ model.name }}" title="Add record">＋</a>{% endif %}
+                    {% if model.admin_url %}<a href="{{ model.admin_url }}" aria-label="Open {{ model.name }}" title="Open records">↗</a>{% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="qad-admin-empty">No admin applications are available for this account.</div>
+    {% endif %}
+  </section>
+
+  <section class="qad-admin-section qad-admin-activity" aria-labelledby="qad-activity-title">
+    <header class="qad-admin-section__heading"><div><span class="qad-admin-eyebrow">AUDIT TRAIL</span><h2 id="qad-activity-title">Recent admin activity</h2></div><span>Latest 8 events</span></header>
+    {% if recent_admin_actions %}
+      <div class="qad-admin-activity-list">
+        {% for entry in recent_admin_actions %}
+          <article class="qad-admin-activity-row"><span class="qad-admin-activity-marker {% if entry.is_deletion %}is-delete{% elif entry.is_addition %}is-add{% else %}is-change{% endif %}"></span><div><strong>{{ entry.user.get_username }}</strong><span>{{ entry.get_action_flag_display }} · {% if entry.content_type %}{{ entry.content_type.app_label }} / {{ entry.content_type.name }}{% else %}System record{% endif %}</span><small>{{ entry.object_repr }}</small></div><time datetime="{{ entry.action_time|date:'c' }}">{{ entry.action_time|date:'M j, H:i' }}</time></article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="qad-admin-empty">Your recent administration actions will appear here.</div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

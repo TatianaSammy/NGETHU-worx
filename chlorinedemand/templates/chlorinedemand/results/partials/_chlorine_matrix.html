@@ -5,7 +5,7 @@
         <div class="d-flex align-items-center gap-2">
             <i class="fa-solid fa-flask-vial text-emerald"></i>
             <h5 class="m-0 fw-bold">6-Jar Breakpoint Demand Matrix</h5>
-            <span class="text-muted small">(30-Min Disinfection Incubation Standard)</span>
+            <span class="text-muted small">(10-Min Contact Time Standard)</span>
         </div>
 
         <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -52,7 +52,7 @@
                 </div>
 
                 <!-- Status Pill -->
-                <span class="cl-status-badge status-{{ jar.status_class }}">
+                <span id="status-badge-{{ jar.jar_number }}" class="cl-status-badge status-{{ jar.status_class }}">
                     {{ jar.status_label }}
                 </span>
             </div>
@@ -117,7 +117,7 @@
                 <div class="input-group-custom">
                     <label class="input-lbl">
                         <span>Residual Chlorine</span>
-                        <span class="unit">(mg/L after 30m)</span>
+                        <span class="unit">(mg/L after 10m)</span>
                     </label>
                     <div class="stepper-wrapper">
                         <button type="button" class="btn-step" onclick="stepChlorineResidual({{ jar.jar_number }}, -0.05)">-</button>
@@ -137,16 +137,15 @@
             <!-- Target Deviation Gauge -->
             <div class="jar-target-gauge">
                 <div class="d-flex justify-content-between small text-muted mb-1">
-                    <span>Deviation from Target (0.20 mg/L)</span>
+                    <span>{% if target_residual != None %}Deviation from Target ({{ target_residual }} mg/L){% else %}Deviation from target (F.R.C. limits required){% endif %}</span>
                     <span class="fw-bold" id="dev-display-{{ jar.jar_number }}">
-                        {% widthratio jar.residual 1 1 as dummy %}
-                        {{ jar.residual|floatformat:3 }} mg/L
+                        {% if jar.target_deviation != None %}{{ jar.target_deviation|floatformat:3 }} mg/L{% else %}—{% endif %}
                     </span>
                 </div>
                 <div class="progress-bar-wrap">
-                    <div class="progress-indicator {% if jar.is_optimal %}ind-green{% else %}ind-amber{% endif %}"
+                    <div class="progress-indicator {% if jar.status_class == 'optimal' %}ind-green{% elif jar.status_class == 'unconfigured' %}ind-neutral{% else %}ind-amber{% endif %}"
                          id="gauge-bar-{{ jar.jar_number }}"
-                         style="width: {% if jar.residual %}{{ jar.residual|floatformat:2 }}{% else %}10{% endif %}%;"></div>
+                         style="width: {{ jar.gauge_pct }}%;"></div>
                 </div>
             </div>
 
@@ -154,16 +153,4 @@
         {% endfor %}
     </div>
 
-    <!-- Analytical Bench Remarks Footer -->
-    <div class="cl-remarks-card">
-        <label for="cl-remarks" class="small fw-semibold text-muted mb-1 d-flex align-items-center gap-1">
-            <i class="fa-solid fa-comment-dots text-emerald"></i>
-            <span>Disinfection Observations & Breakpoint Notes</span>
-        </label>
-        <textarea id="cl-remarks"
-                  name="remarks"
-                  rows="2"
-                  class="cl-textarea"
-                  placeholder="Note contact time conditions, raw ammonia interference, odor threshold, or temperature variations...">{{ chlorine_test.remarks }}</textarea>
-    </div>
 </div>

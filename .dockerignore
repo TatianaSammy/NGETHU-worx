@@ -90,6 +90,15 @@ uploads/
 # Collected static
 staticfiles/
 static_collected/
+static/js/material-web/
+**/*.map
+**/*.ts
+**/*.scss
+**/*.sass
+**/*.less
+**/*.test.css
+**/*.test.js
+**/*.spec.js
 
 # Temporary files
 tmp/

@@ -28,6 +28,7 @@
         </div>
         <div class="cockpit-panel__body">
             <div class="cockpit-chart-container" style="height: 100%;">
+                {% if not recent_surveys %}<div class="empty-state"><i class="fa-solid fa-chart-column"></i><span>No survey scores recorded in this workspace.</span></div>{% endif %}
                 <canvas id="chart-thematic"></canvas>
             </div>
         </div>
@@ -43,6 +44,7 @@
         </div>
         <div class="cockpit-panel__body">
             <div class="cockpit-chart-container" style="height: 100%;">
+                {% if not recent_surveys %}<div class="empty-state"><i class="fa-solid fa-chart-line"></i><span>Completed surveys will populate this trend.</span></div>{% endif %}
                 <canvas id="chart-surveys"></canvas>
             </div>
         </div>
@@ -95,7 +97,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const chartsData = {{ charts_json|safe }};
     if (!chartsData) return;
 
-    if (chartsData.categories && document.getElementById("chart-thematic")) {
+    if (chartsData.categories && chartsData.categories.labels.length && document.getElementById("chart-thematic")) {
         QADCockpit.createBarChart(
             document.getElementById("chart-thematic"),
             chartsData.categories.labels,
@@ -104,7 +106,7 @@ document.addEventListener("DOMContentLoaded", function () {
         );
     }
 
-    if (chartsData.survey_scores && document.getElementById("chart-surveys")) {
+    if (chartsData.survey_scores && chartsData.survey_scores.labels.length && document.getElementById("chart-surveys")) {
         QADCockpit.createLineChart(
             document.getElementById("chart-surveys"),
             chartsData.survey_scores.labels,
@@ -114,4 +116,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 });
 </script>
+<script src="{% static 'js/Chart.min.js' %}"></script>
+<script src="{% static 'core/js/cockpit.js' %}?v=20261031"></script>
 {% endblock %}

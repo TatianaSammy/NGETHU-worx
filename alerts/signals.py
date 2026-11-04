@@ -97,6 +97,14 @@ def check_and_trigger_equipment_alerts(instance):
     """Trigger maintenance/calibration alerts if due."""
     today = timezone.localdate()
     alert_types = []
+    context = {
+        "source": "inventory_equipment",
+        "plant_id": getattr(getattr(instance, "section", None), "treatment_plant_id", None),
+        "instrument_name": getattr(instance, "name", ""),
+        "equipment_name": getattr(instance, "name", ""),
+        "serial_number": getattr(instance, "serial_number", ""),
+        "category": str(getattr(instance, "category", "") or ""),
+    }
 
     maint_date = getattr(instance, 'next_maintenance_date', None)
     if maint_date:
@@ -104,17 +112,24 @@ def check_and_trigger_equipment_alerts(instance):
             maint_date = maint_date.date()
         if maint_date <= today:
             alert_types.append('maintenance_due')
+        context["maintenance_due_date"] = maint_date.isoformat()
+        context["days_to_maintenance"] = (maint_date - today).days
 
-    calib_date = getattr(instance, 'calibration_due_date', None)
+    calib_date = getattr(instance, 'next_calibration_date', None)
     if calib_date:
         if hasattr(calib_date, 'date'):
             calib_date = calib_date.date()
+        context["calibration_due_date"] = calib_date.isoformat()
+        context["days_to_calibration"] = (calib_date - today).days
+        context["calibration_status"] = "EXPIRED" if calib_date < today else "DUE" if calib_date == today else "CURRENT"
         if calib_date <= today:
             alert_types.append('verification_pending')
+    else:
+        context.update(calibration_due_date="", days_to_calibration=None, calibration_status="MISSING")
 
     for alert_type in alert_types:
-        AlertEngine.trigger_alert(instance, alert_type=alert_type)
-        AlertEngine.auto_escalate_unacknowledged(instance=instance)
+        AlertEngine.trigger_alert(instance, alert_type=alert_type, context_data=context)
+        AlertEngine.auto_escalate_unacknowledged(alert_type=alert_type, instance=instance)
 
 
 # ============================================================

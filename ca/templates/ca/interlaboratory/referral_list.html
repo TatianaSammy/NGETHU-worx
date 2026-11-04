@@ -1,0 +1,47 @@
+{% extends "ca/base.html" %}
+{% load static %}
+
+{% block title %}Interlaboratory Referrals · Chemical Analysis{% endblock %}
+
+{% block extra_styles %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'ca/css/components/interlaboratory.css' %}?v=20261030-interlab">
+{% endblock %}
+
+{% block accounts_content %}
+<main class="ca-page" aria-labelledby="interlab-title">
+    <header class="ca-form-hero">
+        <div class="ca-form-hero__identity">
+            <span class="ca-form-orbit" aria-hidden="true"><i class="fa-solid fa-flask-vial"></i></span>
+            <div class="ca-form-hero__copy">
+                <p class="ca-form-eyebrow">Chemical analysis · peer laboratory verification</p>
+                <h1 id="interlab-title">Interlaboratory referrals</h1>
+                <p class="ca-form-subtitle">Review independent analysis requests for your treatment plant laboratory.</p>
+            </div>
+        </div>
+        <div class="ca-form-context"><span class="ca-context-chip">{{ pending_count }} awaiting results</span></div>
+    </header>
+
+    <section class="ca-advanced-form-panel">
+        {% if referrals %}
+            <div class="ca-interlab-referral-list">
+                {% for referral in referrals %}
+                    <article class="ca-interlab-referral-card">
+                        <div>
+                            <p class="ca-form-eyebrow">{{ referral.batch.sample_id }} · {{ referral.get_status_display }}</p>
+                            <h2>{{ referral.batch.chemical.name }}</h2>
+                            <p>{{ referral.batch.batch_number }} · Origin: {{ referral.batch.treatment_plant.name }}</p>
+                            <p>{{ referral.parameter_ids|length }} parameter{{ referral.parameter_ids|length|pluralize }} · Requested {{ referral.requested_at|date:"Y-m-d H:i" }}</p>
+                        </div>
+                        <a class="ca-form-button ca-form-button--primary" href="{% url 'ca:interlaboratory-referral-detail' referral.pk %}">
+                            {% if referral.status == "PENDING" %}Open and record results{% else %}View submitted results{% endif %}
+                        </a>
+                    </article>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No interlaboratory referrals are currently assigned to this plant.</p>
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

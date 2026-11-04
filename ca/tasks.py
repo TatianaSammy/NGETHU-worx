@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @shared_task(name="ca.auto_assign_due_chemical_analysts")
 def auto_assign_due_chemical_analysts():
-    """Assign the current duty roster to pending requests whose grace period expired.
+    """Assign an eligible analyst to any unassigned active request immediately.
 
     The model method takes a row lock and is idempotent, so this task is safe
     to run repeatedly and alongside workflow requests that check assignment.
@@ -30,17 +30,8 @@ def auto_assign_due_chemical_analysts():
             status=ChemicalAnalysisRequest.Status.PENDING,
             assigned_analysts__isnull=True,
         )
-        .filter(
-            Q(assignment_due_at__lte=now)
-            | Q(
-                assignment_due_at__isnull=True,
-                created_at__lte=now - timedelta(
-                    minutes=ChemicalAnalysisRequest.ASSIGNMENT_TIMEOUT_MINUTES
-                ),
-            )
-        )
         .select_related("batch", "batch__treatment_plant")
-        .order_by("assignment_due_at", "pk")
+        .order_by("created_at", "pk")
         .distinct()
     )
 

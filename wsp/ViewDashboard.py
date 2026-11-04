@@ -64,7 +64,7 @@ class DashboardView(WanjalaMixin, View):
 
         # Average completion rate across surveys
         comp_rates = [s.completion_rate for s in surveys[:50]]
-        avg_comp_rate = round(sum(comp_rates) / len(comp_rates), 1) if comp_rates else 100.0
+        avg_comp_rate = round(sum(comp_rates) / len(comp_rates), 1) if comp_rates else 0.0
 
         kpis = [
             {"label": "WSP Surveys", "value": total_surveys, "icon": "fa-clipboard-list", "color": "cyan"},
@@ -95,12 +95,12 @@ class DashboardView(WanjalaMixin, View):
 
         charts_payload = {
             "categories": {
-                "labels": cat_labels if cat_labels else ["Catchment Protection", "Coagulation & Flocculation", "Filtration", "Disinfection", "Storage & Distribution"],
-                "data": cat_scores if cat_scores else [88.5, 92.0, 94.2, 98.0, 89.4],
+                "labels": cat_labels,
+                "data": cat_scores,
             },
             "survey_scores": {
-                "labels": [s["name"][:16] for s in recent_surveys[:6]] or ["Audit 1", "Audit 2"],
-                "data": [float(s["score"].replace("%", "")) for s in recent_surveys[:6]] or [85, 90],
+                "labels": [s["name"][:16] for s in recent_surveys[:6]],
+                "data": [float(s["score"].replace("%", "")) for s in recent_surveys[:6]],
             },
         }
 

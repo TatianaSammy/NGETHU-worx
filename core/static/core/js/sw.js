@@ -5,8 +5,9 @@
 //  • Mutating requests:    Network-first, queued to IndexedDB on failure
 //  • Background Sync:      Replays queued requests when connectivity restores
 
-const CACHE_NAME = "qad-enterprise-pwa-v7";
+const CACHE_NAME = "qad-enterprise-pwa-v8";
 const PAGE_CACHE = "qad-page-cache-v2";
+const VOICE_CACHE = "qad-voice-alerts-v1";
 
 const PRECACHE_ASSETS = [
     "/static/vendor/bootstrap/bootstrap.min.css",
@@ -57,7 +58,7 @@ self.addEventListener("activate", (event) => {
         caches.keys().then((keys) =>
             Promise.all(
                 keys
-                    .filter((key) => key !== CACHE_NAME && key !== PAGE_CACHE && (
+                    .filter((key) => key !== CACHE_NAME && key !== PAGE_CACHE && key !== VOICE_CACHE && (
                         key.startsWith("qad-") ||
                         key.startsWith("qad-public-static-") ||
                         key.startsWith("qad-platform-")
@@ -87,6 +88,30 @@ self.addEventListener("fetch", (event) => {
     // ─── Navigation (HTML pages) ─────────────────────────────
     if (request.mode === "navigate") {
         event.respondWith(handleNavigation(request, url));
+        return;
+    }
+
+    if (url.pathname.includes("/voice_alerts/notifications/")) {
+        event.respondWith((async () => {
+            const cache = await caches.open(VOICE_CACHE);
+            const cacheRequest = new Request(url.href, { credentials: "same-origin" });
+            const cached = await cache.match(cacheRequest);
+            if (cached) return cached;
+            const response = await fetch(request);
+            if (response.status === 206) {
+                try {
+                    const completeResponse = await fetch(cacheRequest);
+                    if (completeResponse.ok && completeResponse.type === "basic") {
+                        await cache.put(cacheRequest, completeResponse.clone());
+                    }
+                } catch (_) {}
+            } else if (response.ok && response.type === "basic") {
+                try {
+                    await cache.put(cacheRequest, response.clone());
+                } catch (_) {}
+            }
+            return response;
+        })());
         return;
     }
 

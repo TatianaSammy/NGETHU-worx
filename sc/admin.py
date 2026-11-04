@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.contrib import admin, messages
 from django.contrib.admin import DateFieldListFilter
 from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.utils.html import format_html
@@ -13,9 +14,12 @@ from django.urls import reverse
 from django.utils.safestring import mark_safe
 
 from core.models import Section
+from core.plant_section_scope import object_in_scope, scoped_queryset, user_plant_section
+from t.models import TreatmentPlant
 from .models import (
     ShiftSectionRequirement,
     AuditLog,
+    AnnualLeave,
     Shift,
     ShiftSupervisor,
     ShiftAssignment,
@@ -38,6 +42,38 @@ class ReadOnlyAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class SCScopedAdminMixin:
+    scoped_filter_tokens = ("treatment_plant", "section", "shift", "roster", "handover", "apparatus")
+
+    def get_queryset(self, request):
+        return scoped_queryset(super().get_queryset(request), request.user)
+
+    def get_autocomplete_fields(self, request):
+        return super().get_autocomplete_fields(request) if request.user.is_superuser else ()
+
+    def get_list_filter(self, request):
+        configured = super().get_list_filter(request)
+        if request.user.is_superuser:
+            return configured
+        filtered = []
+        for item in configured:
+            field_name = item[0] if isinstance(item, tuple) else item
+            if not any(token in str(field_name) for token in self.scoped_filter_tokens):
+                filtered.append(item)
+        return tuple(filtered)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if formfield and hasattr(formfield, "queryset") and not request.user.is_superuser:
+            formfield.queryset = scoped_queryset(formfield.queryset, request.user)
+        return formfield
+
+    def save_model(self, request, obj, form, change):
+        if not object_in_scope(obj, request.user):
+            raise ValidationError("This record must belong to your assigned treatment plant and section.")
+        super().save_model(request, obj, form, change)
 
 
 # =============================================================================
@@ -64,9 +100,24 @@ class ShiftAssignmentInline(admin.TabularInline):
     )
     show_change_link = True
 
+    def get_autocomplete_fields(self, request):
+        return super().get_autocomplete_fields(request) if request.user.is_superuser else ()
+
+    def get_queryset(self, request):
+        return scoped_queryset(super().get_queryset(request), request.user)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if formfield and hasattr(formfield, "queryset") and not request.user.is_superuser:
+            formfield.queryset = scoped_queryset(formfield.queryset, request.user)
+        return formfield
+
 class ShiftSectionRequirementInline(admin.TabularInline):
     model = ShiftSectionRequirement
     extra = 0
+
+    def get_autocomplete_fields(self, request):
+        return super().get_autocomplete_fields(request) if request.user.is_superuser else ()
 
     autocomplete_fields = (
         "section",
@@ -82,6 +133,15 @@ class ShiftSectionRequirementInline(admin.TabularInline):
         "maximum_allowed",
     )
 
+    def get_queryset(self, request):
+        return scoped_queryset(super().get_queryset(request), request.user)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if formfield and hasattr(formfield, "queryset") and not request.user.is_superuser:
+            formfield.queryset = scoped_queryset(formfield.queryset, request.user)
+        return formfield
+
 
 class ApparatusConditionInline(admin.TabularInline):
     model = ApparatusCondition
@@ -94,13 +154,25 @@ class ApparatusConditionInline(admin.TabularInline):
     )
     show_change_link = True
 
+    def get_autocomplete_fields(self, request):
+        return super().get_autocomplete_fields(request) if request.user.is_superuser else ()
+
+    def get_queryset(self, request):
+        return scoped_queryset(super().get_queryset(request), request.user)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if formfield and hasattr(formfield, "queryset") and not request.user.is_superuser:
+            formfield.queryset = scoped_queryset(formfield.queryset, request.user)
+        return formfield
+
 
 # =============================================================================
 # AUDIT LOG
 # =============================================================================
 
 @admin.register(AuditLog)
-class AuditLogAdmin(ReadOnlyAdmin):
+class AuditLogAdmin(SCScopedAdminMixin, ReadOnlyAdmin):
     list_display = (
         "timestamp",
         "action_badge",
@@ -197,7 +269,7 @@ class AuditLogAdmin(ReadOnlyAdmin):
 # =============================================================================
 
 @admin.register(Shift)
-class ShiftAdmin(admin.ModelAdmin):
+class ShiftAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "name",
         "treatment_plant",
@@ -276,11 +348,52 @@ class ShiftAdmin(admin.ModelAdmin):
         ShiftSectionRequirementInline,
     )
 
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            plant_id, section_id = user_plant_section(request.user)
+            if not plant_id or not section_id or obj.treatment_plant_id != plant_id:
+                raise ValidationError("You can only manage shifts for your assigned treatment plant and section.")
+            return admin.ModelAdmin.save_model(self, request, obj, form, change)
+        super().save_model(request, obj, form, change)
+
+    def has_change_permission(self, request, obj=None):
+        if obj and not request.user.is_superuser:
+            section_id = user_plant_section(request.user)[1]
+            if obj.section_requirements.exclude(section_id=section_id).exists():
+                return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.is_superuser:
+            actions.pop("soft_delete_selected", None)
+            actions.pop("restore_selected", None)
+        return actions
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        if not request.user.is_superuser:
+            plant_id, section_id = user_plant_section(request.user)
+            if not ShiftSectionRequirement.objects.filter(
+                shift=form.instance,
+                section_id=section_id,
+                shift__treatment_plant_id=plant_id,
+            ).exists():
+                raise ValidationError("The shift must include your assigned section.")
+
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        return qs.annotate(
-            assignments_total=Count("assignments")
-        )
+        assignment_filter = Q(assignments__is_deleted=False)
+        if not request.user.is_superuser:
+            plant_id, section_id = user_plant_section(request.user)
+            assignment_filter &= Q(
+                assignments__staff__assigned_treatment_plant_id=plant_id,
+                assignments__staff__section_id=section_id,
+            )
+        return qs.annotate(assignments_total=Count("assignments", filter=assignment_filter, distinct=True))
 
     def assignment_count(self, obj):
         return getattr(obj, "assignments_total", 0)
@@ -289,6 +402,8 @@ class ShiftAdmin(admin.ModelAdmin):
 
     @admin.action(description="Soft delete selected shifts")
     def soft_delete_selected(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only a superuser can delete treatment plant shifts.")
         count = queryset.update(
             is_deleted=True,
             deleted_at=timezone.now(),
@@ -301,6 +416,8 @@ class ShiftAdmin(admin.ModelAdmin):
 
     @admin.action(description="Restore selected shifts")
     def restore_selected(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Only a superuser can restore treatment plant shifts.")
         count = queryset.update(
             is_deleted=False,
             deleted_at=None,
@@ -331,12 +448,12 @@ class ShiftSupervisorAdminForm(forms.ModelForm):
             plant_id = self.instance.treatment_plant_id
 
         if plant_id:
-            self.fields["section"].queryset = Section.objects.filter(
-                Q(treatment_plant_id=plant_id) | Q(treatment_plant__isnull=True),
-                is_active=True
+            self.fields["section"].queryset = self.fields["section"].queryset.filter(
+                treatment_plant_id=plant_id,
+                is_active=True,
             ).order_by("name")
         else:
-            self.fields["section"].queryset = Section.objects.filter(is_active=True).order_by("name")
+            self.fields["section"].queryset = self.fields["section"].queryset.filter(is_active=True).order_by("name")
 
         section_id = None
         if self.is_bound:
@@ -344,18 +461,18 @@ class ShiftSupervisorAdminForm(forms.ModelForm):
         elif self.instance and getattr(self.instance, "section_id", None):
             section_id = self.instance.section_id
 
-        user_qs = User.objects.filter(is_active=True)
+        user_qs = self.fields["user"].queryset.filter(is_active=True)
         if section_id:
             user_qs = user_qs.filter(section_id=section_id)
         if plant_id:
-            user_qs = user_qs.filter(
-                Q(assigned_treatment_plant_id=plant_id) | Q(section__treatment_plant_id=plant_id)
-            )
+            user_qs = user_qs.filter(assigned_treatment_plant_id=plant_id)
+        if section_id:
+            user_qs = user_qs.filter(section_id=section_id)
         self.fields["user"].queryset = user_qs.order_by("username")
 
 
 @admin.register(ShiftSupervisor)
-class ShiftSupervisorAdmin(admin.ModelAdmin):
+class ShiftSupervisorAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     form = ShiftSupervisorAdminForm
 
     list_display = (
@@ -391,12 +508,110 @@ class ShiftSupervisorAdmin(admin.ModelAdmin):
         js = ("core/js/plant_section_user_cascade.js",)
 
 
+class AnnualLeaveAdminForm(forms.ModelForm):
+    class Meta:
+        model = AnnualLeave
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        User = get_user_model()
+        plant_id = self.data.get("treatment_plant") if self.is_bound else self.instance.treatment_plant_id
+        if plant_id:
+            self.fields["staff"].queryset = self.fields["staff"].queryset.filter(
+                assigned_treatment_plant_id=plant_id,
+                is_active=True,
+            ).distinct().order_by("last_name", "first_name", "username")
+
+
+@admin.register(AnnualLeave)
+class AnnualLeaveAdmin(SCScopedAdminMixin, admin.ModelAdmin):
+    form = AnnualLeaveAdminForm
+    list_display = (
+        "staff",
+        "treatment_plant",
+        "start_date",
+        "end_date",
+        "duration_days",
+        "status",
+        "created_by",
+        "updated_by",
+    )
+    list_filter = (
+        "status",
+        "treatment_plant",
+        ("start_date", DateFieldListFilter),
+        ("end_date", DateFieldListFilter),
+    )
+    search_fields = (
+        "staff__username",
+        "staff__first_name",
+        "staff__last_name",
+        "treatment_plant__name",
+        "reason",
+        "notes",
+    )
+    autocomplete_fields = (
+        "staff",
+        "treatment_plant",
+    )
+    readonly_fields = (
+        "created_by",
+        "updated_by",
+        "created_at",
+        "updated_at",
+        "duration_days",
+    )
+    date_hierarchy = "start_date"
+    list_select_related = (
+        "staff",
+        "treatment_plant",
+        "created_by",
+        "updated_by",
+    )
+    fieldsets = (
+        ("Availability", {"fields": (("staff", "treatment_plant"), ("start_date", "end_date"), "status", "reason", "notes")}),
+        ("Access record", {"fields": ("created_by", "updated_by", "created_at", "updated_at", "duration_days")}),
+    )
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.has_perm("sc.manage_staff_availability") or super().has_view_permission(request, obj)
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser or request.user.has_perm("sc.manage_staff_availability")
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.has_perm("sc.manage_staff_availability")
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.has_perm("sc.manage_staff_availability")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            plant_id = getattr(request.user, "assigned_treatment_plant_id", None)
+            if not plant_id:
+                plant_id = getattr(getattr(request.user, "section", None), "treatment_plant_id", None)
+            if obj.treatment_plant_id != plant_id:
+                raise ValidationError("You cannot manage annual leave for another treatment plant.")
+        if not change:
+            obj.created_by = request.user
+        obj.updated_by = request.user
+
+        super().save_model(request, obj, form, change)
+
+
 # =============================================================================
 # MONTHLY DUTY ROSTER
 # =============================================================================
 
 @admin.register(MonthlyDutyRoster)
-class MonthlyDutyRosterAdmin(admin.ModelAdmin):
+class MonthlyDutyRosterAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "month",
         "year",
@@ -453,16 +668,33 @@ class MonthlyDutyRosterAdmin(admin.ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return (
-            super()
-            .get_queryset(request)
-            .annotate(
-                assignments_total=Count("assignments")
+        queryset = super().get_queryset(request)
+        assignment_filter = Q(assignments__is_deleted=False)
+        if not request.user.is_superuser:
+            plant_id, section_id = user_plant_section(request.user)
+            assignment_filter &= Q(
+                assignments__staff__assigned_treatment_plant_id=plant_id,
+                assignments__staff__section_id=section_id,
             )
+        return queryset.annotate(
+            assignments_total=Count("assignments", filter=assignment_filter, distinct=True),
+            _assigned_user_count=Count("assignments__staff_id", filter=assignment_filter, distinct=True),
         )
 
     def assignment_total(self, obj):
         return getattr(obj, "assignments_total", 0)
+
+    def assigned_user_count(self, obj):
+        return getattr(obj, "_assigned_user_count", 0)
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
 
     assignment_total.short_description = "Assignments"
 
@@ -472,7 +704,7 @@ class MonthlyDutyRosterAdmin(admin.ModelAdmin):
 # =============================================================================
 
 @admin.register(ShiftAssignment)
-class ShiftAssignmentAdmin(admin.ModelAdmin):
+class ShiftAssignmentAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "staff",
         "date",
@@ -641,7 +873,7 @@ class ShiftAssignmentAdmin(admin.ModelAdmin):
 
 
 @admin.register(ShiftSectionRequirement)
-class ShiftSectionRequirementAdmin(admin.ModelAdmin):
+class ShiftSectionRequirementAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "shift",
         "section",
@@ -674,7 +906,7 @@ class ShiftSectionRequirementAdmin(admin.ModelAdmin):
     )
 
 @admin.register(ShiftHandover)
-class ShiftHandoverAdmin(admin.ModelAdmin):
+class ShiftHandoverAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "date",
         "shift",
@@ -723,7 +955,7 @@ class ShiftHandoverAdmin(admin.ModelAdmin):
 # =============================================================================
 
 @admin.register(Apparatus)
-class ApparatusAdmin(admin.ModelAdmin):
+class ApparatusAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "name",
         "equipment",
@@ -751,7 +983,7 @@ class ApparatusAdmin(admin.ModelAdmin):
 # =============================================================================
 
 @admin.register(ApparatusCondition)
-class ApparatusConditionAdmin(admin.ModelAdmin):
+class ApparatusConditionAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     list_display = (
         "apparatus",
         "handover",

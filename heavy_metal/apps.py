@@ -5,4 +5,4 @@ class HeavyMetalConfig(AppConfig):
     name = "heavy_metal"
 
     def ready(self):
-        import heavy_metal.signals  # if you have any
+        import heavy_metal.signals

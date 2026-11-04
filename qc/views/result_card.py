@@ -180,7 +180,6 @@ class ResultCardEntryView(
             .get_context(
                 treatment_plant=plant,
                 selected_date=self.resolve_date(),
-                dismiss_completed=(request.GET.get("dismiss_completed") == "true"),
             )
         )
 

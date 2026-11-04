@@ -1,0 +1,119 @@
+.inventory-appbar {
+    align-items: center;
+    background: linear-gradient(105deg, #081a2b, #0d2d42 70%, #10464a);
+    border-bottom: 1px solid rgba(97, 193, 202, .24);
+    box-shadow: 0 8px 24px rgba(3, 17, 29, .16);
+    color: #eefaff;
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+    min-height: 61px;
+    padding: 8px clamp(12px, 2vw, 25px);
+    position: relative;
+    z-index: 20;
+}
+
+.inventory-appbar__left,
+.inventory-appbar__right,
+.inventory-appbar__user {
+    align-items: center;
+    display: flex;
+    gap: 11px;
+}
+
+.inventory-sidebar-toggle {
+    align-items: center;
+    background: rgba(133, 191, 212, .08);
+    border: 1px solid rgba(163, 202, 219, .16);
+    border-radius: 8px;
+    color: #c9e0ec;
+    cursor: pointer;
+    display: inline-flex;
+    height: 36px;
+    justify-content: center;
+    width: 38px;
+}
+
+.inventory-appbar__mark {
+    align-items: center;
+    background: linear-gradient(140deg, #27d4bd, #45a8e1);
+    border-radius: 10px;
+    box-shadow: 0 5px 15px rgba(36, 209, 197, .21);
+    color: #06283a;
+    display: inline-flex;
+    height: 37px;
+    justify-content: center;
+    width: 39px;
+}
+
+.inventory-appbar__brand {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.inventory-appbar__brand strong {
+    font-size: .76rem;
+    letter-spacing: .01em;
+}
+
+.inventory-appbar__brand span {
+    color: #95b0c0;
+    font-size: .6rem;
+    margin-top: 3px;
+}
+
+.inventory-appbar__right {
+    color: #b8ccda;
+    font-size: .67rem;
+}
+
+.inventory-appbar__module {
+    align-items: center;
+    border: 1px solid rgba(96, 202, 200, .22);
+    border-radius: 999px;
+    color: #8ee8de;
+    display: inline-flex;
+    gap: 7px;
+    padding: 7px 10px;
+}
+
+.inventory-appbar__user {
+    border-left: 1px solid rgba(166, 197, 215, .18);
+    padding-left: 13px;
+}
+
+.inventory-appbar__avatar {
+    align-items: center;
+    background: rgba(99, 169, 198, .18);
+    border: 1px solid rgba(130, 206, 218, .2);
+    border-radius: 50%;
+    color: #b6f3ed;
+    display: inline-flex;
+    font-size: .65rem;
+    font-weight: 850;
+    height: 29px;
+    justify-content: center;
+    width: 29px;
+}
+
+.inventory-appbar__logout {
+    align-items: center;
+    color: #c1d2de;
+    display: inline-flex;
+    gap: 7px;
+    padding-left: 4px;
+    text-decoration: none;
+}
+
+.inventory-appbar__logout:hover {
+    color: #fff;
+}
+
+@media (max-width: 600px) {
+    .inventory-appbar { min-height: 55px; }
+    .inventory-appbar__module,
+    .inventory-appbar__user > span:last-child,
+    .inventory-appbar__logout span { display: none; }
+    .inventory-appbar__right { gap: 8px; }
+}

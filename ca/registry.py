@@ -992,7 +992,9 @@ WORKFLOW_CONFIG = {
         "assignment": {
             "manual": True,
             "automatic": True,
-            "timeout_minutes": 30,
+            "timeout_minutes": 0,
+            "immediate": True,
+            "reassignment_allowed": True,
             "field": "assigned_analysts",
             "due_field": "assignment_due_at",
             "manual_timestamp_field": "manual_assigned_at",
@@ -1072,7 +1074,9 @@ WORKFLOW_CONFIG = {
             "field": "assigned_analyst",
             "manual": True,
             "automatic": True,
-            "timeout_minutes": 30,
+            "timeout_minutes": 0,
+            "immediate": True,
+            "reassignment_allowed": True,
         },
         "sampling": {
             "enabled": False,

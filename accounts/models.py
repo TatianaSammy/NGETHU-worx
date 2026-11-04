@@ -473,20 +473,29 @@ class CustomUser(
                 self.mobile_number
             )
 
-        # Plant and Section Integrity
+        if not self.assigned_treatment_plant_id:
+            if self.assigned_lab_id:
+                self.assigned_treatment_plant = self.assigned_lab.treatment_plant
+            elif self.section_id:
+                section_plant = getattr(self.section, "treatment_plant", None)
+                if section_plant:
+                    self.assigned_treatment_plant = section_plant
+
         if self.section_id and self.assigned_treatment_plant_id:
-            sec_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if sec_plant_id and sec_plant_id != self.assigned_treatment_plant_id:
+            section_plant_id = getattr(self.section, "treatment_plant_id", None)
+            if section_plant_id and section_plant_id != self.assigned_treatment_plant_id:
                 raise ValidationError({
                     "section": (
-                        f"Section '{self.section.name}' belongs to plant '{self.section.treatment_plant.name}', "
-                        f"which conflicts with user's assigned plant '{self.assigned_treatment_plant.name}'."
+                        f"Section '{self.section.name}' must belong to the user's assigned treatment plant."
                     )
                 })
-        elif self.section_id and not self.assigned_treatment_plant_id:
-            sec_plant = getattr(self.section, "treatment_plant", None)
-            if sec_plant:
-                self.assigned_treatment_plant = sec_plant
+
+        if self.assigned_lab_id and self.assigned_treatment_plant_id:
+            lab_plant_id = self.assigned_lab.treatment_plant_id
+            if lab_plant_id != self.assigned_treatment_plant_id:
+                raise ValidationError({
+                    "assigned_lab": "The assigned laboratory must belong to the user's assigned treatment plant."
+                })
 
     # ======================================================
     # SAVE

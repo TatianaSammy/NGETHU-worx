@@ -1,18 +1,13 @@
 import logging
-from typing import Optional
-from django.shortcuts import resolve_url, render, redirect
-from django.urls import NoReverseMatch
+from django.shortcuts import render, redirect
 from django.conf import settings
-from django.contrib import messages
 from django.contrib.auth import authenticate, login as auth_login, get_user_model
-from django.core.exceptions import PermissionDenied, ImproperlyConfigured
 from django.utils import timezone
 from django.middleware.csrf import get_token
 from django.views import View
 from django.http import JsonResponse
 from .utils import get_user_landing_url
 
-from core.models import SystemConfiguration
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -24,101 +19,67 @@ class LoginView(View):
     max_failed_attempts = getattr(settings, "MAX_FAILED_LOGIN_ATTEMPTS", 5)
 
     def dispatch(self, request, *args, **kwargs):
-        self.request = request
-        self.config = self._get_config_safe()
         self.group_map = self._load_group_map()
-        self.last_module_key = getattr(settings, "LOGIN_SESSION_LAST_MODULE_KEY", "last_module")
-        self.last_url_key = getattr(settings, "LOGIN_SESSION_LAST_URL_KEY", "last_url")
-        self.last_page_key = getattr(settings, "LOGIN_SESSION_LAST_PAGE_KEY", "last_visited_url")
         return super().dispatch(request, *args, **kwargs)
 
     def get(self, request):
         get_token(request)  # 🔥 FORCE CSRF COOKIE
 
         if request.user.is_authenticated:
-            return redirect(self._resolve_landing(request, request.user))
+            return redirect(get_user_landing_url(request.user))
 
         reason = request.GET.get("reason", "")
         error_msg = ""
+        feedback_level = "info"
         if reason == "logged_out":
-            error_msg = "You have been logged out."
+            error_msg = "Your session has ended. Sign in again to continue."
 
         response = render(request, self.template_name, {
-            "username": "",
             "error": error_msg,
-            "next": request.GET.get("next", ""),
-            "session_expired": False,
-            "remember_me": False,
+            "feedback_level": feedback_level,
         })
         return self._disable_login_caching(response)
 
     def post(self, request):
         is_ajax = self._is_ajax(request)
 
-        # -----------------------------
-        # FORCE CONSISTENT INPUT PARSING
-        # -----------------------------
-        try:
-            username = (request.POST.get("username") or "").strip().upper()
-            password = request.POST.get("password") or ""
-        except Exception:
-            username = ""
-            password = ""
+        username = (request.POST.get("username") or "").strip().upper()
+        password = request.POST.get("password") or ""
 
-        # -----------------------------
-        # DEBUG SAFETY (prevents your HTMLDivElement bug confusion)
-        # -----------------------------
-        if not isinstance(username, str):
-            username = str(username)
-        if not isinstance(password, str):
-            password = str(password)
-
-        # -----------------------------
-        # VALIDATION
-        # -----------------------------
         if not username or not password:
             return self._fail(
                 request,
                 username,
                 "Username and password required",
-                is_ajax
+                is_ajax,
+                severity="warning",
             )
 
-        # -----------------------------
-        # AUTHENTICATION
-        # -----------------------------
         user = authenticate(request, username=username, password=password)
 
         if user is None:
             return self._handle_failed_login(request, username, is_ajax)
 
-        # -----------------------------
-        # ACCOUNT VALIDATION
-        # -----------------------------
         validation_error = self._validate_user(user)
         if validation_error:
-            return self._fail(request, username, validation_error, is_ajax)
+            return self._fail(
+                request, username, validation_error, is_ajax, severity="warning"
+            )
 
-        # -----------------------------
-        # LOGIN
-        # -----------------------------
         auth_login(request, user)
-        self._initialize_session(request, user, remember=False)
+        self._initialize_session(request, user)
 
         request.session.save()
 
-        redirect_url = self._resolve_landing(request, user)
+        redirect_url = get_user_landing_url(user)
 
         logger.info(
             "LOGIN_SUCCESS user=%s ip=%s groups=%s",
             username,
             self._ip(request),
-            self._groups(user)
+            self._validated_group_names,
         )
 
-        # -----------------------------
-        # ALWAYS JSON FOR AJAX
-        # -----------------------------
         if is_ajax:
             response = JsonResponse({
                 "success": True,
@@ -127,9 +88,7 @@ class LoginView(View):
             return self._disable_login_caching(response)
 
         return self._disable_login_caching(redirect(redirect_url))
-    def _initialize_session(self, request, user, remember: bool = False):
-        # auth_login has already rotated the session key. Keep this session
-        # independent so signing in elsewhere does not invalidate it.
+    def _initialize_session(self, request, user):
         request.session.set_expiry(settings.SESSION_COOKIE_AGE)
         request.session.update({
             "user_id": user.pk,
@@ -139,8 +98,7 @@ class LoginView(View):
         })
         user.failed_login_attempts = 0
         user.is_locked = False
-        user.last_login = timezone.now()
-        user.save(update_fields=["failed_login_attempts", "is_locked", "last_login"])
+        user.save(update_fields=["failed_login_attempts", "is_locked"])
 
 
     def _handle_failed_login(self, request, username, is_ajax):
@@ -197,14 +155,15 @@ class LoginView(View):
                         exc,
                     )
 
+            groups = self._groups(user)
+            self._validated_group_names = groups
+
             if user.is_superuser:
                 logger.info(
                     "VALIDATION_SUPERUSER user=%s",
                     user.username,
                 )
                 return None
-
-            groups = self._groups(user)
 
             if not groups:
                 logger.warning(
@@ -242,87 +201,6 @@ class LoginView(View):
             )
             return "Unable to validate account"
 
-    from accounts.utils import get_user_landing_url
-
-    def _resolve_landing(self, request, user):
-        return get_user_landing_url(user)
-    def _resolve_target(self, target: str):
-        if target is None:
-            raise ImproperlyConfigured(
-                "Redirect target is None"
-            )
-
-        target = str(target).strip()
-
-        if not target:
-            raise ImproperlyConfigured(
-                "Redirect target is empty"
-            )
-
-        try:
-            if target.startswith("/"):
-                return target
-
-            resolved = resolve_url(target)
-
-            logger.debug(
-                "TARGET_RESOLVED name=%s resolved=%s",
-                target,
-                resolved,
-            )
-
-            return resolved
-
-        except NoReverseMatch as exc:
-            logger.error(
-                "TARGET_RESOLUTION_FAILED target=%s",
-                target,
-            )
-
-            raise ImproperlyConfigured(
-                f"Invalid redirect target: {target}"
-            ) from exc
-
-    def _safe_next(self, url: Optional[str]):
-        if not url:
-            return None
-
-        try:
-            url = str(url).strip()
-
-            if not url:
-                return None
-
-            if not url.startswith("/"):
-                return None
-
-            lowered = url.lower()
-
-            blocked_tokens = (
-                "//",
-                "\\",
-                "javascript:",
-                "vbscript:",
-                "data:",
-                "http://",
-                "https://",
-            )
-
-            if any(
-                    token in lowered
-                    for token in blocked_tokens
-            ):
-                logger.warning(
-                    "UNSAFE_NEXT_REJECTED url=%s",
-                    url,
-                )
-                return None
-
-            return url
-
-        except Exception:
-            return None
-
     def _groups(self, user):
         try:
             groups = [
@@ -350,7 +228,9 @@ class LoginView(View):
             return []
 
     def _primary_group(self, user):
-        groups = self._groups(user)
+        groups = getattr(self, "_validated_group_names", None)
+        if groups is None:
+            groups = self._groups(user)
 
         return (
             groups[0]
@@ -396,16 +276,9 @@ class LoginView(View):
 
         return normalized
 
-    def _success(self, is_ajax, url):
-        payload = {
-            "success": True,
-            "redirect": url,
-            "timestamp": timezone.now().isoformat(),
-        }
-
-        return JsonResponse(payload)
-    def _fail(self, request, username, error, is_ajax):
+    def _fail(self, request, username, error, is_ajax, severity="error"):
         error_text = str(error)
+        severity = severity if severity in {"error", "warning", "info"} else "error"
 
         logger.warning(
             "LOGIN_ERROR user=%s ip=%s error=%s",
@@ -417,6 +290,7 @@ class LoginView(View):
         payload = {
             "success": False,
             "error": error_text,
+            "severity": severity,
             "timestamp": timezone.now().isoformat(),
         }
 
@@ -427,19 +301,13 @@ class LoginView(View):
             )
             return self._disable_login_caching(response)
 
-        messages.error(
-            request,
-            error_text,
-        )
-
         response = render(
             request,
             self.template_name,
             {
                 "username": "",
                 "error": error_text,
-                "next": request.POST.get("next", ""),
-                "remember_me": False,
+                "feedback_level": severity,
             },
             status=403,
         )
@@ -484,18 +352,3 @@ class LoginView(View):
                 )
                 or "unknown"
         )
-
-    def _get_config_safe(self):
-        try:
-            return (
-                SystemConfiguration.objects
-                .filter(pk=1)
-                .first()
-            )
-
-        except Exception as exc:
-            logger.exception(
-                "CONFIG_LOAD_ERROR error=%s",
-                exc,
-            )
-            return None

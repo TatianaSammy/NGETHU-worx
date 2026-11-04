@@ -1,0 +1,86 @@
+{% extends "ca/base.html" %}
+{% load static %}
+
+{% block title %}{{ referral.batch.sample_id }} · Interlaboratory Analysis{% endblock %}
+
+{% block extra_styles %}
+    {{ block.super }}
+    <link rel="stylesheet" href="{% static 'ca/css/components/interlaboratory.css' %}?v=20261030-interlab">
+{% endblock %}
+
+{% block accounts_content %}
+<main class="ca-page" aria-labelledby="interlab-detail-title">
+    <header class="ca-form-hero">
+        <div class="ca-form-hero__identity">
+            <span class="ca-form-orbit" aria-hidden="true"><i class="fa-solid fa-vials"></i></span>
+            <div class="ca-form-hero__copy">
+                <p class="ca-form-eyebrow">Independent laboratory analysis · {{ referral.treatment_plant.name }}</p>
+                <h1 id="interlab-detail-title">{{ referral.batch.chemical.name }} · {{ referral.batch.sample_id }}</h1>
+                <p class="ca-form-subtitle">Batch {{ referral.batch.batch_number }} · Received at {{ referral.batch.treatment_plant.name }} · Referred {{ referral.requested_at|date:"Y-m-d H:i" }}</p>
+            </div>
+        </div>
+        <a class="ca-form-utility" href="{% url 'ca:interlaboratory-referral-list' %}"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i><span>All referrals</span></a>
+    </header>
+
+    <section class="ca-advanced-form-panel">
+        <div class="ca-advanced-form-panel__header">
+            <div class="ca-advanced-form-panel__mark" aria-hidden="true"><i class="fa-solid fa-scale-balanced"></i></div>
+            <div>
+                <p class="ca-form-eyebrow">{{ referral.get_status_display }}</p>
+                <h2>Independent results</h2>
+                <p>Use the approved source-plant parameter names, units, and limits. Numeric outcomes are checked against those source limits and later compared with the source plant and the other participating laboratories.</p>
+            </div>
+        </div>
+
+        {% if referral.remarks %}<p><strong>Originating chemist remarks:</strong> {{ referral.remarks }}</p>{% endif %}
+        {% if source_readings %}
+            <h3>Originating laboratory readings</h3>
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead><tr><th>Parameter</th><th>Reading</th><th>Outcome</th><th>Analyst</th><th>Recorded</th></tr></thead>
+                    <tbody>
+                        {% for reading in source_readings %}
+                            <tr><td>{{ reading.parameter.parameter_name }}</td><td>{{ reading.value|default:reading.textual_result }} {{ reading.parameter.unit }}</td><td>{{ reading.get_status_display }}</td><td>{{ reading.analyst|default:"—" }}</td><td>{{ reading.recorded_at|date:"Y-m-d H:i" }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+
+        {% if form %}
+            <form method="post" novalidate class="ca-advanced-form">
+                {% csrf_token %}
+                {% if form.non_field_errors %}<div class="ca-form-error-summary" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+                <div class="ca-workflow-fields">
+                    {% for field in form.visible_fields %}
+                        <div class="ca-workflow-field{% if field.name == 'submission_remarks' %} ca-workflow-field--wide{% endif %}">
+                            <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="ca-required-star" aria-hidden="true">*</span>{% endif %}</label>
+                            {{ field }}
+                            {% if field.help_text %}<small class="ca-form-help">{{ field.help_text }}</small>{% endif %}
+                            {% if field.errors %}<div class="ca-field-errors" role="alert">{{ field.errors }}</div>{% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+                <footer class="ca-advanced-form__footer">
+                    <span>Submission locks this referral and records the analyst, time, method instrument, and result history.</span>
+                    <button type="submit" class="ca-form-button ca-form-button--primary">Submit independent laboratory results</button>
+                </footer>
+            </form>
+        {% else %}
+            <h3>Submitted results</h3>
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead><tr><th>Parameter</th><th>Reading</th><th>Outcome</th><th>Analyst</th><th>Instrument</th><th>Recorded</th></tr></thead>
+                    <tbody>
+                        {% for result in comparison_results %}
+                            <tr><td>{{ result.parameter.parameter_name }}</td><td>{{ result.value|default:result.textual_result }} {{ result.parameter.unit }}</td><td>{{ result.get_status_display }}</td><td>{{ result.analyst|default:"—" }}</td><td>{{ result.inventory_equipment|default:result.instrument|default:"—" }}</td><td>{{ result.recorded_at|date:"Y-m-d H:i" }}</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p><strong>Submitted by:</strong> {{ referral.submitted_by }} · {{ referral.submitted_at|date:"Y-m-d H:i" }}</p>
+            {% if referral.submission_remarks %}<p><strong>Laboratory notes:</strong> {{ referral.submission_remarks }}</p>{% endif %}
+        {% endif %}
+    </section>
+</main>
+{% endblock %}

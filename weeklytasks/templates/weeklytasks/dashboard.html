@@ -1,111 +1,180 @@
 {% extends "weeklytasks/base.html" %}
 {% load static %}
 
-{% block title %}Weekly Tasks | Planning and Coverage{% endblock %}
-{% block extra_styles %}<link rel="stylesheet" href="{% static 'core/css/operations_dashboard.css' %}?v=20261028-operations">{% endblock %}
+{% block title %}Weekly Tasks | Monthly Lab Schedule{% endblock %}
+{% block extra_styles %}
+<link rel="stylesheet" href="{% static 'core/css/operations_dashboard.css' %}?v=20261028-operations">
+<link rel="stylesheet" href="{% static 'weeklytasks/css/monthly_schedule.css' %}?v=20261104-mirrored-duty-weeks">
+{% endblock %}
 
 {% block page_content %}
-<div class="ops-dashboard weekly-dashboard">
-  <section class="ops-hero" id="overview">
-    <div class="ops-hero__copy">
-      <span class="ops-eyebrow"><i class="fas fa-calendar-check"></i> WEEKLY TASKS · DUTY PLANNING</span>
-      <h1>Weekly task operations</h1>
-      <p>Review duty plans, task assignments and shift coverage from the live planning records.</p>
-      <div class="ops-hero__meta">
-        <span><i class="far fa-calendar"></i> {{ today|date:"l, d F Y" }}</span>
-        <span><i class="fas fa-calendar-week"></i> This week · {{ week_label }}</span>
-        <span><i class="fas fa-location-dot"></i> {% if selected_plant %}{{ selected_plant.name }}{% else %}All treatment plants{% endif %}</span>
+<main class="ops-dashboard weekly-dashboard weekly-schedule-dashboard" data-options-url="{% url 'weeklytasks:assignment-options' %}" data-action-url="{% url 'weeklytasks:assignment-action' %}">
+  <header class="weekly-command-header" id="overview">
+    <div class="weekly-command-heading">
+      <h1>Monthly task schedule</h1>
+      <p>Plant-scoped weekly plans, daily assignments, and coverage for {{ month_label }}.</p>
+      <div class="weekly-header-meta">
+        <span><i class="fas fa-calendar-day"></i> {{ today|date:"l, d F Y" }}</span>
+        <span><i class="fas fa-location-dot"></i> {% if selected_plant %}{{ selected_plant.name }}{% elif show_plant_selector %}All treatment plants{% else %}Plant assignment unavailable{% endif %}</span>
+        <span><i class="fas fa-list-check"></i> {{ total_task_plans }} task plans</span>
       </div>
     </div>
-    <div class="ops-hero__actions">
-      {% if show_plant_selector %}
-      <form method="get" class="ops-plant-filter">
-        <input type="hidden" name="section" value="overview">
-        <label for="weekly-plant">Treatment plant</label>
-        <select name="plant" id="weekly-plant" onchange="this.form.submit()">
-          <option value="">All plants</option>
-          {% for plant in plant_options %}<option value="{{ plant.pk }}" {% if selected_plant.pk == plant.pk %}selected{% endif %}>{{ plant.code }} · {{ plant.name }}</option>{% endfor %}
-        </select>
-      </form>
-      {% endif %}
-      <a class="ops-refresh" href="{% url 'weeklytasks:dashboard' %}{% if selected_plant %}?plant={{ selected_plant.pk }}{% endif %}"><i class="fas fa-rotate-right"></i> Refresh view</a>
+    <div class="weekly-header-actions">
+      <div class="weekly-period-control" aria-label="Schedule period controls">
+        <a class="weekly-period-arrow" href="{{ previous_period_url }}" aria-label="Previous month"><i class="fas fa-chevron-left"></i></a>
+        <form method="get" class="weekly-filter-form">
+          {% if selected_plant and not show_plant_selector %}<input type="hidden" name="plant" value="{{ selected_plant.pk }}">{% endif %}
+          <label><span>Treatment plant</span>
+            {% if show_plant_selector %}
+            <select name="plant">
+              <option value="">All plants</option>
+              {% for plant in plant_options %}<option value="{{ plant.pk }}" {% if selected_plant.pk == plant.pk %}selected{% endif %}>{{ plant.code }} · {{ plant.name }}</option>{% endfor %}
+            </select>
+            {% else %}<strong>{{ selected_plant.name|default:"No plant assigned" }}</strong>{% endif %}
+          </label>
+          <label><span>Month</span><select name="month">{% for value, label in month_choices %}<option value="{{ value }}" {% if month == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+          <label><span>Year</span><select name="year">{% for value in year_choices %}<option value="{{ value }}" {% if year == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+          <button type="submit"><i class="fas fa-sliders"></i> Apply</button>
+        </form>
+        <a class="weekly-period-arrow" href="{{ next_period_url }}" aria-label="Next month"><i class="fas fa-chevron-right"></i></a>
+      </div>
+      <a class="weekly-refresh-link" href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ month }}&amp;year={{ year }}"><i class="fas fa-rotate-right"></i> Refresh</a>
     </div>
-    <div class="ops-hero__signal"><span class="ops-live-dot"></span><span>PLANNING DESK</span><strong>Current plan</strong></div>
-  </section>
+  </header>
 
-  <section class="ops-kpi-grid" aria-label="Weekly task key performance indicators">
+  <section class="weekly-live-toolbar" aria-label="Weekly task schedule controls">
+    <div class="weekly-live-state"><span class="weekly-live-pulse"></span><strong>LIVE WORKPLAN</strong><span>{{ daily_assignment_count }} people assignments</span><span>{{ total_task_plans }} task plans</span><time id="weekly-live-clock"></time></div>
+    <div class="weekly-live-tools"><label><i class="fas fa-magnifying-glass"></i><input id="weekly-schedule-search" type="search" placeholder="Find a task or staff member" autocomplete="off"></label><select id="weekly-schedule-filter" aria-label="Filter weekly task rows"><option value="all">All weeks</option><option value="staffed">Fully staffed</option><option value="partial">Partially staffed</option><option value="open">Needs assignment</option></select><button type="button" id="weekly-density-toggle" aria-pressed="false"><i class="fas fa-compress-alt"></i> Compact</button><button type="button" id="weekly-filter-reset"><i class="fas fa-rotate-left"></i> Reset</button></div>
+  </section>
+  <div class="weekly-schedule-hint"><span><i class="fas fa-circle-info"></i> {% if can_edit_task_assignments %}Drag a staff chip to another task cell to move it.{% endif %}{% if can_add_task_assignments %} Right-click a planned task or use its add button to add staff.{% endif %}{% if not can_edit_task_assignments and not can_add_task_assignments %}Your account has read-only schedule access.{% endif %}</span><span><i class="fas fa-shield-halved"></i> {% if show_plant_selector %}Superuser plant scope{% else %}Treatment plant and section scoped{% endif %}</span></div>
+
+  {% if not show_plant_selector and scope_issue %}
+  <div class="weekly-template-notice" role="status"><i class="fas fa-circle-info"></i><span>{% if scope_issue == 'plant' %}No treatment plant is assigned to your account. Ask an administrator to set your plant assignment.{% else %}Your assigned treatment plant is {{ selected_plant.name }}, but no matching section is assigned. Weekly task records remain unavailable until your account is assigned to a section within this plant.{% endif %}</span></div>
+  {% endif %}
+
+  <section class="ops-kpi-grid weekly-kpi-grid" aria-label="Monthly task schedule indicators">
     {% for item in kpis %}
-      <a class="ops-kpi ops-kpi--{{ item.tone }}" href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}section={{ item.target }}#{{ item.target }}">
-        <div class="ops-kpi__top"><span>{{ item.label }}</span><i class="fas fa-{{ item.icon }}"></i></div>
-        <strong>{{ item.value }}</strong>
-        <small>{{ item.detail }}</small>
-      </a>
+    <a class="ops-kpi ops-kpi--{{ item.tone }}" href="{% url 'weeklytasks:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ month }}&amp;year={{ year }}&amp;section={{ item.target }}#{{ item.target }}">
+      <div class="ops-kpi__top"><span>{{ item.label }}</span><i class="fas fa-{{ item.icon }}"></i></div>
+      <strong>{{ item.value }}</strong>
+      <small>{{ item.detail }}</small>
+    </a>
     {% endfor %}
   </section>
 
-  <section class="ops-two-col">
-    <article class="ops-panel ops-chart-panel"><div class="ops-panel__heading"><div><span class="ops-eyebrow">WEEKLY RHYTHM</span><h3>Daily assignment load</h3><span class="ops-muted">Planned people assignments by date</span></div></div><div class="ops-chart-box"><canvas id="weeklyAssignmentTrend" aria-label="Daily task assignments for the current week"></canvas></div></article>
-    <article class="ops-panel ops-chart-panel" id="shift-load"><div class="ops-panel__heading"><div><span class="ops-eyebrow">SHIFT DISTRIBUTION</span><h3>Planned shifts</h3><span class="ops-muted">Upcoming two weeks</span></div></div><div class="ops-chart-box"><canvas id="weeklyShiftDistribution" aria-label="Assignment distribution by shift"></canvas></div></article>
+  <section class="weekly-schedule-panel" aria-labelledby="routine-schedule-title">
+    <div class="weekly-panel-heading">
+      <div><span class="ops-eyebrow">PLANT LABORATORY WORKPLAN</span><h2 id="routine-schedule-title">Routine analysis & operations · {{ month_label }}</h2><p>Each row is a scheduled week. Columns are the routine tasks configured in the weekly task library.</p></div>
+      <div class="weekly-readiness-summary"><strong>{{ staffed_percent }}%</strong><span>task plans staffed</span><small>{{ staffed_task_plans }} of {{ total_task_plans }}</small></div>
+    </div>
+    <div class="weekly-status-legend" aria-label="Schedule status legend">
+      <span><i class="weekly-status-dot weekly-status-dot--staffed"></i> Staff assigned</span>
+      <span><i class="weekly-status-dot weekly-status-dot--partial"></i> Partially staffed</span>
+      <span><i class="weekly-status-dot weekly-status-dot--unassigned"></i> Needs assignment</span>
+      <span><i class="weekly-status-dot weekly-status-dot--not-planned"></i> Not scheduled</span>
+    </div>
+    {% if not task_columns %}<div class="weekly-template-notice"><i class="fas fa-circle-info"></i><span>No routine task types are linked to this month’s duty weeks yet. Add weekly task plans to populate the schedule columns.</span></div>{% endif %}
+    <div class="weekly-matrix-scroll">
+      <table class="weekly-schedule-matrix">
+        <thead><tr>
+          <th class="weekly-week-col">Week window</th>
+          <th class="weekly-section-col">Section coverage</th>
+          {% for task in task_columns %}<th title="{{ task.code }} · {{ task.description|default:task.name }}"><span>{{ task.name }}</span><small>{{ task.code }}</small></th>{% endfor %}
+          <th class="weekly-readiness-col">Coverage</th>
+        </tr></thead>
+        <tbody>
+          {% for row in matrix_rows %}
+          <tr data-weekly-row>
+            <th scope="row" class="weekly-week-cell"><strong>{{ row.start_date|date:"d" }}–{{ row.end_date|date:"d M" }}</strong><span>{{ row.plant.name }}</span><small>{{ row.assignment_count }} people assignments</small></th>
+            <td class="weekly-section-cell">{% for section in row.sections %}<span>{{ section }}</span>{% endfor %}</td>
+            {% for cell in row.cells %}
+            <td class="weekly-task-cell weekly-task-cell--{{ cell.status }}" data-weekly-status="{{ cell.status }}" title="{% if cell.planned_sections %}Planned for: {{ cell.planned_sections|join:', ' }}{% else %}Not planned this week{% endif %}">
+              {% for record in cell.task_records %}<div class="weekly-task-record" data-weekly-dropzone data-task-id="{{ record.id }}" data-section-id="{{ record.section_id }}" data-section-name="{{ record.section_name }}" data-plant-id="{{ row.plant.pk }}" data-start-date="{{ record.start_date|date:'Y-m-d' }}" data-end-date="{{ record.end_date|date:'Y-m-d' }}">
+                <div class="weekly-task-record-head"><span>{{ record.section_name }}</span>{% if can_add_task_assignments %}<button type="button" class="weekly-add-trigger" data-open-weekly-add title="Add staff to {{ record.section_name }} task"><i class="fas fa-user-plus"></i></button>{% endif %}</div>
+                <div class="weekly-assignee-list">{% for assignment in record.assignments %}<span class="weekly-assignee" role="button" tabindex="0" draggable="{% if can_edit_task_assignments %}true{% else %}false{% endif %}" data-assignment-id="{{ assignment.id }}" data-user-id="{{ assignment.user_id }}" data-section-id="{{ record.section_id }}" data-plant-id="{{ row.plant.pk }}" data-date="{{ assignment.date|date:'Y-m-d' }}" data-shift-id="{{ assignment.shift_id|default:'' }}" title="{{ assignment.name }} · {{ assignment.date|date:'D, d M Y' }}{% if assignment.shift_name %} · {{ assignment.shift_name }}{% endif %}">{{ assignment.name }}<small>{{ assignment.date|date:'D d' }}{% if assignment.shift_name %} · {{ assignment.shift_name }}{% endif %}</small></span>{% empty %}<span class="weekly-unassigned-hint">No staff assigned</span>{% endfor %}</div>
+              </div>{% empty %}{% if cell.status == "unassigned" %}<span class="weekly-cell-state"><i class="fas fa-user-plus"></i> Add task plan first</span>
+              {% elif cell.status == "partial" %}<span class="weekly-cell-state"><i class="fas fa-triangle-exclamation"></i> Partial</span>
+              {% else %}<span class="weekly-not-planned">—</span>{% endif %}{% endfor %}
+              {% if cell.status == "staffed" %}<i class="weekly-cell-indicator fas fa-circle-check" aria-label="Staff assigned"></i>{% endif %}
+            </td>
+            {% endfor %}
+            <td class="weekly-coverage-cell"><div class="weekly-coverage-meter"><span style="width:{{ row.readiness }}%"></span></div><strong>{{ row.readiness }}%</strong><small>{{ row.staffed_task_count }}/{{ row.planned_task_count }} staffed</small></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="{{ task_columns|length|add:3 }}"><div class="weekly-empty-state"><i class="fas fa-calendar-xmark"></i><strong>No duty weeks are scheduled for {{ month_label }}</strong><span>Create the plant and section monthly schedules to populate the routine workplan.</span></div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if schedule_notes %}<div class="weekly-notes-block"><div><i class="fas fa-circle-info"></i><strong>Schedule notes & cadence</strong></div><ul>{% for item in schedule_notes %}<li><span>{{ item.treatment_plant__name }} · {{ item.section__name }}</span>{{ item.notes|linebreaksbr }}</li>{% endfor %}</ul></div>{% endif %}
+  </section>
+
+  {% if can_add_task_assignments %}<dialog class="weekly-assignment-dialog" id="weekly-assignment-dialog" aria-labelledby="weekly-assignment-title"><form id="weekly-assignment-form"><header><div><span class="ops-eyebrow">SCOPED TASK ASSIGNMENT</span><h2 id="weekly-assignment-title">Add staff to task</h2><p id="weekly-assignment-subtitle">Choose a date, eligible staff member, and rostered shift.</p></div><button type="button" data-close-weekly-dialog aria-label="Close">×</button></header><label><span>Task date</span><select id="weekly-dialog-date" required></select></label><label><span>Staff member</span><select id="weekly-dialog-user" required></select></label><label><span>Shift</span><select id="weekly-dialog-shift"></select></label><p id="weekly-dialog-status" role="status"></p><footer><button type="button" data-close-weekly-dialog>Cancel</button><button type="submit"><i class="fas fa-user-plus"></i> Assign staff</button></footer><input type="hidden" id="weekly-dialog-task"></form></dialog>{% endif %}
+  <div class="weekly-action-toast" id="weekly-action-toast" role="status" aria-live="polite"></div>
+
+  <section class="ops-two-col weekly-analytics-row">
+    <article class="ops-panel ops-chart-panel"><div class="ops-panel__heading"><div><span class="ops-eyebrow">MONTHLY WORKLOAD</span><h3>Daily assignment volume</h3><span class="ops-muted">Recorded daily task assignments across {{ month_label }}</span></div></div><div class="ops-chart-box"><canvas id="weeklyAssignmentTrend" aria-label="Daily task assignments for {{ month_label }}"></canvas></div></article>
+    <article class="ops-panel ops-chart-panel" id="shift-load"><div class="ops-panel__heading"><div><span class="ops-eyebrow">SHIFT DISTRIBUTION</span><h3>Planned shifts</h3><span class="ops-muted">Daily assignments in {{ month_label }}</span></div></div><div class="ops-chart-box"><canvas id="weeklyShiftDistribution" aria-label="Assignment distribution by shift"></canvas></div></article>
   </section>
 
   <section class="ops-section" id="schedules">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">MONTHLY DUTY SCHEDULES</span><h2>Schedules</h2><p>Monthly schedule records with plant, section and schedule owner.</p></div><span class="ops-count-pill">{{ kpis.1.value }} this month</span></div>
+    <div class="ops-section-heading"><div><span class="ops-eyebrow">MONTHLY DUTY SCHEDULES</span><h2>Schedules</h2><p>Plant and section schedules that define this month’s duty weeks.</p></div><span class="ops-count-pill">{{ recent_schedules|length }} in view</span></div>
     <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Schedule</th><th>Treatment plant</th><th>Section</th><th>Weeks in plan</th><th>Created by</th><th>Updated</th></tr></thead><tbody>
-      {% for schedule in recent_schedules %}<tr><td class="ops-strong">{{ schedule.month }}/{{ schedule.year }}</td><td>{{ schedule.treatment_plant.name }}</td><td>{{ schedule.section.name }}</td><td>{{ schedule.weeks.count }}</td><td>{{ schedule.created_by.get_full_name|default:schedule.created_by.username|default:"—" }}</td><td>{{ schedule.updated_at|date:"d M Y" }}</td></tr>
+      {% for schedule in recent_schedules %}<tr><td class="ops-strong">{{ schedule.month }}/{{ schedule.year }}</td><td>{{ schedule.treatment_plant.name }}</td><td>{{ schedule.section.name }}</td><td>{{ schedule.week_count }}</td><td>{{ schedule.created_by.get_full_name|default:schedule.created_by.username|default:"—" }}</td><td>{{ schedule.updated_at|date:"d M Y" }}</td></tr>
       {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-calendar-xmark"></i><strong>No monthly schedule records</strong><span>Create a monthly schedule to start building the duty plan.</span></div></td></tr>{% endfor %}
     </tbody></table></div></article>
   </section>
 
   <section class="ops-section" id="weeks">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">WEEK WINDOWS</span><h2>Duty weeks</h2><p>Current and upcoming week windows covered by monthly schedules.</p></div><span class="ops-count-pill">{{ weeks|length }} shown</span></div>
+    <div class="ops-section-heading"><div><span class="ops-eyebrow">WEEK WINDOWS</span><h2>Duty weeks</h2><p>Week windows and linked assignment totals for {{ month_label }}.</p></div><span class="ops-count-pill">{{ weeks|length }} shown</span></div>
     <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Week window</th><th>Schedule</th><th>Plant</th><th>Section</th><th>Task plans</th><th>Daily assignments</th></tr></thead><tbody>
       {% for week in weeks %}<tr><td class="ops-strong">{{ week.start_date|date:"d M" }} – {{ week.end_date|date:"d M Y" }}</td><td>{{ week.schedule.month }}/{{ week.schedule.year }}</td><td>{{ week.schedule.treatment_plant.name }}</td><td>{{ week.schedule.section.name }}</td><td>{{ week.task_count }}</td><td>{{ week.daily_assignment_count }}</td></tr>
-      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-calendar-week"></i><strong>No week windows in the planning horizon</strong><span>Week windows are generated as part of the monthly duty schedule.</span></div></td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-calendar-week"></i><strong>No week windows in this month</strong><span>Week windows are generated as part of the monthly duty schedule.</span></div></td></tr>{% endfor %}
     </tbody></table></div></article>
   </section>
 
   <section class="ops-section" id="weekly-plans">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">TASK PLANNING</span><h2>Weekly duty tasks</h2><p>Task plans active during the current week, linked to their standard task templates.</p></div><span class="ops-count-pill">{{ current_tasks|length }} shown</span></div>
-    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Task</th><th>Code</th><th>Section</th><th>Week</th><th>Daily assignments</th><th>Assignment status</th></tr></thead><tbody>
-      {% for task in current_tasks %}<tr><td class="ops-strong">{{ task.task_template.name }}</td><td>{{ task.task_template.code }}</td><td>{{ task.section.name }}</td><td>{{ task.week.start_date|date:"d M" }} – {{ task.week.end_date|date:"d M" }}</td><td>{{ task.assignment_count }}</td><td>{% if task.assignment_count %}<span class="ops-chip ops-chip--green">Staff assigned</span>{% else %}<span class="ops-chip ops-chip--amber">Needs assignment</span>{% endif %}</td></tr>
-      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-list-check"></i><strong>No task plans for this week</strong><span>Weekly task plans will appear here once they are attached to a duty week.</span></div></td></tr>{% endfor %}
+    <div class="ops-section-heading"><div><span class="ops-eyebrow">TASK PLANNING</span><h2>Weekly duty tasks</h2><p>Task plans and staff coverage for the selected monthly schedule.</p></div><span class="ops-count-pill">{{ total_task_plans }} plans</span></div>
+    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Task</th><th>Code</th><th>Plant</th><th>Section</th><th>Week</th><th>Daily assignments</th><th>Assignment status</th></tr></thead><tbody>
+      {% for task in current_tasks %}<tr><td class="ops-strong">{{ task.task_template.name }}</td><td>{{ task.task_template.code }}</td><td>{{ task.treatment_plant.name }}</td><td>{{ task.section.name }}</td><td>{{ task.week.start_date|date:"d M" }} – {{ task.week.end_date|date:"d M" }}</td><td>{{ task.assignment_count }}</td><td>{% if task.assignment_count %}<span class="ops-chip ops-chip--green">Staff assigned</span>{% else %}<span class="ops-chip ops-chip--amber">Needs assignment</span>{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="7"><div class="ops-empty"><i class="fas fa-list-check"></i><strong>No weekly task plans in this month</strong><span>Routine tasks appear here when linked to a scheduled duty week.</span></div></td></tr>{% endfor %}
     </tbody></table></div></article>
-    <div class="ops-section-heading ops-subheading"><div><h3>Tasks without assignees</h3><p>Task plans over the next 30 days that have no daily assignment in the plan window.</p></div><span class="ops-count-pill">{{ unstaffed_tasks|length }} flagged</span></div>
-    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Task</th><th>Section</th><th>Plant</th><th>Week</th><th>Planning window</th></tr></thead><tbody>
+    <div class="ops-section-heading ops-subheading"><div><h3>Task plans without assignees</h3><p>Task plans in {{ month_label }} with no daily assignment.</p></div><span class="ops-count-pill">{{ unstaffed_tasks|length }} flagged</span></div>
+    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Task</th><th>Section</th><th>Plant</th><th>Week</th><th>Planning status</th></tr></thead><tbody>
       {% for task in unstaffed_tasks %}<tr><td class="ops-strong">{{ task.task_template.name }}</td><td>{{ task.section.name }}</td><td>{{ task.treatment_plant.name }}</td><td>{{ task.week.start_date|date:"d M" }} – {{ task.week.end_date|date:"d M" }}</td><td><span class="ops-chip ops-chip--amber">No assignments</span></td></tr>
-      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-circle-check"></i><strong>All tasks in the horizon have assignments</strong><span>No unstaffed plans were found for the next 30 days.</span></div></td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-circle-check"></i><strong>Every planned task has an assignee</strong><span>No unstaffed tasks were found in this monthly schedule.</span></div></td></tr>{% endfor %}
     </tbody></table></div></article>
   </section>
 
   <section class="ops-section" id="daily-assignments">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">PEOPLE & DAILY PLAN</span><h2>Daily assignments</h2><p>Scheduled team members and task details for the next 14 days.</p></div><span class="ops-count-pill">{{ daily_assignment_count }} planned in 30 days</span></div>
+    <div class="ops-section-heading"><div><span class="ops-eyebrow">PEOPLE & DAILY PLAN</span><h2>Daily assignments</h2><p>Staff, task, and shift detail for {{ month_label }}.</p></div><span class="ops-count-pill">{{ daily_assignment_count }} this month</span></div>
     <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Date</th><th>Person</th><th>Section</th><th>Task</th><th>Shift</th><th>Remarks</th></tr></thead><tbody>
       {% for assignment in daily_assignment_rows %}<tr><td>{{ assignment.date|date:"D, d M" }}</td><td class="ops-strong">{{ assignment.user.get_full_name|default:assignment.user.username }}</td><td>{{ assignment.user.section.name|default:assignment.task.section.name }}</td><td>{{ assignment.task.task_template.name }}</td><td>{% if assignment.shift %}{{ assignment.shift.name }} <small>({{ assignment.shift.start_time|time:"H:i" }})</small>{% else %}<span class="ops-chip ops-chip--rose">Not set</span>{% endif %}</td><td>{{ assignment.remarks|default:"—"|truncatechars:80 }}</td></tr>
-      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-user-clock"></i><strong>No daily assignments in the next two weeks</strong><span>Assignments appear here when people are scheduled against weekly duty tasks.</span></div></td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-user-clock"></i><strong>No daily assignments for {{ month_label }}</strong><span>Assignments appear here when staff are scheduled against weekly duty tasks.</span></div></td></tr>{% endfor %}
     </tbody></table></div></article>
   </section>
 
   <section class="ops-section" id="section-load">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">WORKLOAD BALANCE</span><h2>Section workload</h2><p>Task plan count and people assignments by section over the next 30 days.</p></div></div>
+    <div class="ops-section-heading"><div><span class="ops-eyebrow">WORKLOAD BALANCE</span><h2>Section workload</h2><p>Task plans and people assignments by section for {{ month_label }}.</p></div></div>
     <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Section</th><th>Weekly task plans</th><th>Plans with assignees</th><th>People assignments</th><th>Staffing coverage</th></tr></thead><tbody>
       {% for row in section_rows %}<tr><td class="ops-strong">{{ row.name }}</td><td>{{ row.tasks }}</td><td>{{ row.tasks_with_assignees }}</td><td>{{ row.assignments }}</td><td><div class="ops-progress"><span style="width:{{ row.coverage }}%"></span></div><small>{{ row.coverage }}% · {{ row.tasks_with_assignees }} / {{ row.tasks }} tasks assigned</small></td></tr>
-      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-layer-group"></i><strong>No planned work by section</strong><span>Section load is calculated from task plans and their daily assignments.</span></div></td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-layer-group"></i><strong>No planned work by section</strong><span>Section load is calculated from scheduled task plans and daily assignments.</span></div></td></tr>{% endfor %}
     </tbody></table></div></article>
   </section>
 
   <section class="ops-section" id="shift-gaps">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">SHIFT COVERAGE</span><h2>Assignments without a shift</h2><p>Daily task assignments for the next 14 days where shift selection is missing.</p></div><span class="ops-count-pill">{{ missing_shift_assignments|length }} shown</span></div>
+    <div class="ops-section-heading"><div><span class="ops-eyebrow">SHIFT COVERAGE</span><h2>Assignments without a shift</h2><p>Daily assignments in {{ month_label }} where shift selection is missing.</p></div><span class="ops-count-pill">{{ missing_shift_assignments|length }} shown</span></div>
     <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Date</th><th>Person</th><th>Task</th><th>Section</th><th>Shift status</th></tr></thead><tbody>
       {% for assignment in missing_shift_assignments %}<tr><td>{{ assignment.date|date:"D, d M" }}</td><td class="ops-strong">{{ assignment.user.get_full_name|default:assignment.user.username }}</td><td>{{ assignment.task.task_template.name }}</td><td>{{ assignment.task.section.name }}</td><td><span class="ops-chip ops-chip--rose">Shift not selected</span></td></tr>
-      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-circle-check"></i><strong>No upcoming shift gaps</strong><span>All assignments in the two-week window have a shift selected.</span></div></td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-circle-check"></i><strong>No shift setup gaps</strong><span>Every assignment in this monthly view has a shift selected.</span></div></td></tr>{% endfor %}
     </tbody></table></div></article>
   </section>
 
   <section class="ops-section" id="task-library">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">STANDARD TASK CATALOGUE</span><h2>Task library</h2><p>Active reusable tasks available to weekly plans.</p></div><span class="ops-count-pill">{{ template_rows|length }} shown</span></div>
+    <div class="ops-section-heading"><div><span class="ops-eyebrow">STANDARD TASK CATALOGUE</span><h2>Task library</h2><p>Active reusable tasks available for monthly planning.</p></div><span class="ops-count-pill">{{ template_rows|length }} shown</span></div>
     <div class="ops-people-grid">{% for task in template_rows %}<article class="ops-person-card"><div class="ops-avatar"><i class="fas fa-list-check"></i></div><div><strong>{{ task.name }}</strong><span>{{ task.code }}</span><small>{{ task.description|default:"No description provided"|truncatechars:110 }}</small></div><span class="ops-chip ops-chip--green">ACTIVE</span></article>{% empty %}<div class="ops-empty"><i class="fas fa-book-open"></i><strong>No active task templates</strong><span>Active standard weekly tasks appear here.</span></div>{% endfor %}</div>
   </section>
-</div>
+</main>
 {{ trend|json_script:"weekly-trend-data" }}
 {{ shift_chart|json_script:"weekly-shift-data" }}
 {% endblock %}
@@ -113,5 +182,5 @@
 {% block extra_scripts %}
 {{ block.super }}
 <script src="{% static 'js/Chart.min.js' %}"></script>
-<script src="{% static 'weeklytasks/js/dashboard.js' %}?v=20261028-operations"></script>
+<script src="{% static 'weeklytasks/js/dashboard.js' %}?v=20261104-interactive-schedule"></script>
 {% endblock %}

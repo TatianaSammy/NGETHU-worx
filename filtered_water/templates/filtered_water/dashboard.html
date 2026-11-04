@@ -43,7 +43,7 @@
                 <span class="fw-filter-card__meta">{{ filter.type }} · {{ filter.phase }}</span>
                 <span class="fw-filter-card__metrics"><span><small>Current flow</small><b>{% if filter.flow_rate != None %}{{ filter.flow_rate|floatformat:1 }} m³/h{% else %}—{% endif %}</b></span><span><small>Operation</small><b>{{ filter.status }}</b></span></span>
                 <span class="fw-filter-card__bar"><i style="width:{{ filter.utilization_bar|floatformat:0 }}%"></i></span>
-                <span class="fw-filter-card__capacity">{% if filter.utilization != None %}{{ filter.utilization|floatformat:1 }}% of {{ filter.design_capacity|floatformat:1 }} m³/h design{% else %}Design capacity unavailable{% endif %}</span>
+                <span class="fw-filter-card__capacity">{% if filter.utilization != None %}{{ filter.utilization|floatformat:1 }}% of {{ filter.capacity|floatformat:1 }} m³/h rated capacity{% else %}Rated capacity unavailable{% endif %}</span>
                 <span class="fw-filter-card__hint">{{ filter.reading_count }} latest parameter{{ filter.reading_count|pluralize }} · Details <i class="fa-solid fa-chevron-right"></i></span>
                 <span class="fw-filter-tooltip" id="filter-tooltip-{{ filter.id }}" role="tooltip" hidden>
                     <span class="fw-filter-tooltip__header"><b>{{ filter.name }} · latest parameter set</b><small>{{ filter.health_reason }}</small></span>

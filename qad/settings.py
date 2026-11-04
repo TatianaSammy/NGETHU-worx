@@ -120,13 +120,14 @@ INSTALLED_APPS = [
 
     # local apps
     "core",
-    "accounts",
+    "accounts.apps.AccountsConfig",
     "parameters",
     "t",
 
     "CompanyInfo",
     "laboratory",
-    "sc", 'weeklytasks',
+    "sc.apps.ScConfig",
+    "weeklytasks.apps.WeeklytasksConfig",
     "wsp",
     "instruments",
     "alerts",
@@ -134,14 +135,14 @@ INSTALLED_APPS = [
     'audit_logs',
     "o",
     "PHadjustment",  "chlorinedemand", "jartest",
-    "kstw", "destw",
+    "kstw.apps.KstwConfig", "destw.apps.DestwConfig",
     "analysis_methods",
     'duty_house', 'maintenance.apps.MaintenanceConfig', 'Maintenance_Incident',
     "itinerary",
-    "heavy_metal", "microbial", "filtered_water","qc", 'qc_analytics','wc',
+    "heavy_metal.apps.HeavyMetalConfig", "microbial.apps.MicrobialConfig", "filtered_water","qc", 'qc_analytics','wc',
     "xmicalconcentration","backwashing",
     "inventory",
-    "central_lab",
+    "central_lab.apps.CentralLabConfig",
     "dashboards",
     "reports",
     "system_workflows",
@@ -250,7 +251,7 @@ LOGIN_GROUP_REDIRECT_MAP = {
     "PROCUREMENT OFFICER": "laboratory:dashboard",
     "LABORATORY TECHNICIAN": "qc_analytics:dashboard",
     "LABORATORY ASSISTANT": "qc_analytics:dashboard",
-    "CHEMIST OFFICER": "qc_analytics:dashboard",
+    "CHEMIST OFFICER": "qc:dashboard",
     "QUALITY ASSURANCE OFFICER": "qc:dashboard",
     "TREATMENT WORKS SUPERVISOR": "qc:dashboard",
     "TREATMENT WORKS OPERATOR": "qc:dashboard",
@@ -483,6 +484,26 @@ CELERY_BEAT_SCHEDULE = {
     },
     "qc.generate_due_analyses": {
         "task": "qc.generate_due_analyses",
+        "schedule": 60.0,
+    },
+    "destw.refresh_analysis_workflow": {
+        "task": "destw.refresh_analysis_workflow",
+        "schedule": 60.0,
+    },
+    "kstw.refresh_analysis_workflow": {
+        "task": "kstw.refresh_analysis_workflow",
+        "schedule": 60.0,
+    },
+    "heavy_metal.refresh_analysis_workflow": {
+        "task": "heavy_metal.refresh_analysis_workflow",
+        "schedule": 60.0,
+    },
+    "microbial.refresh_analysis_workflow": {
+        "task": "microbial.refresh_analysis_workflow",
+        "schedule": 60.0,
+    },
+    "central_lab.refresh_analysis_workflow": {
+        "task": "central_lab.refresh_analysis_workflow",
         "schedule": 60.0,
     },
     "qc.publish_qc_outbox_events": {

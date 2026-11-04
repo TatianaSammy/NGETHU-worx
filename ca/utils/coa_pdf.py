@@ -1666,6 +1666,37 @@ def _result_rows(coa):
                 or "—"
             )
 
+        traceability_notes = []
+        if getattr(result, "reference_standard_name", ""):
+            traceability_notes.append(f"Std: {result.reference_standard_name}")
+        if getattr(result, "reference_standard_lot", ""):
+            traceability_notes.append(f"Std lot: {result.reference_standard_lot}")
+        if getattr(result, "reagent_lot_numbers", ""):
+            traceability_notes.append(f"Reagent lots: {result.reagent_lot_numbers}")
+        if getattr(result, "expanded_uncertainty", None) is not None:
+            traceability_notes.append(
+                f"U={_number(result.expanded_uncertainty)} (k={_number(result.uncertainty_coverage_factor or 2)})"
+            )
+        if getattr(result, "instrument_calibration_id", None):
+            traceability_notes.append(f"Calibration #{result.instrument_calibration_id}")
+        instrument_snapshot = getattr(result, "instrument_snapshot", None) or {}
+        if instrument_snapshot.get("name"):
+            equipment_note = instrument_snapshot["name"]
+            if instrument_snapshot.get("serial_number"):
+                equipment_note += f" (SN {instrument_snapshot['serial_number']})"
+            traceability_notes.append(f"Equipment: {equipment_note}")
+        if instrument_snapshot.get("calibration_status"):
+            due = instrument_snapshot.get("calibration_due_date") or "date not recorded"
+            traceability_notes.append(f"Calibration {instrument_snapshot['calibration_status']} (due {due})")
+        if instrument_snapshot.get("maintenance_status") in {"DUE", "OVERDUE"}:
+            traceability_notes.append(
+                f"Equipment maintenance {instrument_snapshot['maintenance_status']} "
+                f"(due {instrument_snapshot.get('maintenance_due_date') or 'date not recorded'})"
+            )
+        remark = result.auto_remark or "—"
+        if traceability_notes:
+            remark = (remark + " · " + "; ".join(traceability_notes))[:500]
+
         rows.append(
             {
                 "parameter": parameter_name,
@@ -1679,10 +1710,7 @@ def _result_rows(coa):
                 "tested_at": _datetime(
                     result.tested_at
                 ),
-                "remark": (
-                    result.auto_remark
-                    or "—"
-                ),
+                "remark": remark,
             }
         )
 
@@ -2326,6 +2354,274 @@ def _finish_page(
     c.showPage()
 
 
+def _draw_compact_coa_results(c, coa, top, bottom):
+    """Render every analytical result in the certificate's single-page table."""
+    rows = _result_rows(coa)
+    x = 42
+    widths = [112, 95, 58, 48, PAGE_WIDTH - 84 - 112 - 95 - 58 - 48]
+    table_width = sum(widths)
+    headers = ["PARAMETER / METHOD", "SPECIFICATION", "RESULT", "STATUS", "ANALYST · TESTED · NOTE"]
+    data = []
+    for row in rows:
+        parameter_method = f'{row["parameter"]}\n{row["method"]} · {row["version"]}'
+        specification = row["specification"]
+        traceability = f'{row["analyst"]} · {row["tested_at"]}'
+        if row["remark"] and row["remark"] != "—":
+            traceability += f'\n{row["remark"]}'
+        data.append([
+            parameter_method,
+            specification,
+            f'{row["result"]} {row["unit"]}'.strip(),
+            _status_text(row["status"]),
+            traceability,
+        ])
+
+    header_height = 17
+    available_height = max(1, top - bottom)
+    selected = None
+    for font_size in (6.0, 5.6, 5.2, 4.8, 4.4, 4.0, 3.6, 3.2):
+        leading = font_size + 1.1
+        prepared = []
+        total_height = header_height
+        for row in data:
+            paragraphs = [
+                _paragraph(value, width - 8, font_size=font_size, leading=leading, color=SLATE)
+                for value, width in zip(row, widths)
+            ]
+            heights = [paragraph.wrap(width - 8, available_height)[1] for paragraph, width in zip(paragraphs, widths)]
+            row_height = max(font_size + 4, max(heights, default=font_size) + 4)
+            prepared.append((paragraphs, row_height))
+            total_height += row_height
+        selected = (font_size, leading, prepared, total_height)
+        if total_height <= available_height:
+            break
+
+    font_size, leading, prepared, total_height = selected
+    vertical_scale = min(1.0, available_height / total_height) if total_height else 1.0
+    c.saveState()
+    c.translate(0, top * (1 - vertical_scale))
+    c.scale(1, vertical_scale)
+
+    current_y = top
+    c.setFillColor(NAVY)
+    c.rect(x, current_y - header_height, table_width, header_height, stroke=0, fill=1)
+    current_x = x
+    for title, width in zip(headers, widths):
+        _draw_paragraph(c, title, current_x + 4, current_y - 4, width - 8, font_size=5.5, leading=6.2, color=WHITE, bold=True)
+        current_x += width
+    current_y -= header_height
+
+    if not prepared:
+        c.setFillColor(LIGHT)
+        c.rect(x, current_y - 23, table_width, 23, stroke=0, fill=1)
+        _draw_paragraph(c, "No analytical results are recorded for this certificate.", x + 6, current_y - 7, table_width - 12, font_size=6, leading=7, color=SLATE)
+        current_y -= 23
+    else:
+        for index, (paragraphs, row_height) in enumerate(prepared):
+            c.setFillColor(WHITE if index % 2 == 0 else LIGHT)
+            c.setStrokeColor(BORDER)
+            c.rect(x, current_y - row_height, table_width, row_height, stroke=1, fill=1)
+            current_x = x
+            for column_index, (paragraph, width) in enumerate(zip(paragraphs, widths)):
+                if column_index:
+                    c.setStrokeColor(BORDER)
+                    c.line(current_x, current_y, current_x, current_y - row_height)
+                if column_index == 3:
+                    _, status_color = _status_colors(rows[index]["status"])
+                    c.setFillColor(status_color)
+                    c.setFont(BOLD_FONT, max(3.2, font_size))
+                    c.drawString(current_x + 4, current_y - min(row_height - 2, leading + 2), _status_text(rows[index]["status"]))
+                else:
+                    _, paragraph_height = paragraph.wrap(width - 8, row_height)
+                    paragraph.drawOn(c, current_x + 4, current_y - 2 - paragraph_height)
+                current_x += width
+            current_y -= row_height
+
+    c.restoreState()
+    return top - vertical_scale * total_height
+
+
+def _draw_compact_fitted_paragraph(c, text, x, top, width, max_height, *, font_size=5.3, color=SLATE):
+    """Fit free-form certificate text into its reserved one-page area."""
+    paragraph = None
+    paragraph_height = 0
+    for size in (font_size, 5.0, 4.6, 4.2, 3.8, 3.4, 3.0):
+        paragraph = _paragraph(text, width, font_size=size, leading=size + 0.8, color=color)
+        _, paragraph_height = paragraph.wrap(width, max_height)
+        if paragraph_height <= max_height:
+            break
+    vertical_scale = min(1.0, max_height / paragraph_height) if paragraph_height else 1.0
+    c.saveState()
+    c.translate(0, top * (1 - vertical_scale))
+    c.scale(1, vertical_scale)
+    paragraph.drawOn(c, x, top - paragraph_height)
+    c.restoreState()
+
+
+def _draw_compact_coa_body(c, coa, qr_reader, footer_reader, watermark_reader):
+    """Draw a complete, printable CoA on one A4 page."""
+    _draw_watermark(c, watermark_reader)
+    body_top = _draw_header(c, coa)
+    margin = 42
+    content_width = PAGE_WIDTH - 2 * margin
+
+    # Certificate identifiers.
+    identity_top = body_top - 8
+    identity_height = 43
+    _draw_card(c, margin, identity_top, content_width, identity_height, fill=LIGHT_BLUE)
+    identity = [
+        ("CERTIFICATE", f"COA-{coa.pk:06d}" if coa.pk else "COA-PENDING"),
+        ("SAMPLE", _safe(coa.sample_id)),
+        ("BATCH", _safe(coa.batch_id)),
+        ("REPORT DATE", _datetime(coa.date_of_report)),
+    ]
+    cell_width = content_width / len(identity)
+    for index, (label, value) in enumerate(identity):
+        cell_x = margin + index * cell_width + 9
+        c.setFillColor(MUTED)
+        c.setFont(BOLD_FONT, 5.3)
+        c.drawString(cell_x, identity_top - 14, label)
+        _draw_paragraph(c, value, cell_x, identity_top - 19, cell_width - 15, font_size=7, leading=8, color=NAVY, bold=True)
+    identity_bottom = identity_top - identity_height
+
+    # Compact, complete custody and delivery information.
+    trace_top = identity_bottom - 7
+    trace_height = 74
+    _draw_card(c, margin, trace_top, content_width, trace_height, fill=LIGHT)
+    left_fields = [
+        ("Chemical", coa.chemical_name),
+        ("Supplier", coa.supplier_name),
+        ("Quantity", _safe(getattr(coa, "quantity", None))),
+        ("Delivery note", _safe(coa.delivery_note_number)),
+        ("Delivery date", _date(coa.delivery_date)),
+    ]
+    right_fields = [
+        ("Delivered to", coa.delivered_to),
+        ("Treatment plant", getattr(coa.treatment_plant, "name", None)),
+        ("Packaging", _choice_display(coa, "packaging_status")),
+        ("Sampling date", _date(coa.sampling_date)),
+        ("Analysis date", _date(coa.analysis_date)),
+    ]
+    gap = 12
+    column_width = (content_width - gap - 20) / 2
+    for column, fields in enumerate((left_fields, right_fields)):
+        column_x = margin + 10 + column * (column_width + gap)
+        for index, (label, value) in enumerate(fields):
+            line_y = trace_top - 12 - index * 12.5
+            c.setFillColor(MUTED)
+            c.setFont(BOLD_FONT, 5.1)
+            c.drawString(column_x, line_y, f"{label.upper()}:")
+            _draw_paragraph(c, value, column_x + 70, line_y + 1, column_width - 72, font_size=6.1, leading=7, color=NAVY, bold=True)
+    trace_bottom = trace_top - trace_height
+
+    # Conformity and disposition strip.
+    stats = coa.get_result_statistics()
+    conformity_top = trace_bottom - 7
+    conformity_height = 34
+    _draw_card(c, margin, conformity_top, content_width, conformity_height, fill=WHITE)
+    metrics = [
+        ("RESULTS", stats["total"], NAVY),
+        ("PASS", stats["pass"], GREEN),
+        ("FAIL", stats["fail"], RED),
+        ("PENDING", stats["pending"], AMBER),
+        ("PASS RATE", f'{stats["pass_rate"]:.1f}%', CYAN_DARK),
+    ]
+    metric_width = 63
+    for index, (label, value, color) in enumerate(metrics):
+        metric_x = margin + 10 + index * metric_width
+        c.setFillColor(MUTED)
+        c.setFont(BOLD_FONT, 4.8)
+        c.drawString(metric_x, conformity_top - 12, label)
+        c.setFillColor(color)
+        c.setFont(BOLD_FONT, 9)
+        c.drawString(metric_x, conformity_top - 26, str(value))
+    if stats["pending"]:
+        disposition, status_color = "ANALYSIS INCOMPLETE", AMBER
+    elif stats["fail"]:
+        disposition, status_color = "NON-CONFORMING · REPORT ONLY", RED
+    else:
+        disposition, status_color = "CONFORMS TO SPECIFICATION", GREEN
+    c.setFillColor(status_color)
+    c.setFont(BOLD_FONT, 7)
+    c.drawRightString(PAGE_WIDTH - margin - 10, conformity_top - 21, disposition)
+    conformity_bottom = conformity_top - conformity_height
+
+    # Result table adapts its type size to keep every result on this page.
+    results_title_y = conformity_bottom - 13
+    c.setFillColor(NAVY)
+    c.setFont(BOLD_FONT, 7)
+    c.drawString(margin, results_title_y, "SPECIFICATION-AWARE ANALYTICAL RESULTS")
+    c.setFillColor(MUTED)
+    c.setFont(BODY_FONT, 5.3)
+    c.drawRightString(PAGE_WIDTH - margin, results_title_y, "Method, specification, analyst, test time and remark are shown per result")
+    table_top = results_title_y - 5
+    table_bottom = 188
+    _draw_compact_coa_results(c, coa, table_top, table_bottom)
+
+    # Notes, approval evidence and integrity verification share the lower band.
+    auth_top = 178
+    auth_height = 111
+    _draw_card(c, margin, auth_top, content_width, auth_height, fill=LIGHT)
+    c.setFillColor(NAVY)
+    c.setFont(BOLD_FONT, 6.2)
+    c.drawString(margin + 11, auth_top - 13, "CERTIFICATE NOTES & AUTHORIZATION")
+
+    qr_size = 55
+    qr_x = PAGE_WIDTH - margin - qr_size - 10
+    qr_y = auth_top - 21
+    if qr_reader:
+        c.drawImage(qr_reader, qr_x, qr_y - qr_size, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
+    c.setFillColor(MUTED)
+    c.setFont(BOLD_FONT, 4.7)
+    c.drawCentredString(qr_x + qr_size / 2, qr_y - qr_size - 7, "SCAN TO VERIFY")
+
+    text_x = margin + 11
+    text_width = qr_x - text_x - 12
+    c.setFillColor(MUTED)
+    c.setFont(BOLD_FONT, 4.9)
+    c.drawString(text_x, auth_top - 27, "REMARKS")
+    observation = coa.remarks or coa.generate_remarks() or "—"
+    _draw_compact_fitted_paragraph(c, observation, text_x, auth_top - 31, text_width, 21, font_size=5.3, color=SLATE)
+    c.setFillColor(MUTED)
+    c.setFont(BOLD_FONT, 4.9)
+    c.drawString(text_x, auth_top - 53, "RESULT SUMMARY")
+    summary = (
+        f'{stats["total"]} parameters · {stats["pass"]} pass · '
+        f'{stats["fail"]} fail · {stats["pending"]} pending · '
+        f'{stats["na"]} not applicable'
+    )
+    _draw_paragraph(c, summary, text_x, auth_top - 57, text_width, font_size=5.1, leading=5.8, color=SLATE)
+
+    approved_by = getattr(coa, "approved_by", None)
+    approved_name = (
+        approved_by.get_full_name() or getattr(approved_by, "username", "Approved user")
+        if approved_by else "Not approved"
+    )
+    c.setFillColor(NAVY)
+    c.setFont(BOLD_FONT, 5.2)
+    c.drawString(text_x, auth_top - 77, f"APPROVED BY: {_safe(approved_name)}   ·   DATE: {_datetime(coa.approved_on)}")
+    c.setFillColor(MUTED)
+    c.setFont(BODY_FONT, 4.5)
+    c.drawString(text_x, auth_top - 88, f"SHA-256: {_safe(coa.verified_hash, 'Not available')}")
+
+    if footer_reader:
+        try:
+            c.drawImage(footer_reader, text_x, auth_top - auth_height + 5, width=90, height=12, preserveAspectRatio=True, anchor="sw", mask="auto")
+        except Exception:
+            pass
+    signature = getattr(getattr(approved_by, "chemicalcertapprover", None), "signature", None) if approved_by else None
+    signature_reader = _image_to_reader(signature) if signature else None
+    if signature_reader:
+        c.drawImage(signature_reader, text_x + 305, auth_top - 101, width=55, height=12, preserveAspectRatio=True, mask="auto")
+        c.setFillColor(MUTED)
+        c.setFont(BODY_FONT, 4.2)
+        c.drawString(text_x + 305, auth_top - 108, "Digital signature")
+
+    c.setFillColor(MUTED)
+    c.setFont(BODY_FONT, 4.5)
+    c.drawString(margin, 35, "Controlled laboratory document · Approved content is protected by the recorded verification hash.")
+
+
 def generate_coa_pdf(
     coa,
     qr_image: BytesIO | None = None,
@@ -2363,145 +2659,11 @@ def generate_coa_pdf(
         "NCWSC Chemical Analysis System"
     )
 
-    watermark_reader = _load_watermark(
-        coa,
-        watermark,
-    )
-
-    qr_reader = _load_qr(
-        coa,
-        qr_image,
-    )
-
-    footer_reader = _load_footer_image(
-        coa
-    )
-
-    page_number = 1
-
-    def new_page():
-        nonlocal page_number
-
-        _finish_page(
-            pdf,
-            coa,
-            page_number,
-        )
-
-        page_number += 1
-
-        return _begin_page(
-            pdf,
-            coa,
-            watermark_reader,
-            page_number,
-        )
-
-    y = _begin_page(
-        pdf,
-        coa,
-        watermark_reader,
-        page_number,
-    )
-
-    y = _draw_certificate_identity(
-        pdf,
-        coa,
-        y,
-    )
-
-    y = _draw_traceability(
-        pdf,
-        coa,
-        y,
-    )
-
-    if y < 275:
-        y = new_page()
-
-    y = _draw_conformity_summary(
-        pdf,
-        coa,
-        y,
-    )
-
-    if y < 260:
-        y = new_page()
-
-    y = _draw_results_table(
-        pdf,
-        coa,
-        y,
-    )
-
-    if y < 165:
-        y = new_page()
-
-    y = _draw_observations(
-        pdf,
-        coa,
-        y,
-    )
-
-    if y < 250:
-        y = new_page()
-
-    y = _draw_approval(
-        pdf,
-        coa,
-        y,
-        qr_reader,
-        footer_reader,
-    )
-
-    _draw_signature(
-        pdf,
-        coa,
-        y + 5,
-    )
-
-    y = new_page()
-
-    y = _draw_technical_traceability(
-        pdf,
-        coa,
-        y,
-    )
-
-    if y < 150:
-        y = new_page()
-
-    y -= 8
-
-    _draw_control_statement(
-        pdf,
-        coa,
-        y,
-    )
-
-    pdf.setFillColor(MUTED)
-    pdf.setFont(
-        BODY_FONT,
-        6,
-    )
-
-    pdf.drawString(
-        42,
-        42,
-        f"Generated: {_datetime(coa.date_of_report)}",
-    )
-
-    pdf.drawRightString(
-        PAGE_WIDTH - 42,
-        42,
-        f"Updated: {_datetime(coa.updated_at)}",
-    )
-
-    _finish_page(
-        pdf,
-        coa,
-        page_number,
-    )
+    watermark_reader = _load_watermark(coa, watermark)
+    qr_reader = _load_qr(coa, qr_image)
+    footer_reader = _load_footer_image(coa)
+    _draw_compact_coa_body(pdf, coa, qr_reader, footer_reader, watermark_reader)
+    _draw_footer(pdf, coa, 1)
 
     pdf.save()
 

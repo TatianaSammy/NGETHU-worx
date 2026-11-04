@@ -37,6 +37,18 @@
         <div class="panel__header"><span class="panel__title"><i class="fa-solid fa-circle-dot"></i> By State</span></div>
         <div class="panel__body"><div class="chart-wrap"><canvas id="stateChart"></canvas></div></div>
     </div>
+    <div class="panel">
+        <div class="panel__header"><span class="panel__title"><i class="fa-solid fa-paper-plane"></i> Delivery health</span></div>
+        <div class="panel__body"><div class="chart-wrap"><canvas id="deliveryHealthChart"></canvas></div><p class="panel__note">{{ pending_delivery }} pending · {{ failed_delivery }} failed</p></div>
+    </div>
+    <div class="panel">
+        <div class="panel__header"><span class="panel__title"><i class="fa-solid fa-tower-broadcast"></i> Notification channels</span></div>
+        <div class="panel__body"><div class="chart-wrap"><canvas id="deliveryChannelChart"></canvas></div></div>
+    </div>
+    <div class="panel">
+        <div class="panel__header"><span class="panel__title"><i class="fa-solid fa-volume-high"></i> Persistent voice queue</span></div>
+        <div class="panel__body"><div class="voice-queue-stat"><strong>{{ pending_voice }}</strong><span>unplayed voice alerts in the visible alert scope</span></div></div>
+    </div>
     <!-- Recent Alerts -->
     <div class="panel">
         <div class="panel__header"><span class="panel__title"><i class="fa-solid fa-bell"></i> Recent Alerts</span><span class="live-tag">LIVE</span></div>
@@ -74,6 +86,12 @@ document.addEventListener("DOMContentLoaded", function () {
         QADCockpit.horizontalBar("severityChart", d.by_severity.labels, d.by_severity.data, "amber");
     if (d.by_state && d.by_state.labels.length)
         QADCockpit.doughnut("stateChart", d.by_state.labels, d.by_state.data);
+    if (d.delivery_health)
+        QADCockpit.doughnut("deliveryHealthChart", d.delivery_health.labels, d.delivery_health.data, ["emerald", "amber", "rose"]);
+    if (d.delivery_channels && d.delivery_channels.labels.length)
+        QADCockpit.horizontalBar("deliveryChannelChart", d.delivery_channels.labels, d.delivery_channels.data, "cyan");
 });
 </script>
+<script src="{% static 'js/Chart.min.js' %}"></script>
+<script src="{% static 'core/js/cockpit.js' %}?v=20261031"></script>
 {% endblock %}

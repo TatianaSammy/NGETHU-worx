@@ -96,19 +96,15 @@
                     <span class="ca-mt-node__count">{{ queue_counts.analysis|default:0 }}</span>
                 </a>
                 <a class="ca-mt-node {% if queue_counts.qa %}is-hot{% endif %}" href="{% url 'ca:pending-qa' %}">
-                    <span class="ca-mt-node__label">04. QA Review</span>
+                    <span class="ca-mt-node__label">04. Chemist Review</span>
                     <span class="ca-mt-node__count">{{ queue_counts.qa|default:0 }}</span>
                 </a>
-                <a class="ca-mt-node {% if queue_counts.approval %}is-hot{% endif %}" href="{% url 'ca:pending-approval' %}">
-                    <span class="ca-mt-node__label">05. Approval</span>
-                    <span class="ca-mt-node__count">{{ queue_counts.approval|default:0 }}</span>
-                </a>
                 <a class="ca-mt-node" href="{% url 'ca:coa-list' %}">
-                    <span class="ca-mt-node__label">06. CoA Seal</span>
+                    <span class="ca-mt-node__label">05. CoA Seal</span>
                     <span class="ca-mt-node__count">{{ counts.approved_batches|default:0 }}</span>
                 </a>
                 <a class="ca-mt-node" href="{% url 'ca:batch-list' %}?status=UTILIZED">
-                    <span class="ca-mt-node__label">07. Released</span>
+                    <span class="ca-mt-node__label">06. Released</span>
                     <span class="ca-mt-node__count">{{ queue_counts.utilize|default:0 }}</span>
                 </a>
                 {% endfor %}

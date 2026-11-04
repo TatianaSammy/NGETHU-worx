@@ -38,13 +38,29 @@ def get_latest_concentration(chemical: Chemical, plant: TreatmentPlant) -> Optio
     ).order_by('-measurement_date').first()
 
 
-def get_latest_record(model_name: str, chemical: Chemical, plant: TreatmentPlant):
-    Model = apps.get_model(model_name.split('.')[0], model_name.split('.')[1])
-    return Model.objects.filter(
-        chemical=chemical,
-        treatment_plant=plant,
-        established_dosage_mg_per_l__isnull=False
-    ).order_by('-test_date').first()
+def get_latest_record(model_name: str, chemical: Chemical, plant: TreatmentPlant, chemical_lookup: Optional[str] = None):
+    app_label, model_name = model_name.split('.', 1)
+    try:
+        Model = apps.get_model(app_label, model_name)
+    except LookupError:
+        return None
+
+    dosage_field = next(
+        (field for field in ("established_dosage_mg_per_l", "established_dosage_ml") if any(item.name == field for item in Model._meta.fields)),
+        None,
+    )
+    if dosage_field is None:
+        return None
+
+    filters = {
+        "treatment_plant": plant,
+        f"{dosage_field}__isnull": False,
+    }
+    if chemical_lookup:
+        filters[chemical_lookup] = chemical
+    if any(field.name == "approved_at" for field in Model._meta.fields):
+        filters["approved_at__isnull"] = False
+    return Model.objects.filter(**filters).order_by("-test_date", "-pk").first()
 
 
 def calculate_expected_dosage(flow: float, dosage: float, concentration: float) -> Optional[float]:
@@ -209,7 +225,7 @@ class CoagulantUsageRecord(BaseUsageRecord):
         if not self.chemical.categories.filter(category='Coagulant').exists():
             raise ValidationError(_("Selected chemical is not a Coagulant."))
         concentration = get_latest_concentration(self.chemical, self.treatment_plant)
-        dosage = get_latest_record('jar_tests.JarTest', self.chemical, self.treatment_plant)
+        dosage = get_latest_record('jartest.JarTest', self.chemical, self.treatment_plant, "coagulant")
         if concentration and dosage:
             self.concentration_ppm = float(concentration.concentration_mg_per_l)
             self.expected_dosage = calculate_expected_dosage(self.raw_water_flow_rate, float(dosage.established_dosage_mg_per_l), self.concentration_ppm)
@@ -225,10 +241,12 @@ class PHAdjusterUsageRecord(BaseUsageRecord):
         if not self.chemical.categories.filter(category='PH Adjuster').exists():
             raise ValidationError(_("Selected chemical is not a PH Adjuster."))
         concentration = get_latest_concentration(self.chemical, self.treatment_plant)
-        dosage = get_latest_record('ph_adjustment.PHAdjustmentTest', self.chemical, self.treatment_plant)
+        dosage = get_latest_record('PHadjustment.PHAdjustmentTest', self.chemical, self.treatment_plant, "source_jar__jar_test__coagulant")
         if concentration and dosage:
             self.concentration_ppm = float(concentration.concentration_mg_per_l)
-            self.expected_dosage = calculate_expected_dosage(self.raw_water_flow_rate, float(dosage.established_dosage_mg_per_l), self.concentration_ppm)
+            dosage_value = getattr(dosage, "established_dosage_mg_per_l", None)
+            if dosage_value is not None:
+                self.expected_dosage = calculate_expected_dosage(self.raw_water_flow_rate, float(dosage_value), self.concentration_ppm)
         super().save(*args, **kwargs)
         self.update_stock_and_log(self.chemical, self.actual_dosage)
 
@@ -243,7 +261,7 @@ class DisinfectantUsageRecord(BaseUsageRecord):
         if not self.chemical.categories.filter(category='Disinfectant').exists():
             raise ValidationError(_("Selected chemical is not a Disinfectant."))
         concentration = get_latest_concentration(self.chemical, self.treatment_plant)
-        dosage = get_latest_record('disinfection.ChlorineDemandTest', self.chemical, self.treatment_plant)
+        dosage = get_latest_record('chlorinedemand.ChlorineDemandTest', self.chemical, self.treatment_plant)
         if concentration and dosage:
             self.concentration_ppm = float(concentration.concentration_mg_per_l)
             self.expected_reading = calculate_expected_dosage(self.raw_water_flow_rate, float(dosage.established_dosage_mg_per_l), self.concentration_ppm)

@@ -482,6 +482,7 @@
 .status-optimal { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid #10b981; }
 .status-under { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
 .status-over { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid #a855f7; }
+.status-unconfigured { background: rgba(100, 116, 139, 0.18); color: #cbd5e1; border: 1px solid #64748b; }
 
 /* Beaker Visual */
 .jar-beaker-visual {
@@ -636,23 +637,7 @@
 .progress-indicator { height: 100%; transition: width 0.3s; }
 .ind-green { background: #10b981; box-shadow: 0 0 6px #10b981; }
 .ind-amber { background: #f59e0b; }
-
-/* Remarks */
-.cl-remarks-card {
-    display: flex;
-    flex-direction: column;
-}
-.cl-textarea {
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border);
-    border-radius: 6px;
-    color: #e2e8f0;
-    font-size: 0.75rem;
-    padding: 0.35rem;
-    resize: none;
-    outline: none;
-}
-.cl-textarea:focus { border-color: var(--cl-primary); }
+.ind-neutral { background: #64748b; }
 
 /* ==============================================================================
    RIGHT COLUMN: Breakpoint Curve + Side-Bench Toolset
@@ -792,27 +777,6 @@
     background: rgba(51, 65, 85, 0.6);
     color: #e2e8f0;
 }
-.timer-presets {
-    display: flex;
-    gap: 0.3rem;
-    margin-top: 0.3rem;
-}
-.preset-btn {
-    flex: 1;
-    background: transparent;
-    border: 1px solid var(--cl-border);
-    color: #94a3b8;
-    font-size: 0.65rem;
-    padding: 0.15rem 0;
-    border-radius: 4px;
-    cursor: pointer;
-}
-.preset-btn.active, .preset-btn:hover {
-    border-color: #06b6d4;
-    color: #22d3ee;
-    background: rgba(6, 182, 212, 0.1);
-}
-
 /* Plant Scaler Calculator */
 .calc-body {
     display: flex;
@@ -880,18 +844,7 @@
     gap: 0.5rem;
     margin-top: 0.5rem;
 }
-.cl-hints-strip { display: flex; align-items: center; gap: 0.5rem; }
-.cl-hint-badge { font-size: 0.7rem; color: #94a3b8; }
-.cl-hint-badge kbd {
-    background: rgba(30, 41, 59, 0.8);
-    border: 1px solid rgba(71, 85, 105, 0.6);
-    border-radius: 3px;
-    padding: 0.1rem 0.3rem;
-    font-size: 0.65rem;
-    color: #e2e8f0;
-}
-
-.cl-actions-strip { display: flex; align-items: center; gap: 0.5rem; }
+.cl-actions-strip { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; }
 .btn-cl-save {
     display: inline-flex;
     align-items: center;
@@ -975,17 +928,6 @@ body.dashboard-fullscreen:has(.cl-workspace-root) {
     gap: 0.3rem !important;
 }
 
-.cl-remarks-card {
-    flex-shrink: 0 !important;
-    margin-top: 0.2rem !important;
-}
-.cl-remarks-card textarea,
-.cl-textarea {
-    min-height: 1.8rem !important;
-    max-height: 2.4rem !important;
-    padding: 0.2rem 0.35rem !important;
-    font-size: 0.7rem !important;
-}
 .beaker-graduations { display: none !important; }
 
 .cl-topbar-wrapper { gap: 0.25rem !important; }
@@ -1090,7 +1032,6 @@ body.dashboard-fullscreen:has(.cl-workspace-root) {
     gap: 0.35rem !important;
 }
 
-.cl-hints-strip .text-muted.small { display: none; }
 
 @media (max-width: 1200px) {
     .cl-main-layout { grid-template-columns: 1fr !important; }

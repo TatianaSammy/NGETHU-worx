@@ -19,7 +19,7 @@ from core.mixins import WanjalaMixin
 from core.registry import registry
 from t.models import TreatmentPlant
 
-from .models import AlertConfig, AlertNotification, AlertState
+from .models import AlertConfig, AlertNotification, AlertState, VoiceAlert
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +126,21 @@ class DashboardView(WanjalaMixin, View):
             )
         ).count()
         ack_rate = round(acknowledged_count / total_count * 100, 1) if total_count else 0
+        visible_state_ids = states.values_list("pk", flat=True)
+        notifications = AlertNotification.objects.filter(alert_state_id__in=visible_state_ids, created_at__gte=start_at)
+        if not is_superuser:
+            notifications = notifications.filter(recipient=request.user)
+        pending_delivery = notifications.filter(delivery_status__in=(
+            AlertNotification.DeliveryStatus.PENDING,
+            AlertNotification.DeliveryStatus.PARTIAL,
+        )).count()
+        failed_delivery = notifications.filter(delivery_status=AlertNotification.DeliveryStatus.FAILED).count()
+        voice_alerts = VoiceAlert.objects.filter(alert_state_id__in=visible_state_ids, created_at__gte=start_at)
+        pending_voice = voice_alerts.filter(is_played=False).count()
+        delivered_by_channel = {}
+        for channels in notifications.values_list("channels", flat=True):
+            for channel in channels or []:
+                delivered_by_channel[channel] = delivered_by_channel.get(channel, 0) + 1
 
         by_severity = list(
             window_states.values("priority")
@@ -172,6 +187,8 @@ class DashboardView(WanjalaMixin, View):
             {"label": "Escalated", "value": escalated_count, "icon": "fa-arrow-up", "color": "amber"},
             {"label": "Ack rate", "value": f"{ack_rate}%", "icon": "fa-chart-simple", "color": "emerald"},
             {"label": "Active rules", "value": configs.distinct().count(), "icon": "fa-gear", "color": "purple"},
+            {"label": "Voice unplayed", "value": pending_voice, "icon": "fa-volume-high", "color": "amber"},
+            {"label": "Delivery issues", "value": pending_delivery + failed_delivery, "icon": "fa-paper-plane", "color": "rose"},
         ]
 
         recent = []
@@ -203,6 +220,19 @@ class DashboardView(WanjalaMixin, View):
                 "labels": ["Acknowledged", "Active or other"],
                 "data": [acknowledged_count, max(total_count - acknowledged_count, 0)],
             },
+            "delivery_channels": {
+                "labels": list(delivered_by_channel),
+                "data": list(delivered_by_channel.values()),
+            },
+            "delivery_health": {
+                "labels": ["Sent", "Pending", "Failed"],
+                "data": [
+                    notifications.filter(delivery_status=AlertNotification.DeliveryStatus.SENT).count(),
+                    pending_delivery,
+                    failed_delivery,
+                ],
+            },
+            "voice_backlog": pending_voice,
         }
         try:
             entries = registry.for_app(self.app_label) or []
@@ -219,6 +249,9 @@ class DashboardView(WanjalaMixin, View):
             "recent_alerts": recent,
             "charts_json": json.dumps(charts_payload, cls=DjangoJSONEncoder, default=str),
             "dashboard_json_payload": charts_payload,
+            "pending_voice": pending_voice,
+            "pending_delivery": pending_delivery,
+            "failed_delivery": failed_delivery,
             "period_days": period_days,
         }
 

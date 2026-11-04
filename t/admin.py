@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    TreatmentPlant, TreatmentPlantPhase, FilterType, WaterFilter,
+    TreatmentPlant, TreatmentPlantPhase, FilterType, WaterFilter, FilterStatus, FilterStatusEvent,
     Clarifier, DisludgeValve, Status,
     TreatedWaterLimit, MicrobialLimit, HeavyMetalLimit,
     RawWaterLimit, ClarifiedWaterLimit, CoagulatedWaterLimit, FilteredWaterLimit
@@ -19,6 +19,17 @@ class TreatmentPlantPhaseInline(admin.TabularInline):
 class WaterFilterInline(admin.TabularInline):
     model = WaterFilter
     extra = 0
+    fields = ("name", "filter_type", "location", "capacity", "flow_rate", "phase")
+
+
+class FilterStatusInline(admin.StackedInline):
+    model = FilterStatus
+    extra = 0
+    can_delete = False
+    fields = (
+        "installation_date", "last_maintenance_date", "next_maintenance_date",
+        "maintenance_interval_days", "status", "condition_percent", "status_note",
+    )
 
 
 class ClarifierInline(admin.TabularInline):
@@ -104,11 +115,54 @@ class FilterTypeAdmin(admin.ModelAdmin):
 
 @admin.register(WaterFilter)
 class WaterFilterAdmin(admin.ModelAdmin):
-    list_display = ['name', 'filter_type', 'status', 'flow_rate', 'treatment_plant', 'phase', 'volume']
-    readonly_fields = ['volume']
-    list_filter = ['filter_type', 'status', 'treatment_plant']
-    search_fields = ['name', 'location']
-    date_hierarchy = 'installation_date'
+    list_display = ['name', 'filter_type', 'capacity', 'flow_rate', 'treatment_plant', 'phase', 'operational_status']
+    list_filter = ['filter_type', 'filter_status__status', 'treatment_plant', 'phase']
+    search_fields = ['name', 'location', 'treatment_plant__name', 'phase__name']
+    autocomplete_fields = ['filter_type', 'treatment_plant', 'phase']
+    inlines = [FilterStatusInline]
+
+    @admin.display(description="Operational status")
+    def operational_status(self, obj):
+        return obj.get_status_display()
+
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if isinstance(instance, FilterStatus):
+                instance._changed_by = request.user
+            instance.save()
+        formset.save_m2m()
+        for instance in formset.deleted_objects:
+            instance.delete()
+
+
+@admin.register(FilterStatus)
+class FilterStatusAdmin(admin.ModelAdmin):
+    list_display = ["water_filter", "status", "condition_percent", "effective_next_maintenance_date", "maintenance_due", "updated_at"]
+    list_filter = ["status", "water_filter__treatment_plant", "maintenance_interval_days"]
+    search_fields = ["water_filter__name", "water_filter__location", "status_note"]
+    autocomplete_fields = ["water_filter"]
+    readonly_fields = ["created_at", "updated_at"]
+
+    def save_model(self, request, obj, form, change):
+        obj._changed_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(FilterStatusEvent)
+class FilterStatusEventAdmin(admin.ModelAdmin):
+    list_display = ["water_filter", "event_type", "status", "condition_percent", "performed_by", "recorded_at"]
+    list_filter = ["event_type", "status", "recorded_at"]
+    search_fields = ["filter_status__water_filter__name", "remarks", "performed_by__username"]
+    readonly_fields = ["filter_status", "event_type", "status", "condition_percent", "remarks", "performed_by", "recorded_at"]
+    ordering = ["-recorded_at", "-pk"]
+
+    def has_add_permission(self, request):
+        return False
+
+    @admin.display(description="Filter")
+    def water_filter(self, obj):
+        return obj.filter_status.water_filter
 
 
 @admin.register(Status)

@@ -18,8 +18,14 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.apps import apps
+from core.services.periodic_tasks import register_minute_task
 
 logger = logging.getLogger("heavymetal.signals")
+
+
+@receiver(post_migrate, dispatch_uid="heavy_metal.register_workflow_refresh_schedule")
+def register_workflow_refresh_schedule(sender, **kwargs):
+    register_minute_task(sender, "heavy_metal", "heavy_metal.refresh_analysis_workflow")
 
 
 # ============================================================
@@ -125,7 +131,7 @@ def auto_create_hm_parameters(sender, instance, created, **kwargs):
             if placeholders:
                 ParameterModel.objects.bulk_create(placeholders)
                 engine = get_alert_engine()
-                engine.trigger_alerts(instance, alert_type="heavymetal_creation")
+                engine.trigger_alert(instance, alert_type="heavymetal_creation")
 
             logger.info(f"[hm] Auto-created {len(placeholders)} parameters for {instance.reference_id}")
 
@@ -144,7 +150,7 @@ def handle_hm_nonconformity(sender, instance, created, **kwargs):
         return
 
     engine = get_alert_engine()
-    engine.trigger_alerts(instance, alert_type="heavymetal_nc")
+    engine.trigger_alert(instance, alert_type="heavymetal_nc")
     engine.auto_escalate_unacknowledged(alert_type="heavymetal_nc", instance=instance)
     logger.info(f"[hm] Triggered NC alert for {instance.parameter_name} ({instance.analysis.reference_id})")
 
@@ -175,7 +181,7 @@ def adaptive_heavymetal_sampling(sender, instance, **kwargs):
         schedule.save(update_fields=["interval_minutes", "last_auto_update"])
 
         engine = get_alert_engine()
-        engine.trigger_alerts(instance, alert_type="sampling_anomaly")
+        engine.trigger_alert(instance, alert_type="sampling_anomaly")
         engine.auto_escalate_unacknowledged(alert_type="sampling_anomaly", instance=instance)
 
         logger.info(f"[adaptive] Schedule {schedule.id} adjusted: {old} → {new} min (AI={score})")
@@ -194,7 +200,7 @@ def auto_verify_hm_parameter(sender, instance, **kwargs):
     detect_heavymetal_nonconformity(instance.parameter, instance.value, instance.analysis, instance.analysis.verified_by)
 
     engine = get_alert_engine()
-    engine.trigger_alerts(instance, alert_type="parameter_deviation")
+    engine.trigger_alert(instance, alert_type="parameter_deviation")
     engine.auto_escalate_unacknowledged(alert_type="parameter_deviation", instance=instance)
 
 

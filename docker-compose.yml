@@ -273,7 +273,7 @@ services:
       chmod -R 777 /app/media &&
       chmod -R 777 /app/staticfiles &&
       python manage.py migrate --noinput &&
-      python manage.py collectstatic --noinput
+      python manage.py collectstatic --clear --noinput --ignore='*.map' --ignore='*.ts' --ignore='*.scss' --ignore='*.sass' --ignore='*.less' --ignore='*.test.css' --ignore='*.test.js' --ignore='*.spec.js' --ignore='*material-web*' --ignore='form.js' --ignore='LoginForm.js' --ignore='PasswordInput.js' --ignore='icon-maskable-512.png'
       "
 
     depends_on:
@@ -493,7 +493,7 @@ services:
       --concurrency=8
 
     healthcheck:
-      test: ["CMD-SHELL", "celery -A qad inspect ping --timeout=5 || exit 1"]
+      test: ["CMD-SHELL", "celery -A qad inspect ping -d celery@celery1 --timeout=5 || exit 1"]
 
       interval: 60s
       timeout: 10s
@@ -518,7 +518,7 @@ services:
       --concurrency=8
 
     healthcheck:
-      test: ["CMD-SHELL", "celery -A qad inspect ping --timeout=5 || exit 1"]
+      test: ["CMD-SHELL", "celery -A qad inspect ping -d celery@celery2 --timeout=5 || exit 1"]
 
       interval: 60s
       timeout: 10s
@@ -541,7 +541,7 @@ services:
       --concurrency=8
 
     healthcheck:
-      test: ["CMD-SHELL", "celery -A qad inspect ping --timeout=5 || exit 1"]
+      test: ["CMD-SHELL", "celery -A qad inspect ping -d celery@celery3 --timeout=5 || exit 1"]
 
       interval: 60s
       timeout: 10s
@@ -564,7 +564,7 @@ services:
       --concurrency=8
 
     healthcheck:
-      test: ["CMD-SHELL", "celery -A qad inspect ping --timeout=5 || exit 1"]
+      test: ["CMD-SHELL", "celery -A qad inspect ping -d celery@celery4 --timeout=5 || exit 1"]
       interval: 60s
       timeout: 10s
       retries: 3

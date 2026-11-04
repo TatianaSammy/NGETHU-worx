@@ -3,16 +3,18 @@ from __future__ import annotations
 from datetime import date
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 
 from core.models import Section
-from sc.models import Shift, ShiftAssignment, ShiftSectionRequirement
+from sc.models import AnnualLeave, MonthlyDutyRoster, Shift, ShiftAssignment, ShiftSectionRequirement
 from t.models import TreatmentPlant
 
 
 User = settings.AUTH_USER_MODEL
+UserModel = get_user_model()
 
 
 class TimestampedModel(models.Model):
@@ -182,7 +184,7 @@ class MonthlyDutySchedule(TimestampedModel):
 
     def get_assigned_users(self):
         return (
-            User.objects.filter(
+            UserModel.objects.filter(
                 shift_assignments__date__year=self.year,
                 shift_assignments__date__month=self.month,
                 shift_assignments__is_deleted=False,
@@ -237,26 +239,17 @@ class MonthlyDutySchedule(TimestampedModel):
 
         if self.section_id and self.treatment_plant_id:
             sec_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if sec_plant_id and sec_plant_id != self.treatment_plant_id:
+            if not sec_plant_id or sec_plant_id != self.treatment_plant_id:
                 errors["section"] = (
-                    f"Section '{self.section.name}' belongs to plant '{self.section.treatment_plant.name}', "
-                    f"which does not match schedule treatment plant '{self.treatment_plant.name}'."
-                )
-
-            section_users_exist = User.objects.filter(
-                section_id=self.section_id,
-                assigned_treatment_plant_id=self.treatment_plant_id,
-                is_active=True,
-            ).exists()
-
-            if not section_users_exist:
-                errors["section"] = (
-                    "The selected section has no active users "
-                    "assigned to this treatment plant."
+                    "The section must belong to the selected treatment plant."
                 )
 
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class DutyWeek(TimestampedModel):
@@ -365,8 +358,20 @@ class DutyWeek(TimestampedModel):
                     "the monthly schedule end date."
                 )
 
+            if (self.start_date, self.end_date) not in MonthlyDutyRoster.get_weeks_in_month(
+                schedule.year,
+                schedule.month,
+            ):
+                errors["start_date"] = (
+                    "The duty week must match a week window defined by Shift Control."
+                )
+
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class WeeklyDutyTask(TimestampedModel):
@@ -479,7 +484,7 @@ class WeeklyDutyTask(TimestampedModel):
 
     def get_assigned_users(self):
         return (
-            User.objects.filter(
+            UserModel.objects.filter(
                 daily_assignments__task=self,
                 assigned_treatment_plant_id=self.treatment_plant_id,
                 section_id=self.section_id,
@@ -525,7 +530,7 @@ class WeeklyDutyTask(TimestampedModel):
         )
 
     def get_available_users(self, assignment_date=None):
-        queryset = User.objects.filter(
+        queryset = UserModel.objects.filter(
             assigned_treatment_plant_id=self.treatment_plant_id,
             section_id=self.section_id,
             is_active=True,
@@ -535,6 +540,10 @@ class WeeklyDutyTask(TimestampedModel):
             queryset = queryset.filter(
                 shift_assignments__date=assignment_date,
                 shift_assignments__is_deleted=False,
+            ).exclude(
+                annual_leave_records__status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+                annual_leave_records__start_date__lte=assignment_date,
+                annual_leave_records__end_date__gte=assignment_date,
             )
 
         return (
@@ -573,10 +582,9 @@ class WeeklyDutyTask(TimestampedModel):
             )
         elif self.treatment_plant_id:
             sec_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if sec_plant_id and sec_plant_id != self.treatment_plant_id:
+            if not sec_plant_id or sec_plant_id != self.treatment_plant_id:
                 errors["section"] = (
-                    f"Section '{self.section.name}' belongs to plant '{self.section.treatment_plant.name}', "
-                    f"which does not match task treatment plant '{self.treatment_plant.name}'."
+                    "The section must belong to the task's treatment plant."
                 )
 
         if self.task_template_id and not self.task_template.is_active:
@@ -610,6 +618,10 @@ class WeeklyDutyTask(TimestampedModel):
 
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class DailyTaskAssignment(TimestampedModel):
@@ -769,19 +781,19 @@ class DailyTaskAssignment(TimestampedModel):
             task = self.task
             user = self.user
 
-            if (
-                user.assigned_treatment_plant_id
-                != task.treatment_plant_id
-            ):
+            if self.date and AnnualLeave.is_unavailable(user.pk, self.date):
+                errors["user"] = (
+                    f"{user.get_full_name()} is marked on annual leave or off duty on {self.date} "
+                    "and cannot be assigned a task."
+                )
+
+            if not user.is_superuser and user.assigned_treatment_plant_id != task.treatment_plant_id:
                 errors["user"] = (
                     "The assigned user must belong to "
                     "the same treatment plant as the task."
                 )
 
-            if (
-                getattr(user, "section_id", None)
-                != task.section_id
-            ):
+            if not user.is_superuser and getattr(user, "section_id", None) != task.section_id:
                 errors["user"] = (
                     "The assigned user must belong to "
                     "the same section as the task."
@@ -846,3 +858,27 @@ class DailyTaskAssignment(TimestampedModel):
 
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            previous = None
+            if self.pk:
+                previous = type(self).objects.filter(pk=self.pk).values("user_id", "date", "task_id", "shift_id").first()
+            assignment_changed = self._state.adding or previous is None or (
+                previous["user_id"] != self.user_id
+                or previous["date"] != self.date
+                or previous["task_id"] != self.task_id
+                or previous["shift_id"] != self.shift_id
+            )
+            if assignment_changed:
+                user_ids = {self.user_id} if self.user_id else set()
+                if previous and previous["user_id"]:
+                    user_ids.add(previous["user_id"])
+                list(UserModel.objects.select_for_update().filter(pk__in=sorted(user_ids)).order_by("pk"))
+            if assignment_changed and self.user_id:
+                if self.date and AnnualLeave.is_unavailable(self.user_id, self.date):
+                    raise ValidationError({
+                        "user": "A staff member marked on annual leave or off duty cannot be assigned to a weekly task."
+                    })
+                self.full_clean()
+            super().save(*args, **kwargs)

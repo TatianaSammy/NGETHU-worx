@@ -268,7 +268,7 @@ Update or roll back deployments using the normal Kubernetes rollout commands aft
 
 Alert events and recipient delivery state are persisted before delivery. Redis and Daphne support the live WebSocket inbox; Celery workers handle background delivery, voice generation, retry, and escalation tasks; Celery beat schedules periodic work. Configure external delivery providers and email credentials through environment variables or a secret manager.
 
-Reference voice cloning is optional. The worker lazily loads a compatible Chatterbox Turbo/Nano runtime when installed. The pinned NumPy and Transformers versions may conflict with upstream voice packages, so validate a compatible runtime in a separate worker image before enabling it. Without that runtime, supported TTS providers can produce non-cloned audio. Browser autoplay may be blocked; users can replay from the notification Voice control.
+Each generated voice alert is tied to an active VoiceOver profile. The worker uses the sample clip for reference-conditioned synthesis when a compatible Chatterbox runtime and model are available; otherwise it uses local eSpeak speech selected by the profile's gender, accent, and rate, with network TTS as a final fallback. The runtime image includes eSpeak so server-side speech generation can work without internet. The browser caches alert audio and the notification feed per signed-in user for offline playback. Browser autoplay policies still require users to enable voice alerts once in the notification menu; previously cached unread alerts can then play while offline. A device that has never downloaded an alert clip cannot play that clip without a network connection.
 
 ## Fullscreen and PWA use
 

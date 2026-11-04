@@ -626,23 +626,6 @@
     transition: left 0.3s ease;
 }
 
-/* Remarks */
-.ph-remarks-card {
-    display: flex;
-    flex-direction: column;
-}
-.ph-textarea {
-    background: var(--ph-surface);
-    border: 1px solid var(--ph-border);
-    border-radius: 6px;
-    color: #e2e8f0;
-    font-size: 0.75rem;
-    padding: 0.35rem;
-    resize: none;
-    outline: none;
-}
-.ph-textarea:focus { border-color: var(--ph-primary); }
-
 /* ==============================================================================
    RIGHT COLUMN: Titration Curve + Side Bench Toolset
    ============================================================================== */
@@ -878,18 +861,7 @@
     gap: 0.5rem;
     margin-top: 0.5rem;
 }
-.ph-hints-strip { display: flex; align-items: center; gap: 0.5rem; }
-.ph-hint-badge { font-size: 0.7rem; color: #94a3b8; }
-.ph-hint-badge kbd {
-    background: rgba(30, 41, 59, 0.8);
-    border: 1px solid rgba(71, 85, 105, 0.6);
-    border-radius: 3px;
-    padding: 0.1rem 0.3rem;
-    font-size: 0.65rem;
-    color: #e2e8f0;
-}
-
-.ph-actions-strip { display: flex; align-items: center; gap: 0.5rem; }
+.ph-actions-strip { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; }
 .btn-ph-save {
     display: inline-flex;
     align-items: center;
@@ -981,17 +953,6 @@ body.dashboard-fullscreen:has(.ph-workspace-root) {
     width: 8px !important;
     height: 8px !important;
     top: -2px !important;
-}
-.ph-remarks-card {
-    flex-shrink: 0 !important;
-    margin-top: 0.2rem !important;
-}
-.ph-remarks-card textarea,
-.ph-textarea {
-    min-height: 1.8rem !important;
-    max-height: 2.4rem !important;
-    padding: 0.2rem 0.35rem !important;
-    font-size: 0.7rem !important;
 }
 .ph-control-bar {
     min-height: 40px !important;
@@ -1108,7 +1069,6 @@ body.dashboard-fullscreen:has(.ph-workspace-root) {
     gap: 0.35rem !important;
 }
 
-.ph-hints-strip .text-muted.small { display: none; }
 
 @media (max-width: 1200px) {
     .ph-main-layout { grid-template-columns: 1fr !important; }

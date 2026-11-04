@@ -1,0 +1,44 @@
+<article class="analysis-worksheet" data-analysis-worksheet>
+    <header class="analysis-worksheet__head">
+        <span class="analysis-result-icon"><i class="fas fa-flask-vial" aria-hidden="true"></i></span>
+        <div class="analysis-worksheet__identity">
+            <span class="analysis-kicker">{{ card.title }} · {{ card.plant_name }}</span>
+            <h3>{{ card.reference }}</h3>
+            <div class="analysis-worksheet__meta">
+                {% for field in card.sample_fields %}<span><small>{{ field.label }}</small><strong>{{ field.value }}</strong></span>{% endfor %}
+            </div>
+        </div>
+        <span class="analysis-status-pill analysis-status-pill--{{ card.status|lower }}"><i></i>{{ card.status_label }}</span>
+    </header>
+
+    <form method="post" action="{{ card.entry_url|default:card.detail_url }}" class="analysis-worksheet__form">
+        {% csrf_token %}
+        {% if plant %}<input type="hidden" name="plant" value="{{ plant.pk }}">{% endif %}
+        <input type="hidden" name="return_to" value="{{ dashboard_return_url }}">
+        {% for group in card.entry_groups %}
+        <section class="analysis-worksheet__group">
+            <div class="analysis-worksheet__group-head"><h4>{{ group.label }}</h4><span>{{ group.rows|length }} parameters</span></div>
+            <div class="analysis-worksheet__grid">
+                {% for row in group.rows %}
+                <div class="analysis-worksheet__cell{% if row.entry_status == 'recorded' %} is-recorded{% elif row.is_new or row.entry_status == 'pending' %} is-pending{% endif %}">
+                    <span class="analysis-worksheet__parameter"><strong>{{ row.parameter }}</strong><small>{{ row.unit|default:"No unit" }} · {{ row.limit }}</small></span>
+                    {% if row.editable %}
+                        <span class="analysis-worksheet__entry"><input id="{{ card.reference|slugify }}-{{ row.input_key }}" type="number" name="result_{{ row.input_key }}" value="{{ row.value|default_if_none:'' }}" step="any" inputmode="decimal" autocomplete="off" aria-label="{{ row.parameter }} result">{% if row.has_method %}<select name="method_{{ row.input_key }}" aria-label="{{ row.parameter }} method">{% for method in row.method_options %}<option value="{{ method.id }}" {% if method.id == row.selected_method_id %}selected{% endif %}>{{ method.label }}</option>{% endfor %}</select>{% endif %}</span>
+                    {% else %}
+                        <span class="analysis-worksheet__entry"><span class="analysis-worksheet__value">{{ row.value_display }}{% if row.unit %}<small>{{ row.unit }}</small>{% endif %}</span></span>
+                    {% endif %}
+                    <span class="analysis-worksheet__state">{{ row.status_label }}</span>
+                </div>
+                {% empty %}<div class="analysis-worksheet__empty">No parameter rows are configured for this result set.</div>{% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+        <footer class="analysis-worksheet__footer">
+            <span><i class="fas fa-user-check" aria-hidden="true"></i>{% if card.can_save_inline %} New result entry · {{ request.user.get_full_name|default:request.user.username }}{% else %}Recorded analyst · {{ card.analyst }}{% endif %}</span>
+            <div>
+                {% if card.can_save_inline %}<button type="submit" class="analysis-worksheet__save"><i class="fas fa-floppy-disk" aria-hidden="true"></i> Save results</button>{% endif %}
+                {% if card.entry_url %}<a href="{{ card.entry_url }}">Full worksheet <i class="fas fa-arrow-right" aria-hidden="true"></i></a>{% endif %}
+            </div>
+        </footer>
+    </form>
+</article>

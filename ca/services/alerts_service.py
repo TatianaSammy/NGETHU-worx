@@ -22,7 +22,7 @@ class ChemicalAlertsService:
       * Out-of-spec test results
       * Missed SLA / overdue chemical analysis requests
       * Expired / pending receiving checklists
-      * Batches awaiting QA review or CoA approval
+      * Batches awaiting chemist review or CoA approval
       * Rejected chemical batches
     - Supports acknowledgment via AlarmAcknowledgment and AlertState
     """
@@ -448,22 +448,46 @@ class ChemicalAlertsService:
                     analysis_request__assigned_analysts__isnull=False,
                 )
             ).select_related("batch", "analysis_request")
+            interlab_alert_keys = []
+            if plant is not None:
+                from ca.models import ChemicalLabReferral
+
+                interlab_alert_keys = [
+                    f"ca-interlab-referral:{referral_id}"
+                    for referral_id in ChemicalLabReferral.objects.filter(
+                        treatment_plant_id=plant.pk,
+                        status=ChemicalLabReferral.Status.PENDING,
+                    ).values_list("pk", flat=True)
+                ]
             if not is_superuser:
                 if plant is None:
                     workflow_qs = workflow_qs.none()
                 else:
-                    workflow_qs = workflow_qs.filter(batch__treatment_plant=plant)
+                    workflow_qs = workflow_qs.filter(
+                        Q(batch__treatment_plant=plant)
+                        | Q(alert_type="ca_interlab_referral", dedupe_key__in=interlab_alert_keys)
+                    )
             elif plant is not None:
-                workflow_qs = workflow_qs.filter(batch__treatment_plant=plant)
+                workflow_qs = workflow_qs.filter(
+                    Q(batch__treatment_plant=plant)
+                    | Q(alert_type="ca_interlab_referral", dedupe_key__in=interlab_alert_keys)
+                )
 
             for item in workflow_qs[:limit]:
                 batch = item.batch
-                if not is_superuser and batch and batch.treatment_plant_id != getattr(plant, "pk", None):
+                is_interlab_recipient = bool(
+                    item.alert_type == "ca_interlab_referral"
+                    and item.dedupe_key in interlab_alert_keys
+                )
+                if not is_superuser and batch and batch.treatment_plant_id != getattr(plant, "pk", None) and not is_interlab_recipient:
                     continue
                 assigned_analyst_ack = bool(
-                    item.alert_type == "ca_analysis_assignment"
-                    and item.analysis_request_id
-                    and item.analysis_request.is_assigned_analyst(user)
+                    is_interlab_recipient
+                    or (
+                        item.alert_type == "ca_analysis_assignment"
+                        and item.analysis_request_id
+                        and item.analysis_request.is_assigned_analyst(user)
+                    )
                 )
                 alerts_list.append({
                     "id": f"ca_workflow_alert_{item.pk}",
@@ -687,8 +711,20 @@ class ChemicalAlertsService:
                     recipient=user,
                     acknowledged_at__isnull=True,
                 )
-                if item.batch_id and not (is_superuser or user.is_superuser):
-                    if item.batch.treatment_plant_id != getattr(user, "assigned_treatment_plant_id", None):
+                if not (is_superuser or user.is_superuser):
+                    if item.alert_type == "ca_interlab_referral":
+                        from ca.models import ChemicalLabReferral
+
+                        try:
+                            referral_id = int(str(item.dedupe_key).rsplit(":", 1)[-1])
+                            target_plant_id = ChemicalLabReferral.objects.values_list(
+                                "treatment_plant_id", flat=True
+                            ).get(pk=referral_id, status=ChemicalLabReferral.Status.PENDING)
+                        except (TypeError, ValueError, ChemicalLabReferral.DoesNotExist):
+                            return {"success": False, "error": "Notification not found."}
+                        if target_plant_id != getattr(user, "assigned_treatment_plant_id", None):
+                            return {"success": False, "error": "Notification not found."}
+                    elif item.batch_id and item.batch.treatment_plant_id != getattr(user, "assigned_treatment_plant_id", None):
                         return {"success": False, "error": "Notification not found."}
                 if item.alert_type == "ca_analysis_assignment":
                     request = item.analysis_request
