@@ -10,8 +10,9 @@ from django.views import View
 
 from core.mixins import WanjalaMixin
 from core.models import Section
-from core.plant_section_scope import user_plant_section
+from core.plant_section_scope import section_scope_q, user_plant_section
 from t.models import TreatmentPlant
+from .exports import export_weekly_tasks
 from .models import (
     DailyTaskAssignment,
     DutyWeek,
@@ -24,6 +25,9 @@ from .models import (
 class DashboardView(WanjalaMixin, View):
     template_name = "weeklytasks/dashboard.html"
     app_label = "weeklytasks"
+
+    def handle_export(self, request):
+        return self.get(request)
 
     def get(self, request):
         if response := self.process_request(request):
@@ -113,6 +117,29 @@ class DashboardView(WanjalaMixin, View):
             .select_related("schedule", "schedule__treatment_plant", "schedule__section")
             .order_by("start_date", "schedule__treatment_plant__name", "schedule__section__name")
         )
+
+        active_templates = list(StandardWeeklyTask.objects.filter(is_active=True).order_by("code", "name"))
+        new_tasks = []
+        existing_task_keys = set(WeeklyDutyTask.objects.filter(
+            week__schedule__in=month_schedules
+        ).values_list("week_id", "task_template_id", "treatment_plant_id", "section_id"))
+        for week in week_records:
+            for tmpl in active_templates:
+                task_key = (week.pk, tmpl.pk, week.schedule.treatment_plant_id, week.schedule.section_id)
+                if task_key not in existing_task_keys:
+                    new_tasks.append(WeeklyDutyTask(
+                        week=week,
+                        task_template=tmpl,
+                        treatment_plant=week.schedule.treatment_plant,
+                        section=week.schedule.section,
+                    ))
+                    existing_task_keys.add(task_key)
+        if new_tasks:
+            WeeklyDutyTask.objects.bulk_create(new_tasks, ignore_conflicts=True)
+            month_tasks = list(weekly_tasks.filter(week__schedule__in=month_schedules).order_by(
+                "week__start_date", "treatment_plant__name", "task_template__code", "section__name"
+            ))
+
         row_groups = {}
         for week in week_records:
             key = (week.schedule.treatment_plant_id, week.start_date, week.end_date)
@@ -180,6 +207,10 @@ class DashboardView(WanjalaMixin, View):
             StandardWeeklyTask.objects.filter(weekly_duty_tasks__week__schedule__in=month_schedules)
             .distinct().order_by("code", "name")
         )
+        if not task_columns:
+            task_columns = list(
+                StandardWeeklyTask.objects.filter(is_active=True).order_by("code", "name")
+            )
         matrix_rows = []
         for key, row in sorted(
             row_groups.items(),
@@ -306,7 +337,9 @@ class DashboardView(WanjalaMixin, View):
 
         sections = Section.objects.order_by("name")
         if selected_plant:
-            sections = sections.filter(pk=user_section_id) if not is_superuser else sections.filter(treatment_plant=selected_plant)
+            sections = sections.filter(pk=user_section_id) if not is_superuser else sections.filter(
+                section_scope_q("treatment_plant_id", selected_plant.pk)
+            )
         elif not is_superuser:
             sections = sections.none()
 
@@ -323,6 +356,14 @@ class DashboardView(WanjalaMixin, View):
 
         total_assignments = month_assignments.count()
         staffed_percent = round(staffed_task_plans * 100 / total_task_plans) if total_task_plans else 0
+
+        export_format = (request.GET.get("export") or "").strip().lower()
+        if export_format in {"csv", "xlsx", "pdf", "docx"}:
+            return export_weekly_tasks(matrix_rows, task_columns, period_start.strftime("%B %Y"), export_format)
+
+        query_url = self._query_url(request)
+        export_urls = {fmt: query_url(export=fmt) for fmt in ("csv", "xlsx", "pdf", "docx")}
+
         return render(request, self.template_name, {
             "app": {"name": "Weekly Tasks", "label": "Weekly Tasks"},
             "plant_options": plant_options,
@@ -342,6 +383,7 @@ class DashboardView(WanjalaMixin, View):
             "year_choices": range(max(2000, year - 3), min(2100, year + 3) + 1),
             "previous_period_url": self._period_url(previous_period, selected_plant),
             "next_period_url": self._period_url(next_period, selected_plant),
+            "export_urls": export_urls,
             "week_label": f"{period_start:%d %b} – {period_end:%d %b %Y}",
             "nav_items": nav_items,
             "task_columns": task_columns,
@@ -385,6 +427,20 @@ class DashboardView(WanjalaMixin, View):
         except (TypeError, ValueError):
             return fallback
         return result if minimum <= result <= maximum else fallback
+
+    @staticmethod
+    def _query_url(request):
+        def build(**updates):
+            params = request.GET.copy()
+            params.pop("export", None)
+            for key, value in updates.items():
+                if value in (None, ""):
+                    params.pop(key, None)
+                else:
+                    params[key] = str(value)
+            encoded = params.urlencode()
+            return f"?{encoded}" if encoded else "?"
+        return build
 
     @staticmethod
     def _period_url(period, selected_plant):

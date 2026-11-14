@@ -9,7 +9,6 @@ from .models import (
     AlertConfig,
     AlertState,
     AlertNotification,
-    VoiceOver,
     VoiceAlert,
     AlarmAcknowledgment,
     AlertLog,
@@ -170,40 +169,6 @@ class AlertStateSerializer(serializers.ModelSerializer):
         ]
 
 
-class VoiceOverSerializer(serializers.ModelSerializer):
-    user_display = serializers.SerializerMethodField()
-    sample_clip_url = serializers.SerializerMethodField()
-
-    class Meta:
-        model = VoiceOver
-        fields = [
-            "id",
-            "name",
-            "user",
-            "user_display",
-            "sample_clip",
-            "sample_clip_url",
-            "gender",
-            "accent_profile",
-            "speech_rate",
-            "slot",
-            "usage_count",
-            "is_active",
-            "last_voiced_at",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = ["id", "usage_count", "last_voiced_at", "created_at", "updated_at"]
-
-    def get_user_display(self, obj):
-        if obj.user:
-            return getattr(obj.user, "full_name", None) or obj.user.get_username()
-        return None
-
-    def get_sample_clip_url(self, obj):
-        return obj.sample_clip.url if obj.sample_clip else None
-
-
 class VoiceAlertSerializer(serializers.ModelSerializer):
     audio_file_url = serializers.SerializerMethodField()
     speaker_name = serializers.SerializerMethodField()
@@ -217,13 +182,11 @@ class VoiceAlertSerializer(serializers.ModelSerializer):
             "message",
             "alert_config",
             "alert_state",
-            "voice_over",
             "speaker_user",
             "speaker_name",
             "audio_file",
             "audio_file_url",
             "duration_seconds",
-            "voice_cloned",
             "source_key",
             "is_played",
             "play_count",
@@ -237,7 +200,6 @@ class VoiceAlertSerializer(serializers.ModelSerializer):
             "audio_file_url",
             "speaker_name",
             "duration_seconds",
-            "voice_cloned",
             "repeat_due_at",
             "repeat_count",
             "created_at",

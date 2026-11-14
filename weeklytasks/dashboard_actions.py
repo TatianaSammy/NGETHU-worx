@@ -8,7 +8,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from core.plant_section_scope import user_plant_section
+from core.plant_section_scope import section_belongs_to_plant, user_plant_section
 from sc.models import AnnualLeave, Shift, ShiftAssignment
 from accounts.models import CustomUser
 from weeklytasks.models import DailyTaskAssignment, WeeklyDutyTask
@@ -91,67 +91,28 @@ def task_assignment_options(request):
     task = _task_queryset(request.user).filter(pk=task_id).first()
     if not task:
         return _json_error("The task is not available in your treatment plant and section.", 404)
-    if task.section.treatment_plant_id != task.treatment_plant_id or not task.section.is_active:
+    if not section_belongs_to_plant(task.section, task.treatment_plant_id) or not task.section.is_active:
         return _json_error("This task has an inactive or mismatched section.", 409)
 
-    users = list(CustomUser.objects.filter(
-        is_active=True,
-        assigned_treatment_plant_id=task.treatment_plant_id,
-        section_id=task.section_id,
-    ).order_by("last_name", "first_name", "username"))
-    today = timezone.localdate()
-    first_day = max(task.start_date, today)
-    user_ids = [user.pk for user in users]
-    unavailable_by_date = {}
-    if user_ids and first_day <= task.end_date:
-        leave_ranges = AnnualLeave.objects.filter(
-            staff_id__in=user_ids,
-            treatment_plant_id=task.treatment_plant_id,
-            status__in=AnnualLeave.UNAVAILABLE_STATUSES,
-            start_date__lte=task.end_date,
-            end_date__gte=first_day,
-        ).values_list("staff_id", "start_date", "end_date")
-        for user_id, leave_start, leave_end in leave_ranges:
-            current_leave_day = max(first_day, leave_start)
-            leave_last_day = min(task.end_date, leave_end)
-            while current_leave_day <= leave_last_day:
-                unavailable_by_date.setdefault(current_leave_day, set()).add(user_id)
-                current_leave_day += timedelta(days=1)
-    assigned_by_date = {}
-    for user_id, assigned_date in DailyTaskAssignment.objects.filter(
-        task_id=task.pk,
-        date__range=(first_day, task.end_date),
-    ).values_list("user_id", "date"):
-        assigned_by_date.setdefault(assigned_date, set()).add(user_id)
-    shifts_by_user_date = {}
-    if user_ids and first_day <= task.end_date:
-        roster_rows = ShiftAssignment.objects.filter(
-            staff_id__in=user_ids,
-            staff__assigned_treatment_plant_id=task.treatment_plant_id,
-            staff__section_id=task.section_id,
-            date__range=(first_day, task.end_date),
-            is_deleted=False,
-            shift__is_deleted=False,
-            shift__treatment_plant_id=task.treatment_plant_id,
-            shift__section_requirements__section_id=task.section_id,
-        ).select_related("shift").order_by("date", "shift__start_time").distinct()
-        for row in roster_rows:
-            shifts_by_user_date.setdefault((row.staff_id, row.date), []).append(row)
+    first_day = task.start_date
     slots = []
     current = first_day
     while current <= task.end_date:
-        unavailable = unavailable_by_date.get(current, set())
-        assigned = assigned_by_date.get(current, set())
-        day_users = []
-        for user in users:
-            if user.pk in unavailable or user.pk in assigned:
-                continue
-            shifts = shifts_by_user_date.get((user.pk, current), [])
-            day_users.append({
-                "id": user.pk,
-                "name": user.get_full_name() or user.get_username(),
-                "shifts": [{"id": row.shift_id, "name": row.shift.name} for row in shifts],
-            })
+        already_assigned_ids = set(DailyTaskAssignment.objects.filter(
+            task_id=task.pk,
+            date=current,
+        ).values_list("user_id", flat=True))
+
+        candidates = task.get_eligible_candidates(current)
+        day_users = [
+            {
+                "id": candidate["user"].pk,
+                "name": candidate["user"].get_full_name() or candidate["user"].get_username(),
+                "shifts": [{"id": shift.pk, "name": shift.name} for shift in candidate["shifts"]],
+            }
+            for candidate in candidates
+            if candidate["user"].pk not in already_assigned_ids
+        ]
         if day_users:
             slots.append({
                 "date": current.isoformat(),
@@ -182,13 +143,10 @@ def task_assignment_action(request):
     target_task = _task_queryset(request.user).filter(pk=target_task_id).first()
     if not target_task:
         return _json_error("The task is not available in your treatment plant and section.", 404)
-    today = timezone.localdate()
-    if assignment_date < today:
-        return _json_error("Past task dates cannot be changed from the live schedule.", 409)
     if not target_task.start_date <= assignment_date <= target_task.end_date:
         return _json_error("The selected date is outside this weekly task window.")
     if (
-        target_task.section.treatment_plant_id != target_task.treatment_plant_id
+        not section_belongs_to_plant(target_task.section, target_task.treatment_plant_id)
         or not target_task.section.is_active
         or target_task.week.schedule.treatment_plant_id != target_task.treatment_plant_id
         or target_task.week.schedule.section_id != target_task.section_id
@@ -210,10 +168,9 @@ def task_assignment_action(request):
                 ).first()
                 if not staff:
                     return _json_error("That staff member no longer belongs to this plant and section.", 409)
-                if AnnualLeave.is_unavailable(staff.pk, assignment_date):
-                    return _json_error("This staff member is on annual leave or off duty for that date.", 409)
-                shift_id = data.get("shift_id") or None
+
                 shift = None
+                shift_id = data.get("shift_id") or None
                 if shift_id:
                     try:
                         shift_id = int(shift_id)
@@ -225,22 +182,18 @@ def task_assignment_action(request):
                         treatment_plant_id=target_task.treatment_plant_id,
                         section_requirements__section_id=target_task.section_id,
                     ).first()
-                    if not shift or not _valid_shift_assignment(
-                        staff.pk,
-                        shift.pk,
-                        assignment_date,
-                        target_task.treatment_plant_id,
-                        target_task.section_id,
-                    ):
-                        return _json_error("The selected shift is not assigned to this staff member on that date.", 409)
-                assignment = DailyTaskAssignment(
+                    if not shift:
+                        return _json_error("The selected shift is unavailable in this plant and section.", 409)
+
+                # Gate creation directly through DailyTaskAssignment.create_assignment
+                assignment = DailyTaskAssignment.create_assignment(
                     task=target_task,
                     user=staff,
                     date=assignment_date,
                     shift=shift,
                     remarks=f"Assigned from the weekly schedule by {request.user.get_username()}.",
+                    created_by=request.user,
                 )
-                assignment.save()
             else:
                 try:
                     assignment_id = int(data.get("assignment_id", ""))
@@ -249,16 +202,9 @@ def task_assignment_action(request):
                 assignment = _assignment_queryset(request.user).select_for_update().filter(pk=assignment_id).first()
                 if not assignment:
                     return _json_error("The assignment was not found in your treatment plant and section.", 404)
-                staff = assignment.user
-                if not staff.is_superuser and (
-                    staff.assigned_treatment_plant_id != target_task.treatment_plant_id
-                    or staff.section_id != target_task.section_id
-                ):
-                    return _json_error("A staff member can only be assigned within their treatment plant and section.", 409)
-                if AnnualLeave.is_unavailable(staff.pk, assignment_date):
-                    return _json_error("This staff member is on annual leave or off duty for that date.", 409)
-                requested_shift_id = data.get("shift_id") or None
+
                 shift = None
+                requested_shift_id = data.get("shift_id") or None
                 if requested_shift_id:
                     try:
                         requested_shift_id = int(requested_shift_id)
@@ -270,30 +216,18 @@ def task_assignment_action(request):
                         treatment_plant_id=target_task.treatment_plant_id,
                         section_requirements__section_id=target_task.section_id,
                     ).first()
-                    if not shift or not _valid_shift_assignment(
-                        staff.pk,
-                        shift.pk,
-                        assignment_date,
-                        target_task.treatment_plant_id,
-                        target_task.section_id,
-                    ):
-                        return _json_error("The selected shift does not match this assignment.", 409)
-                assignment.task = target_task
-                assignment.date = assignment_date
-                if shift:
-                    assignment.shift = shift
-                else:
-                    assignment.shift = Shift.objects.filter(
-                        assignments__staff_id=staff.pk,
-                        assignments__date=assignment_date,
-                        assignments__is_deleted=False,
-                        is_deleted=False,
-                        treatment_plant_id=target_task.treatment_plant_id,
-                        section_requirements__section_id=target_task.section_id,
-                    ).order_by("start_time").first()
+                    if not shift:
+                        return _json_error("The selected shift is unavailable in this plant and section.", 409)
+
+                # Gate move directly through assignment.move_assignment
                 note = f"Moved on the weekly schedule by {request.user.get_username()} at {timezone.localtime():%Y-%m-%d %H:%M}."
-                assignment.remarks = "\n".join(part for part in (assignment.remarks, note) if part)
-                assignment.save()
+                assignment.move_assignment(
+                    target_task=target_task,
+                    target_date=assignment_date,
+                    shift=shift,
+                    moved_by=request.user,
+                    remarks=note,
+                )
             return JsonResponse({
                 "ok": True,
                 "message": "Weekly task assignment updated.",

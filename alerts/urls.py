@@ -9,7 +9,6 @@ from .viewsets import (
     AlertConfigViewSet,
     AlertTemplateViewSet,
     AlertCategoryViewSet,
-    VoiceOverViewSet,
     VoiceAlertViewSet,
     AlarmAcknowledgmentViewSet,
     AlertLogViewSet,
@@ -24,7 +23,6 @@ router.register(r"states", AlertStateViewSet, basename="alert-state")
 router.register(r"configs", AlertConfigViewSet, basename="alert-config")
 router.register(r"templates", AlertTemplateViewSet, basename="alert-template")
 router.register(r"categories", AlertCategoryViewSet, basename="alert-category")
-router.register(r"voice-overs", VoiceOverViewSet, basename="voice-over")
 router.register(r"voice-alerts", VoiceAlertViewSet, basename="voice-alert")
 router.register(r"acknowledgments", AlarmAcknowledgmentViewSet, basename="alarm-acknowledgment")
 router.register(r"logs", AlertLogViewSet, basename="alert-log")

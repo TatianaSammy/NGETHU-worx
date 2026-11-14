@@ -5,6 +5,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import Section
+from core.plant_section_scope import section_belongs_to_plant, section_scope_q
 from sc.models import MonthlyDutyRoster
 
 
@@ -18,10 +19,9 @@ def assign_roster(roster_id, section_id=None, start_date=None):
         return 0
 
     sections = Section.objects.filter(
-        treatment_plant_id=roster.treatment_plant_id,
         is_active=True,
         shift_requirements__shift__treatment_plant_id=roster.treatment_plant_id,
-    ).distinct().order_by("pk")
+    ).filter(section_scope_q("treatment_plant_id", roster.treatment_plant_id)).distinct().order_by("pk")
     if section_id:
         sections = sections.filter(pk=section_id)
 
@@ -56,7 +56,7 @@ def assign_for_user(user_id):
         return 0
 
     if (
-        user.section.treatment_plant_id != user.assigned_treatment_plant_id
+        not section_belongs_to_plant(user.section, user.assigned_treatment_plant_id)
         or not user.section.is_active
     ):
         logger.info(

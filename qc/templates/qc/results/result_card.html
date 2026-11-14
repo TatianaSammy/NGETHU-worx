@@ -56,4 +56,187 @@
     </div>
 </form>
 
+<!-- ═══════════════════════════════════════════════════════════
+     WATER QUALITY INDEX (WQI) COMPREHENSIVE ASSESSMENT MODAL
+     ═══════════════════════════════════════════════════════════ -->
+<dialog id="wqi-dialog" class="wqi-modal-dialog" aria-labelledby="wqi-modal-title">
+    <div class="wqi-dialog-inner">
+        <header class="wqi-dialog-header">
+            <div class="wqi-dialog-header-text">
+                <span class="wqi-dialog-eyebrow"><i class="fa-solid fa-gauge-high"></i> National Sanitation Foundation / WHO Methodology</span>
+                <h2 id="wqi-modal-title">Water Quality Index (WQI) Breakdown</h2>
+                <p>Composite assessment transforming multiple water quality parameters into an intuitive single score (weighted arithmetic mean method).</p>
+            </div>
+            <button type="button" class="wqi-dialog-close" onclick="document.getElementById('wqi-dialog').close()" aria-label="Close dialog">&times;</button>
+        </header>
+
+        <div class="wqi-dialog-body">
+            <!-- Overview KPI Cards -->
+            <div class="wqi-kpi-grid">
+                <article class="wqi-summary-card wqi-card-overall wqi-tone-{{ overall_wqi.tier_key|default:'nodata' }}">
+                    <div class="wqi-summary-top">
+                        <span class="wqi-summary-label"><i class="fa-solid fa-earth-africa"></i> Overall Network Average</span>
+                        <span class="wqi-badge wqi-badge-{{ overall_wqi.tier_key|default:'nodata' }}">{{ overall_wqi.tier_label|default:"No Data" }}</span>
+                    </div>
+                    <strong class="wqi-summary-num">{{ overall_wqi.display_score|default:"—" }}</strong>
+                    <p class="wqi-summary-desc">Averaged across {{ overall_wqi.plant_count|default:0 }} treatment plants ({{ overall_wqi.evaluated_plants_count|default:0 }} active with readings).</p>
+                </article>
+
+                <article class="wqi-summary-card wqi-card-plant wqi-tone-{{ plant_wqi.tier_key|default:'nodata' }}">
+                    <div class="wqi-summary-top">
+                        <span class="wqi-summary-label"><i class="fa-solid fa-industry"></i> {% if is_scoped_user %}Assigned Plant{% else %}Scoped Plant{% endif %}: {{ plant_wqi.plant_name|default:plant.name|default:"Unassigned" }}</span>
+                        <span class="wqi-badge wqi-badge-{{ plant_wqi.tier_key|default:'nodata' }}">{{ plant_wqi.tier_label|default:"No Data" }}</span>
+                    </div>
+                    <strong class="wqi-summary-num">{{ plant_wqi.display_score|default:"—" }}</strong>
+                    <p class="wqi-summary-desc">{{ plant_wqi.description }}</p>
+                </article>
+
+                <article class="wqi-summary-card wqi-card-metrics">
+                    <div class="wqi-summary-top">
+                        <span class="wqi-summary-label"><i class="fa-solid fa-list-check"></i> Parameters &amp; Signals</span>
+                    </div>
+                    <div class="wqi-mini-stat-row">
+                        <div>
+                            <span>Evaluated</span>
+                            <strong>{{ plant_wqi.parameters_evaluated|default:0 }}</strong>
+                        </div>
+                        <div>
+                            <span>Concerns (q &gt; 50)</span>
+                            <strong class="{% if plant_wqi.concerns_count %}text-amber{% else %}text-green{% endif %}">{{ plant_wqi.concerns_count|default:0 }}</strong>
+                        </div>
+                        <div>
+                            <span>Best Param</span>
+                            <small>{{ plant_wqi.best_parameter.name|default:"—" }} (q={{ plant_wqi.best_parameter.qi|default:"—" }})</small>
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <!-- Five-Tier Classification Scale Strip -->
+            <div class="wqi-scale-strip">
+                <div class="wqi-scale-step wqi-scale-excellent {% if plant_wqi.tier_key == 'excellent' %}is-active{% endif %}">
+                    <span class="wqi-scale-range">0 – 25</span>
+                    <strong>Excellent</strong>
+                    <small>Meets or exceeds all limits</small>
+                </div>
+                <div class="wqi-scale-step wqi-scale-good {% if plant_wqi.tier_key == 'good' %}is-active{% endif %}">
+                    <span class="wqi-scale-range">26 – 50</span>
+                    <strong>Good</strong>
+                    <small>Acceptable standard quality</small>
+                </div>
+                <div class="wqi-scale-step wqi-scale-poor {% if plant_wqi.tier_key == 'poor' %}is-active{% endif %}">
+                    <span class="wqi-scale-range">51 – 75</span>
+                    <strong>Poor</strong>
+                    <small>Degraded; treatment required</small>
+                </div>
+                <div class="wqi-scale-step wqi-scale-very-poor {% if plant_wqi.tier_key == 'very_poor' %}is-active{% endif %}">
+                    <span class="wqi-scale-range">76 – 100</span>
+                    <strong>Very Poor</strong>
+                    <small>Contaminated; intensive remediation</small>
+                </div>
+                <div class="wqi-scale-step wqi-scale-unsuitable {% if plant_wqi.tier_key == 'unsuitable' %}is-active{% endif %}">
+                    <span class="wqi-scale-range">&gt; 100</span>
+                    <strong>Unsuitable</strong>
+                    <small>Unsuitable without comprehensive purification</small>
+                </div>
+            </div>
+
+            <!-- Detailed Parameter Breakdown Table -->
+            <div class="wqi-table-section">
+                <div class="wqi-table-heading">
+                    <div>
+                        <h3>Parameter Breakdown &amp; Weight Contributions</h3>
+                        <p>Computed via \(w_i = \frac{k}{S_i}\) and \(q_i = \left|\frac{V_i - V_{\text{ideal}}}{S_i - V_{\text{ideal}}}\right| \times 100\). Stricter limits receive higher weights.</p>
+                    </div>
+                    {% if plant_wqi.parameters_of_concern %}
+                    <span class="wqi-concern-banner"><i class="fa-solid fa-triangle-exclamation"></i> {{ plant_wqi.parameters_of_concern|length }} parameter{{ plant_wqi.parameters_of_concern|length|pluralize }} of concern require attention</span>
+                    {% endif %}
+                </div>
+
+                <div class="wqi-table-wrap">
+                    <table class="wqi-table">
+                        <thead>
+                            <tr>
+                                <th>Parameter</th>
+                                <th class="text-right">Measured Value (\(V_i\))</th>
+                                <th class="text-right">Standard Limit (\(S_i\))</th>
+                                <th class="text-right">Ideal (\(V_{\text{ideal}}\))</th>
+                                <th class="text-right">Quality Rating (\(q_i\))</th>
+                                <th class="text-right">Weight (\(w_i\))</th>
+                                <th class="text-right">Sub-Score (\(w_i \cdot q_i\))</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in plant_wqi.breakdown %}
+                            <tr class="{% if row.is_concern %}wqi-row-concern{% endif %}">
+                                <td>
+                                    <strong>{{ row.name }}</strong>
+                                    {% if row.unit %}<small class="wqi-unit">({{ row.unit }})</small>{% endif %}
+                                </td>
+                                <td class="text-right font-mono"><strong>{{ row.value }}</strong></td>
+                                <td class="text-right font-mono">{{ row.limit }}</td>
+                                <td class="text-right font-mono">{{ row.ideal }}</td>
+                                <td class="text-right font-mono">
+                                    <span class="{% if row.is_concern %}text-danger font-bold{% endif %}">{{ row.qi }}</span>
+                                </td>
+                                <td class="text-right font-mono">{{ row.wi }} <small>({{ row.wi_percent }}%)</small></td>
+                                <td class="text-right font-mono"><strong>{{ row.wi_qi }}</strong></td>
+                                <td class="text-center">
+                                    <span class="wqi-badge wqi-badge-{{ row.tier_key }}">{{ row.tier_label }}</span>
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="8" class="text-center p-3 wqi-empty-table">
+                                    No parameter readings recorded for this treatment plant.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        {% if plant_wqi.breakdown %}
+                        <tfoot>
+                            <tr>
+                                <th colspan="5">Composite Weighted Total:</th>
+                                <th class="text-right font-mono">\(\sum w_i = {{ plant_wqi.sum_wi|default:"1.0000" }}\)</th>
+                                <th class="text-right font-mono"><strong>WQI = {{ plant_wqi.display_score }}</strong></th>
+                                <th class="text-center">
+                                    <span class="wqi-badge wqi-badge-{{ plant_wqi.tier_key }}">{{ plant_wqi.tier_label }}</span>
+                                </th>
+                            </tr>
+                        </tfoot>
+                        {% endif %}
+                    </table>
+                </div>
+            </div>
+
+            <!-- Treatment Plants Comparison (for Superusers or All Plants Overview) -->
+            {% if all_plants_wqi and request.user.is_superuser %}
+            <div class="wqi-plants-section">
+                <h3>Treatment Plants Comparative Overview</h3>
+                <div class="wqi-plants-grid">
+                    {% for p in all_plants_wqi %}
+                    <article class="wqi-plant-card wqi-tone-{{ p.tier_key|default:'nodata' }} {% if plant and plant.pk == p.plant_id %}is-selected{% endif %}">
+                        <div class="wqi-plant-card-head">
+                            <strong>{{ p.plant_name }}</strong>
+                            <span class="wqi-badge wqi-badge-{{ p.tier_key|default:'nodata' }}">{{ p.tier_label|default:"No Data" }}</span>
+                        </div>
+                        <div class="wqi-plant-card-body">
+                            <span class="wqi-plant-score">{{ p.display_score|default:"—" }}</span>
+                            <small>{{ p.parameters_evaluated|default:0 }} params · {{ p.concerns_count|default:0 }} concerns</small>
+                        </div>
+                    </article>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <footer class="wqi-dialog-footer">
+            <small class="wqi-footer-note"><i class="fa-solid fa-circle-info"></i> Always review individual parameter sub-scores alongside the composite index to detect hidden single-parameter exceedances.</small>
+            <button type="button" class="btn btn-secondary btn-glass" onclick="document.getElementById('wqi-dialog').close()">Close</button>
+        </footer>
+    </div>
+</dialog>
+
 {% endblock %}

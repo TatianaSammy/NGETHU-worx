@@ -17,8 +17,37 @@
                 </small>
             </div>
 
-            <div class="badge bg-primary fs-6">
-                {{ paginator.count }} Sessions
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+
+                <a
+                    class="btn btn-danger rounded-pill btn-sm"
+                    href="{% url 'accounts:session_terminate_all' %}"
+                    onclick="return confirm('Terminate all expired sessions?')"
+                >
+                    <i class="fa fa-ban me-1"></i>
+                    Terminate Expired
+                </a>
+
+                <div class="dropdown">
+                    <button
+                        class="btn btn-outline-primary rounded-pill btn-sm dropdown-toggle"
+                        data-bs-toggle="dropdown"
+                    >
+                        <i class="fa fa-download me-1"></i>
+                        Export
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                        <li><a class="dropdown-item" href="?tab=sessions&export=csv"><i class="fa fa-file-csv text-success me-2"></i>CSV</a></li>
+                        <li><a class="dropdown-item" href="?tab=sessions&export=xlsx"><i class="fa fa-file-excel text-success me-2"></i>Excel</a></li>
+                        <li><a class="dropdown-item" href="?tab=sessions&export=json"><i class="fa fa-file-code text-warning me-2"></i>JSON</a></li>
+                        <li><a class="dropdown-item" href="?tab=sessions&export=pdf"><i class="fa fa-file-pdf text-danger me-2"></i>PDF</a></li>
+                    </ul>
+                </div>
+
+                <div class="badge bg-primary fs-6">
+                    {{ paginator.count }} Sessions
+                </div>
+
             </div>
 
         </div>
@@ -41,6 +70,7 @@
                         <th>Expires</th>
                         <th>Status</th>
                         <th>Remaining</th>
+                        <th width="120">Actions</th>
                     </tr>
 
                 </thead>
@@ -91,6 +121,18 @@
 
                         </td>
 
+                        <td>
+                            <button
+                                class="btn btn-outline-danger btn-sm"
+                                data-open-delete-modal
+                                data-url="{% url 'accounts:session_delete' session.session_key %}"
+                                data-name="Session {{ session.session_key|truncatechars:16 }}"
+                                title="Terminate Session"
+                            >
+                                <i class="fa fa-ban me-1"></i> End
+                            </button>
+                        </td>
+
                     </tr>
 
                     {% endfor %}
@@ -100,7 +142,7 @@
                 <tfoot class="table-light">
 
                     <tr>
-                        <th colspan="4">
+                        <th colspan="5">
                             Total Active Sessions
                         </th>
                         <th>

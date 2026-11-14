@@ -27,6 +27,23 @@
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.shift-info-pill:hover,
+.shift-info-pill:focus-visible {
+    background: rgba(15, 23, 42, 0.92);
+    border-color: rgba(56, 189, 248, 0.65);
+    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.3);
+    color: var(--theme-text, #f8fafc);
+    text-decoration: none;
+    transform: translateY(-1px);
+}
+
+.shift-info-pill:active {
+    transform: translateY(0);
 }
 
 .shift-name-tag {

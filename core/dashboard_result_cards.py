@@ -394,6 +394,22 @@ def build_result_dashboard(request, app_label, analysis_specs):
         "kstw": "Wastewater, industrial, treatment plant, and exhauster analyses in one plant-scoped view.",
     }.get(app_label, "Sample analysis, result compliance, and review workflow.")
 
+    try:
+        from qc.services.wqi_service import get_dashboard_wqi_summary
+        wqi_summary = get_dashboard_wqi_summary(
+            user=user,
+            selected_plant=scope["selected_plant"],
+            target_date=today,
+        )
+    except Exception as exc:
+        logger.debug("[dashboard_result_cards] WQI computation notice: %s", exc)
+        wqi_summary = {
+            "overall": {"score": None, "display_score": "—", "tier_label": "No Data", "tier_key": "nodata", "tone": "secondary"},
+            "plant_scoped": {"score": None, "display_score": "—", "tier_label": "No Data", "tier_key": "nodata", "tone": "secondary"},
+        }
+    overall_wqi = wqi_summary.get("overall") or {}
+    plant_wqi = wqi_summary.get("plant_scoped") or {}
+
     return {
         "dashboard_title": dashboard_title,
         "dashboard_subtitle": dashboard_subtitle,
@@ -406,8 +422,12 @@ def build_result_dashboard(request, app_label, analysis_specs):
         "worksheet_cards": worksheet_cards,
         "dashboard_return_url": f"{request.get_full_path()}#analysis-worksheets",
         "stage_cards": stage_cards,
+        "wqi_summary": wqi_summary,
+        "overall_wqi": overall_wqi,
+        "plant_wqi": plant_wqi,
         "summary_cards": [
             {"label": "Analysis records", "value": total_analyses, "caption": f"{len(available_types)} visible analysis types", "icon": "fa-vials", "tone": "cyan", "tab": "results"},
+            {"label": "Water Quality Index", "value": plant_wqi.get("display_score", "—"), "caption": f"{plant_wqi.get('tier_label', 'No Data')} · Overall: {overall_wqi.get('display_score', '—')}", "icon": "fa-gauge-high", "tone": plant_wqi.get("tone", "cyan"), "tab": "compliance"},
             {"label": "Awaiting analysis", "value": new_analyses, "caption": "New workflow records", "icon": "fa-hourglass-half", "tone": "amber", "tab": "workflow", "filter": "NEW"},
             {"label": "Readings recorded", "value": total_readings, "caption": "Saved numeric results", "icon": "fa-flask-vial", "tone": "blue", "tab": "results"},
             {"label": "Out of range", "value": failed_readings, "caption": "Compared with stored parameter standards", "icon": "fa-triangle-exclamation", "tone": "rose", "tab": "compliance", "filter": "failed"},

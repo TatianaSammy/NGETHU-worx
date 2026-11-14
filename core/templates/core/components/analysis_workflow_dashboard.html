@@ -79,6 +79,33 @@
     </section>
 
     <section class="analysis-panel" id="analysis-panel-compliance" role="tabpanel" aria-labelledby="analysis-tab-compliance" data-tab-panel="compliance" {% if active_tab != 'compliance' %}hidden{% endif %}>
+        {% if plant_wqi or overall_wqi %}
+        <div class="analysis-wqi-banner" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:1rem;padding:0.9rem 1.25rem;margin-bottom:1.25rem;background:var(--theme-surface,#182234);border:1px solid var(--theme-border,rgba(255,255,255,0.08));border-radius:10px;">
+            <div style="display:flex;align-items:center;gap:1rem;">
+                <div style="width:40px;height:40px;border-radius:8px;background:rgba(59,130,246,0.15);color:#3b82f6;display:flex;align-items:center;justify-content:center;font-size:1.2rem;">
+                    <i class="fa-solid fa-gauge-high"></i>
+                </div>
+                <div>
+                    <div style="font-size:0.75rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--theme-muted,#94a3b8);font-weight:700;">Water Quality Index (WQI) Assessment</div>
+                    <div style="display:flex;align-items:baseline;gap:0.75rem;margin-top:0.2rem;">
+                        <span style="font-size:1.4rem;font-weight:800;color:var(--theme-heading,#f8fafc);">{{ plant_wqi.display_score|default:"—" }}</span>
+                        <span class="analysis-badge" style="background:{{ plant_wqi.color|default:'#94a3b8' }}22;color:{{ plant_wqi.color|default:'#94a3b8' }};border:1px solid {{ plant_wqi.color|default:'#94a3b8' }}44;font-weight:700;">{{ plant_wqi.tier_label|default:"No Data" }}</span>
+                        <small style="color:var(--theme-muted,#94a3b8);">Plant-scoped: {{ plant_wqi.plant_name|default:plant.name|default:"Assigned Scope" }}</small>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:1.5rem;font-size:0.85rem;">
+                <div style="text-align:right;">
+                    <div style="font-size:0.72rem;color:var(--theme-muted,#94a3b8);text-transform:uppercase;">Overall Network Average</div>
+                    <div style="font-weight:700;color:var(--theme-heading,#f8fafc);">WQI {{ overall_wqi.display_score|default:"—" }} · <span style="color:{{ overall_wqi.color|default:'#94a3b8' }}">{{ overall_wqi.tier_label|default:"No Data" }}</span></div>
+                </div>
+                <div style="text-align:right;border-left:1px solid var(--theme-border,rgba(255,255,255,0.1));padding-left:1.5rem;">
+                    <div style="font-size:0.72rem;color:var(--theme-muted,#94a3b8);text-transform:uppercase;">Evaluated Parameters</div>
+                    <div style="font-weight:700;color:var(--theme-heading,#f8fafc);">{{ plant_wqi.parameters_evaluated|default:0 }} params {% if plant_wqi.concerns_count %}<span style="color:#f59e0b;">({{ plant_wqi.concerns_count }} concern{{ plant_wqi.concerns_count|pluralize }})</span>{% endif %}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
         <div class="analysis-section-heading"><div><span class="analysis-kicker">Regulatory performance</span><h2>Parameter compliance matrix</h2><p>{{ compliance_description }}</p></div><span class="analysis-period-pill">{{ total_readings|intcomma }} readings</span></div>
         <div class="analysis-table-wrap"><table class="analysis-table" id="compliance-table"><thead><tr><th>Parameter</th><th>Readings</th><th>Complying</th><th>Out of range</th><th>Compliance</th><th>Risk signal</th></tr></thead><tbody>
             {% for item in parameter_series %}<tr data-search-row data-parameter-failed="{% if item.failed %}failed{% elif item.unrated %}unrated{% else %}good{% endif %}"><td><strong>{{ item.label }}</strong><small>{{ item.unit|default:"Unit not configured" }}</small></td><td>{{ item.readings|intcomma }}</td><td>{{ item.compliant|intcomma }}</td><td>{% if item.failed %}<b class="analysis-negative">{{ item.failed|intcomma }}</b>{% else %}0{% endif %}</td><td><div class="analysis-progress"><span style="width:{{ item.compliance_percent }}%"></span></div><strong>{{ item.compliance_percent }}%</strong><small>{{ item.unrated|intcomma }} unrated</small></td><td>{% if item.failed %}<span class="analysis-badge analysis-badge--bad">Review readings</span>{% elif item.unrated %}<span class="analysis-badge">Limits unavailable</span>{% else %}<span class="analysis-badge analysis-badge--good">Within standard</span>{% endif %}</td></tr>

@@ -5,7 +5,7 @@
 //  • Mutating requests:    Network-first, queued to IndexedDB on failure
 //  • Background Sync:      Replays queued requests when connectivity restores
 
-const CACHE_NAME = "qad-enterprise-pwa-v8";
+const CACHE_NAME = "qad-enterprise-pwa-v9";
 const PAGE_CACHE = "qad-page-cache-v2";
 const VOICE_CACHE = "qad-voice-alerts-v1";
 
@@ -32,7 +32,17 @@ const NO_PAGE_CACHE = [
     "/health/",
     "/health/live/",
     "/health/ready/",
-    "/accounts/session-check/"
+    "/accounts/session-check/",
+    "/logout/"
+];
+const NEVER_QUEUE = [
+    "/accounts/login/",
+    "/accounts/logout/",
+    "/accounts/session-check/",
+    "/logout/",
+    "/health/",
+    "/sw.js",
+    "/manifest.json"
 ];
 
 const SYNC_TAG = "qad-offline-sync";
@@ -81,6 +91,13 @@ self.addEventListener("fetch", (event) => {
 
     // ─── Mutating Requests (POST/PUT/PATCH/DELETE) ───────────
     if (request.method !== "GET") {
+        if (NEVER_QUEUE.some(path => url.pathname === path || url.pathname.startsWith(path))) {
+            event.respondWith(fetch(request.clone()).catch(() => new Response(
+                "This request needs an active network connection. Please retry when online.",
+                { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+            )));
+            return;
+        }
         event.respondWith(handleMutatingRequest(request));
         return;
     }

@@ -1,0 +1,85 @@
+<div>
+    <h5 class="fw-bold mb-3"><i class="fa fa-user-shield text-primary me-2"></i>{{ group.name }}</h5>
+    
+    <div class="row g-3 mb-4">
+        <div class="col-6">
+            <div class="card bg-light border-0 p-3">
+                <small class="text-muted d-block">Assigned Members</small>
+                <h4 class="fw-bold mb-0">{{ members|length }}</h4>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="card bg-light border-0 p-3">
+                <small class="text-muted d-block">Assigned Permissions</small>
+                <h4 class="fw-bold mb-0">{{ permissions|length }}</h4>
+            </div>
+        </div>
+    </div>
+
+    <h6 class="fw-bold mb-2">Members</h6>
+    <div class="table-responsive mb-4" style="max-height: 200px; overflow-y: auto;">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Username</th>
+                    <th>Full Name</th>
+                    <th>Section</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for member in members %}
+                <tr>
+                    <td><strong>{{ member.username }}</strong></td>
+                    <td>{{ member.get_full_name|default:"—" }}</td>
+                    <td>{{ member.section.name|default:"—" }}</td>
+                    <td>
+                        {% if member.is_active %}
+                        <span class="badge bg-success">Active</span>
+                        {% else %}
+                        <span class="badge bg-danger">Inactive</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center text-muted py-3">No members assigned to this group.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <h6 class="fw-bold mb-2">Permissions</h6>
+    <div class="table-responsive" style="max-height: 220px; overflow-y: auto;">
+        <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>App</th>
+                    <th>Name</th>
+                    <th>Codename</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in permissions %}
+                <tr>
+                    <td><span class="badge bg-secondary">{{ p.content_type.app_label }}</span></td>
+                    <td>{{ p.name }}</td>
+                    <td><code>{{ p.codename }}</code></td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="3" class="text-center text-muted py-3">No permissions assigned.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="modal-footer px-0 pb-0 pt-3 border-top mt-3">
+    <button type="button" class="btn btn-secondary rounded-pill px-4" data-bs-dismiss="modal">Close</button>
+    <button type="button" class="btn btn-outline-primary rounded-pill px-4" data-bs-dismiss="modal" data-open-form-modal data-url="{% url 'accounts:group_update' group.pk %}" data-title="Edit Group: {{ group.name }}">
+        <i class="fa fa-pen me-1"></i> Edit Group
+    </button>
+</div>
+

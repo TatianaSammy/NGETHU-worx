@@ -49,6 +49,20 @@
                     </span>
                 </a>
             </li>
+            {% if request.user.is_superuser or perms.ca.view_chemicalbatch or perms.ca.view_chemicalanalysisrequest or perms.ca.view_chemicalanalysisprocess or perms.ca.view_batchtestresult or perms.ca.view_chemicalcoa %}
+            <li class="sidebar-item {% if request.resolver_match.namespace == 'ca' %}active{% endif %}">
+                <a
+                    href="{% url 'ca:dashboard' %}"
+                    class="nav-link"
+                    title="Chemical Analysis"
+                    aria-label="Chemical Analysis"
+                    {% if request.resolver_match.namespace == 'ca' %}aria-current="page"{% endif %}
+                >
+                    <i class="fas fa-flask-vial sidebar-icon" aria-hidden="true"></i>
+                    <span class="label">Chemical Analysis</span>
+                </a>
+            </li>
+            {% endif %}
 
             <li class="sidebar-section-title">
                 <span class="label">Process Optimization</span>

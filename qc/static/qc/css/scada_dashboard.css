@@ -661,3 +661,586 @@
 .scada-dashboard-shell ::-webkit-scrollbar-thumb:hover {
   background: #38bdf8;
 }
+
+/* ==============================================================================
+   ZERO-SIDEBAR / FULL-BLEED CYBER INDUSTRIAL OVERRIDE
+   ============================================================================== */
+body:has(#scada-dashboard-root) .sidebar,
+body:has(.scada-dashboard-shell) .sidebar,
+body.scada-fullscreen .sidebar {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+}
+
+body:has(#scada-dashboard-root) .content-wrapper,
+body:has(.scada-dashboard-shell) .content-wrapper,
+body.scada-fullscreen .content-wrapper {
+  width: 100% !important;
+  max-width: 100vw !important;
+  margin-left: 0 !important;
+  padding-top: var(--header-height, 54px) !important;
+  transition: none !important;
+}
+
+body:has(#scada-dashboard-root) .content,
+body:has(.scada-dashboard-shell) .content,
+body.scada-fullscreen .content {
+  padding: 0 !important;
+  margin: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+body:has(#scada-dashboard-root) #sidebarToggle,
+body:has(#scada-dashboard-root) .sidebar-toggle,
+body.scada-fullscreen #sidebarToggle {
+  display: none !important;
+}
+
+/* ==============================================================================
+   WATER QUALITY INDEX (WQI) COMMAND TAB STYLES
+   ============================================================================== */
+.scada-wqi-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.scada-wqi-kpi-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1.25rem;
+}
+
+@media (max-width: 1024px) {
+  .scada-wqi-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scada-wqi-card {
+  background: var(--scada-panel);
+  border: 1px solid var(--scada-border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.scada-wqi-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scada-wqi-title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.scada-wqi-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--scada-cyan);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.scada-wqi-title-group h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--scada-text-main);
+}
+
+.scada-wqi-subtitle {
+  font-size: 0.75rem;
+  color: var(--scada-text-muted);
+  margin: 0;
+}
+
+.scada-wqi-hero-score-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.scada-wqi-score-display {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.5rem 1rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--scada-border);
+  border-radius: 10px;
+}
+
+.scada-wqi-big-number {
+  font-family: var(--scada-mono-font);
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.scada-wqi-score-scale {
+  font-family: var(--scada-mono-font);
+  font-size: 0.9rem;
+  color: var(--scada-text-muted);
+}
+
+.scada-wqi-hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
+}
+
+.scada-wqi-desc {
+  font-size: 0.85rem;
+  color: var(--scada-text-main);
+  line-height: 1.4;
+}
+
+.scada-wqi-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.scada-wqi-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  background: rgba(30, 46, 79, 0.5);
+  border: 1px solid var(--scada-border);
+  border-radius: 6px;
+  color: #cbd5e1;
+}
+
+.scada-wqi-tag.tag-warning {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.scada-wqi-tag.tag-success {
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+/* Visual 5-Tier Status Track */
+.scada-wqi-scale-track {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.scada-wqi-track-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  opacity: 0.4;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.scada-wqi-track-step.active {
+  opacity: 1;
+  transform: translateY(-2px);
+}
+
+.scada-step-bar {
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--step-color);
+}
+
+.scada-wqi-track-step.active .scada-step-bar {
+  box-shadow: 0 0 12px var(--step-color);
+}
+
+.scada-wqi-track-step span {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--scada-text-muted);
+  text-align: center;
+}
+
+.scada-wqi-track-step.active span {
+  color: var(--scada-text-main);
+}
+
+/* Multi-Model Comparator Grid */
+.scada-wqi-models-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.scada-wqi-model-box {
+  background: rgba(17, 28, 51, 0.7);
+  border: 1px solid var(--scada-border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.scada-model-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--scada-text-muted);
+}
+
+.scada-model-val {
+  font-family: var(--scada-mono-font);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.scada-model-sub {
+  font-size: 0.68rem;
+  color: var(--scada-text-muted);
+}
+
+.scada-wqi-actions-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.scada-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 6px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.scada-btn-primary {
+  background: linear-gradient(135deg, #0284c7, #0369a1);
+  color: #ffffff;
+  border: 1px solid #38bdf8;
+  box-shadow: 0 2px 10px rgba(2, 132, 199, 0.35);
+}
+
+.scada-btn-primary:hover {
+  background: linear-gradient(135deg, #0369a1, #075985);
+  color: #ffffff;
+}
+
+.scada-btn-secondary {
+  background: rgba(30, 46, 79, 0.6);
+  color: #e2e8f0;
+  border: 1px solid var(--scada-border);
+}
+
+.scada-btn-secondary:hover {
+  background: rgba(46, 68, 116, 0.8);
+  color: #ffffff;
+  border-color: var(--scada-cyan);
+}
+
+/* Eclipsing Alert Banner */
+.scada-wqi-eclipse-banner {
+  background: linear-gradient(100deg, rgba(120, 53, 15, 0.35), rgba(17, 28, 51, 0.95));
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.scada-eclipse-icon {
+  font-size: 1.5rem;
+  color: #f59e0b;
+  margin-top: 0.15rem;
+}
+
+.scada-eclipse-body h4 {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #fbbf24;
+  margin: 0 0 0.25rem 0;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.scada-eclipse-body p {
+  font-size: 0.82rem;
+  color: #e2e8f0;
+  margin: 0;
+  line-height: 1.45;
+}
+
+/* Suitability Matrix Grid */
+.scada-wqi-suitability-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 1200px) {
+  .scada-wqi-suitability-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .scada-wqi-suitability-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scada-suitability-card {
+  background: var(--scada-panel);
+  border: 1px solid var(--scada-border);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  gap: 0.85rem;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.scada-suitability-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--scada-border-bright);
+}
+
+.scada-suitability-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(30, 46, 79, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.scada-suitability-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.scada-suitability-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scada-suitability-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--scada-text-muted);
+  text-transform: uppercase;
+}
+
+.scada-suitability-label {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--scada-text-main);
+}
+
+.scada-suitability-desc {
+  font-size: 0.72rem;
+  color: var(--scada-text-muted);
+  line-height: 1.35;
+}
+
+/* Remediation Priorities Grid */
+.scada-wqi-remediation-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 1rem;
+}
+
+.scada-remediation-card {
+  background: rgba(17, 28, 51, 0.85);
+  border: 1px solid var(--scada-border);
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.scada-remediation-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scada-remediation-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.scada-remediation-name strong {
+  font-size: 0.88rem;
+  color: var(--scada-text-main);
+}
+
+.scada-remediation-val {
+  font-size: 0.75rem;
+  color: var(--scada-text-muted);
+  font-family: var(--scada-mono-font);
+}
+
+.scada-remediation-gain {
+  text-align: right;
+  font-size: 0.75rem;
+  color: #34d399;
+}
+
+.scada-remediation-gain small {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--scada-text-muted);
+}
+
+.scada-remediation-action {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  line-height: 1.4;
+}
+
+.scada-remediation-action i {
+  color: var(--scada-cyan);
+  margin-top: 0.15rem;
+}
+
+/* WQI Chart Grid */
+.scada-wqi-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 1024px) {
+  .scada-wqi-charts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Detailed Regulatory Parameter Table */
+.scada-wqi-table-shell {
+  background: var(--scada-panel);
+  border: 1px solid var(--scada-border);
+  border-radius: 10px;
+  overflow-x: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.scada-wqi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.scada-wqi-table th {
+  background: #111c33;
+  color: var(--scada-text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--scada-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.scada-wqi-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(30, 46, 79, 0.4);
+  color: var(--scada-text-main);
+  white-space: nowrap;
+}
+
+.scada-wqi-table tr:hover {
+  background: rgba(30, 46, 79, 0.25);
+}
+
+.scada-wqi-table tr.row-concern {
+  background: rgba(245, 158, 11, 0.05);
+}
+
+.scada-wqi-table tr.row-exceeded {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.scada-wqi-param-unit {
+  color: var(--scada-text-muted);
+  margin-left: 0.25rem;
+  font-size: 0.7rem;
+}
+
+.scada-mono-text {
+  font-family: var(--scada-mono-font);
+  font-size: 0.8rem;
+}
+
+.scada-mono-badge {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  font-family: var(--scada-mono-font);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.scada-mono-badge.badge-nominal {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.scada-mono-badge.badge-warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.scada-mono-badge.badge-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.scada-wqi-table-total {
+  background: #111c33;
+  font-weight: 700;
+  border-top: 2px solid var(--scada-border);
+}

@@ -9,6 +9,7 @@ from django.db import models, transaction
 from django.db.models import Q
 
 from core.models import Section
+from core.plant_section_scope import section_belongs_to_plant
 from sc.models import AnnualLeave, MonthlyDutyRoster, Shift, ShiftAssignment, ShiftSectionRequirement
 from t.models import TreatmentPlant
 
@@ -238,10 +239,9 @@ class MonthlyDutySchedule(TimestampedModel):
             )
 
         if self.section_id and self.treatment_plant_id:
-            sec_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if not sec_plant_id or sec_plant_id != self.treatment_plant_id:
+            if not section_belongs_to_plant(self.section, self.treatment_plant_id):
                 errors["section"] = (
-                    "The section must belong to the selected treatment plant."
+                    "The section is not available to the selected treatment plant."
                 )
 
         if errors:
@@ -530,17 +530,17 @@ class WeeklyDutyTask(TimestampedModel):
         )
 
     def get_available_users(self, assignment_date=None):
+        from sc.models import INCHARGE_GROUPS
         queryset = UserModel.objects.filter(
             assigned_treatment_plant_id=self.treatment_plant_id,
             section_id=self.section_id,
             is_active=True,
+        ).exclude(
+            groups__name__in=INCHARGE_GROUPS,
         )
 
         if assignment_date is not None:
-            queryset = queryset.filter(
-                shift_assignments__date=assignment_date,
-                shift_assignments__is_deleted=False,
-            ).exclude(
+            queryset = queryset.exclude(
                 annual_leave_records__status__in=AnnualLeave.UNAVAILABLE_STATUSES,
                 annual_leave_records__start_date__lte=assignment_date,
                 annual_leave_records__end_date__gte=assignment_date,
@@ -555,6 +555,89 @@ class WeeklyDutyTask(TimestampedModel):
                 "username",
             )
         )
+
+    def can_assign_user(self, user, assignment_date, shift=None) -> tuple[bool, Optional[str]]:
+        """
+        Validates if user can be assigned to this weekly duty task on assignment_date.
+        Gated directly by plant scope, section, user active status, annual leave,
+        and rostered shift logic from sc.models.
+        """
+        if not user.is_active:
+            return False, f"User '{user.get_username()}' is inactive."
+
+        from sc.models import is_user_incharge
+        if is_user_incharge(user, section_id=self.section_id):
+            return False, f"User '{user.get_username()}' is the section incharge and is not assigned to routine tasks."
+
+        if not user.is_superuser:
+            if user.assigned_treatment_plant_id != self.treatment_plant_id:
+                return False, "User does not belong to the task's treatment plant."
+            if getattr(user, "section_id", None) != self.section_id:
+                return False, "User does not belong to the task's section."
+
+        if not self.start_date <= assignment_date <= self.end_date:
+            return False, "Assignment date is outside the weekly duty task date range."
+
+        if AnnualLeave.is_unavailable(user.pk, assignment_date):
+            return False, f"{user.get_full_name() or user.username} is marked on annual leave or off duty on {assignment_date}."
+
+        # Shift gating from sc.models
+        if shift:
+            if shift.is_deleted:
+                return False, "The selected shift has been deleted."
+            if shift.treatment_plant_id != self.treatment_plant_id:
+                return False, "The selected shift does not belong to the task's treatment plant."
+            req_exists = ShiftSectionRequirement.objects.filter(
+                shift_id=shift.pk,
+                section_id=self.section_id,
+            ).exists()
+            if not req_exists:
+                return False, "The selected shift is not configured for this section."
+
+            # Enforce that user is actually assigned to this shift on that date in sc
+            is_rostered = ShiftAssignment.objects.filter(
+                staff_id=user.pk,
+                shift_id=shift.pk,
+                date=assignment_date,
+                is_deleted=False,
+            ).exists()
+            if not is_rostered:
+                return False, f"{user.get_full_name() or user.username} is not rostered for {shift.name} on {assignment_date}."
+
+            # Enforce single shift per user per day across weekly tasks
+            existing_diff_shift = DailyTaskAssignment.objects.filter(
+                user_id=user.pk,
+                date=assignment_date,
+            ).exclude(shift_id=shift.pk).filter(shift__isnull=False).select_related("shift").first()
+            if existing_diff_shift:
+                return False, f"{user.get_full_name() or user.username} is already assigned to {existing_diff_shift.shift.name} on {assignment_date}."
+
+        return True, None
+
+    def get_valid_shifts_for_user(self, user, assignment_date):
+        """Returns shifts rostered for this user on assignment_date in sc."""
+        return Shift.objects.filter(
+            treatment_plant_id=self.treatment_plant_id,
+            is_deleted=False,
+            section_requirements__section_id=self.section_id,
+            assignments__staff_id=user.pk if hasattr(user, "pk") else user,
+            assignments__date=assignment_date,
+            assignments__is_deleted=False,
+        ).distinct().order_by("start_time", "name")
+
+    def get_eligible_candidates(self, assignment_date):
+        """Returns list of users with their rostered shifts for assignment_date."""
+        users = self.get_available_users(assignment_date)
+        candidates = []
+        for user in users:
+            can_assign, _ = self.can_assign_user(user, assignment_date)
+            if can_assign:
+                shifts = list(self.get_valid_shifts_for_user(user, assignment_date))
+                candidates.append({
+                    "user": user,
+                    "shifts": shifts,
+                })
+        return candidates
 
     def clean(self):
         super().clean()
@@ -581,10 +664,9 @@ class WeeklyDutyTask(TimestampedModel):
                 "A section is required."
             )
         elif self.treatment_plant_id:
-            sec_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if not sec_plant_id or sec_plant_id != self.treatment_plant_id:
+            if not section_belongs_to_plant(self.section, self.treatment_plant_id):
                 errors["section"] = (
-                    "The section must belong to the task's treatment plant."
+                    "The section is not available to the task's treatment plant."
                 )
 
         if self.task_template_id and not self.task_template.is_active:
@@ -855,6 +937,15 @@ class DailyTaskAssignment(TimestampedModel):
                     f"{self.user.get_full_name()} is not assigned "
                     f"to this shift on {self.date}."
                 )
+            else:
+                conflict = DailyTaskAssignment.objects.filter(
+                    user_id=self.user_id,
+                    date=self.date,
+                ).exclude(pk=self.pk).exclude(shift_id=self.shift_id).filter(shift__isnull=False).select_related("shift").first()
+                if conflict:
+                    errors["shift"] = (
+                        f"{self.user.get_full_name()} is already assigned to {conflict.shift.name} on {self.date}."
+                    )
 
         if errors:
             raise ValidationError(errors)
@@ -882,3 +973,41 @@ class DailyTaskAssignment(TimestampedModel):
                     })
                 self.full_clean()
             super().save(*args, **kwargs)
+
+    @classmethod
+    def create_assignment(cls, *, task, user, date, shift=None, remarks="", created_by=None):
+        """
+        Creates a new DailyTaskAssignment gated by weeklytasks and sc shift logic.
+        """
+        can_assign, reason = task.can_assign_user(user, date, shift=shift)
+        if not can_assign:
+            raise ValidationError(reason)
+        assignment = cls(
+            task=task,
+            user=user,
+            date=date,
+            shift=shift,
+            remarks=remarks,
+        )
+        assignment.full_clean()
+        assignment.save()
+        return assignment
+
+    def move_assignment(self, *, target_task, target_date, shift=None, moved_by=None, remarks=""):
+        """
+        Moves assignment to target_task and target_date, gated by weeklytasks and sc shift logic.
+        """
+        can_assign, reason = target_task.can_assign_user(self.user, target_date, shift=shift)
+        if not can_assign:
+            raise ValidationError(reason)
+        self.task = target_task
+        self.date = target_date
+        if shift:
+            self.shift = shift
+        else:
+            self.shift = target_task.get_valid_shifts_for_user(self.user, target_date).first()
+        if remarks:
+            self.remarks = f"{self.remarks}\n{remarks}".strip() if self.remarks else remarks
+        self.full_clean()
+        self.save()
+        return self

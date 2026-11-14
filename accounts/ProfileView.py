@@ -32,7 +32,13 @@ from accounts.forms import (
     CustomUserForm,
     ProfilePictureForm,
     SectionForm,
+    GroupAdminForm,
+    PermissionAdminForm,
+    TreatmentPlantAdminForm,
+    LaboratoryAdminForm,
+    ListImportForm,
 )
+from accounts.export_import import export_dataset, process_import, generate_sample_csv
 from accounts.models import (
     CustomUser,
     audit_user_event,
@@ -91,11 +97,14 @@ class ProfileView(
 
     def get(self, request, *args, **kwargs):
         export_fmt = request.GET.get("export", "").lower()
+        tab = request.GET.get("tab", "")
         if export_fmt in {"csv", "xlsx", "excel", "json", "docx", "word", "pdf"}:
             if not request.user.is_superuser and not request.user.is_staff:
                 from django.core.exceptions import PermissionDenied
-                raise PermissionDenied("Only authorized staff or administrators may export user registry data.")
-            return self.export_users(request, export_fmt)
+                raise PermissionDenied("Only authorized staff or administrators may export data.")
+            if tab == "users" or not tab:
+                return self.export_users(request, export_fmt)
+            return self.dispatch_export(request, tab, export_fmt)
         tab = request.GET.get("tab")
         if tab:
             if not request.user.is_superuser:
@@ -275,6 +284,49 @@ class ProfileView(
             }
 
         return {}
+
+    def dispatch_export(self, request, tab, fmt):
+        from t.models import TreatmentPlant as TP
+        from laboratory.models import Laboratory as Lab
+
+        if tab == "sections":
+            qs = Section.objects.annotate(user_count=Count("users", distinct=True)).order_by("name")
+            h = ["Code", "Name", "Plant", "Active", "Users"]
+            r = [[s.code, s.name, str(getattr(s, 'treatment_plant', '') or '—'), "Yes" if s.is_active else "No", s.user_count] for s in qs]
+            return export_dataset("Sections Directory", h, r, fmt, "qad_sections")
+
+        if tab == "groups":
+            qs = Group.objects.annotate(user_count=Count("accounts_users", distinct=True)).prefetch_related("permissions").order_by("name")
+            h = ["Group Name", "Users", "Permissions Count", "Permissions"]
+            r = [[g.name, g.user_count, g.permissions.count(), ", ".join(g.permissions.values_list("codename", flat=True))] for g in qs]
+            return export_dataset("Groups Directory", h, r, fmt, "qad_groups")
+
+        if tab == "permissions":
+            qs = Permission.objects.select_related("content_type").order_by("content_type__app_label", "codename")
+            h = ["Application", "Model", "Permission Name", "Codename"]
+            r = [[p.content_type.app_label, p.content_type.model, p.name, p.codename] for p in qs]
+            return export_dataset("Permissions Directory", h, r, fmt, "qad_permissions")
+
+        if tab == "plants":
+            qs = TP.objects.order_by("name")
+            h = ["Code", "Name", "Location"]
+            r = [[p.code, p.name, getattr(p, 'location', '') or '—'] for p in qs]
+            return export_dataset("Treatment Plants", h, r, fmt, "qad_plants")
+
+        if tab == "labs":
+            qs = Lab.objects.select_related("treatment_plant").order_by("name")
+            h = ["Name", "Treatment Plant"]
+            r = [[lab.name, str(lab.treatment_plant) if lab.treatment_plant else "—"] for lab in qs]
+            return export_dataset("Laboratories", h, r, fmt, "qad_labs")
+
+        if tab == "sessions":
+            now = timezone.now()
+            qs = Session.objects.filter(expire_date__gte=now).order_by("-expire_date")
+            h = ["Session Key", "Expires", "Status"]
+            r = [[s.session_key[:32], s.expire_date.strftime("%Y-%m-%d %H:%M"), "Active" if s.expire_date > now else "Expired"] for s in qs]
+            return export_dataset("Active Sessions", h, r, fmt, "qad_sessions")
+
+        return self.export_users(request, fmt)
 
     def export_users(self, request, fmt: str):
         users = self.get_users_queryset()
@@ -873,3 +925,395 @@ class SystemConfigurationView(
             SystemConfiguration.current()
         )
         return context
+
+
+
+# ==========================================================
+# GROUP CRUD
+# ==========================================================
+class GroupCreateView(WanjalaMixin, SuperUserRequiredMixin, CreateView):
+    model = Group
+    form_class = GroupAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = "Create Group"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Group '{self.object.name}' created successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Create Group", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class GroupUpdateView(WanjalaMixin, SuperUserRequiredMixin, UpdateView):
+    model = Group
+    form_class = GroupAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = f"Edit Group — {self.object.name}"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Group '{self.object.name}' updated successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Edit Group", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class GroupDeleteView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def post(self, request, pk):
+        group = get_object_or_404(Group, pk=pk)
+        name = group.name
+        group.delete()
+        messages.success(request, f"Group '{name}' deleted successfully.")
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"status": "success", "message": f"Group '{name}' deleted."})
+        return redirect("accounts:profile")
+
+    def get(self, request, pk):
+        return self.post(request, pk)
+
+
+class GroupDetailView(WanjalaMixin, SuperUserRequiredMixin, DetailView):
+    model = Group
+    template_name = "accounts/partials/group_detail_modal.html"
+    context_object_name = "group"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["members"] = CustomUser.objects.filter(groups=self.object).select_related("section")
+        ctx["group_permissions"] = self.object.permissions.select_related("content_type").order_by("content_type__app_label", "name")
+        return ctx
+
+
+# ==========================================================
+# PERMISSION CRUD
+# ==========================================================
+class PermissionCreateView(WanjalaMixin, SuperUserRequiredMixin, CreateView):
+    model = Permission
+    form_class = PermissionAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = "Create Permission"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Permission '{self.object.name}' created successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Create Permission", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class PermissionUpdateView(WanjalaMixin, SuperUserRequiredMixin, UpdateView):
+    model = Permission
+    form_class = PermissionAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = f"Edit Permission — {self.object.name}"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Permission '{self.object.name}' updated successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Edit Permission", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class PermissionDeleteView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def post(self, request, pk):
+        perm = get_object_or_404(Permission, pk=pk)
+        name = perm.name
+        perm.delete()
+        messages.success(request, f"Permission '{name}' deleted successfully.")
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"status": "success", "message": f"Permission '{name}' deleted."})
+        return redirect("accounts:profile")
+
+    def get(self, request, pk):
+        return self.post(request, pk)
+
+
+# ==========================================================
+# TREATMENT PLANT CRUD
+# ==========================================================
+class PlantCreateView(WanjalaMixin, SuperUserRequiredMixin, CreateView):
+    form_class = TreatmentPlantAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = "Add Treatment Plant"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Plant '{self.object.name}' created successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Add Treatment Plant", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class PlantUpdateView(WanjalaMixin, SuperUserRequiredMixin, UpdateView):
+    form_class = TreatmentPlantAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_object(self, queryset=None):
+        from t.models import TreatmentPlant
+        return get_object_or_404(TreatmentPlant, pk=self.kwargs["pk"])
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = f"Edit Plant — {self.object.name}"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Plant '{self.object.name}' updated successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Edit Treatment Plant", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class PlantDeleteView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def post(self, request, pk):
+        from t.models import TreatmentPlant
+        plant = get_object_or_404(TreatmentPlant, pk=pk)
+        name = plant.name
+        plant.delete()
+        messages.success(request, f"Plant '{name}' deleted successfully.")
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"status": "success", "message": f"Plant '{name}' deleted."})
+        return redirect("accounts:profile")
+
+    def get(self, request, pk):
+        return self.post(request, pk)
+
+
+# ==========================================================
+# LABORATORY CRUD
+# ==========================================================
+class LabCreateView(WanjalaMixin, SuperUserRequiredMixin, CreateView):
+    form_class = LaboratoryAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = "Add Laboratory"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Laboratory '{self.object.name}' created successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Add Laboratory", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class LabUpdateView(WanjalaMixin, SuperUserRequiredMixin, UpdateView):
+    form_class = LaboratoryAdminForm
+    template_name = "accounts/profile/generic_form.html"
+    success_url = reverse_lazy("accounts:profile")
+
+    def get_object(self, queryset=None):
+        from laboratory.models import Laboratory
+        return get_object_or_404(Laboratory, pk=self.kwargs["pk"])
+
+    def get_template_names(self):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return ["accounts/partials/generic_form_modal.html"]
+        return [self.template_name]
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["form_title"] = f"Edit Laboratory — {self.object.name}"
+        ctx["action_url"] = self.request.path
+        return ctx
+
+    def form_valid(self, form):
+        self.object = form.save()
+        messages.success(self.request, f"Laboratory '{self.object.name}' updated successfully.")
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return HttpResponse("SUCCESS")
+        return redirect(self.success_url)
+
+    def form_invalid(self, form):
+        if self.request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return render(self.request, "accounts/partials/generic_form_modal.html", {
+                "form": form, "form_title": "Edit Laboratory", "action_url": self.request.path,
+            })
+        return super().form_invalid(form)
+
+
+class LabDeleteView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def post(self, request, pk):
+        from laboratory.models import Laboratory
+        lab = get_object_or_404(Laboratory, pk=pk)
+        name = lab.name
+        lab.delete()
+        messages.success(request, f"Laboratory '{name}' deleted successfully.")
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"status": "success", "message": f"Laboratory '{name}' deleted."})
+        return redirect("accounts:profile")
+
+    def get(self, request, pk):
+        return self.post(request, pk)
+
+
+# ==========================================================
+# SESSION MANAGEMENT
+# ==========================================================
+class SessionDeleteView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def post(self, request, session_key):
+        session = get_object_or_404(Session, session_key=session_key)
+        session.delete()
+        messages.success(request, "Session terminated successfully.")
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"status": "success", "message": "Session terminated."})
+        return redirect("accounts:profile")
+
+    def get(self, request, session_key):
+        return self.post(request, session_key)
+
+
+class SessionTerminateAllView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def post(self, request):
+        now = timezone.now()
+        current_key = request.session.session_key
+        deleted = Session.objects.exclude(session_key=current_key).filter(expire_date__lt=now).delete()[0]
+        messages.success(request, f"{deleted} expired session(s) terminated.")
+        if request.headers.get("x-requested-with") == "XMLHttpRequest":
+            return JsonResponse({"status": "success", "message": f"{deleted} expired sessions terminated."})
+        return redirect("accounts:profile")
+
+    def get(self, request):
+        return self.post(request)
+
+
+# ==========================================================
+# IMPORT & SAMPLE DOWNLOAD
+# ==========================================================
+class ListImportView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def post(self, request, resource):
+        form = ListImportForm(request.POST, request.FILES)
+        if not form.is_valid():
+            return JsonResponse({"status": "error", "message": "No file provided."}, status=400)
+        uploaded = request.FILES["file"]
+        result = process_import(resource, uploaded, uploaded.name)
+        status_code = 200 if result.get("status") == "success" else 400
+        return JsonResponse(result, status=status_code)
+
+
+class SampleDownloadView(WanjalaMixin, SuperUserRequiredMixin, View):
+    def get(self, request, resource):
+        return generate_sample_csv(resource)

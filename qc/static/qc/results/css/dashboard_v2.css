@@ -2005,4 +2005,643 @@ html.theme-light .shift-info-pill .shift-supervisor {
     pointer-events: auto !important;
 }
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   WATER QUALITY INDEX (WQI) COMPONENT STYLES
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.wqi-topbar {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-topbar, #0f172a);
+    border-bottom: 1px solid var(--border-contrast, rgba(255, 255, 255, 0.08));
+    padding: 0.35rem 1rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+    z-index: 35;
+}
+
+.wqi-topbar-left {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.wqi-topbar-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.65rem;
+    background: rgba(56, 189, 248, 0.14);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 6px;
+    font-size: 0.68rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #38bdf8;
+}
+
+.wqi-topbar-center {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    overflow-x: auto;
+}
+
+.wqi-chip {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 8px;
+    background: var(--chip-bg, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--border-contrast, rgba(255, 255, 255, 0.08));
+    transition: all 0.2s ease;
+}
+
+.wqi-chip:hover {
+    border-color: var(--border-active, rgba(56, 189, 248, 0.4));
+    transform: translateY(-1px);
+}
+
+.wqi-chip-icon {
+    font-size: 1rem;
+    color: #38bdf8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.wqi-chip-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.wqi-chip-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.wqi-chip-label {
+    font-size: 0.64rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #94a3b8);
+}
+
+.wqi-chip-score {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+}
+
+.wqi-val {
+    font-size: 0.95rem;
+    font-weight: 900;
+    font-family: var(--font-mono, "JetBrains Mono", monospace);
+    color: var(--text-primary, #f8fafc);
+}
+
+.wqi-note {
+    font-size: 0.66rem;
+    color: var(--text-muted, #94a3b8);
+}
+
+.wqi-warn-text { color: #f59e0b; font-weight: 700; }
+.wqi-ok-text { color: #10b981; font-weight: 600; }
+
+.wqi-badge, .wqi-tier-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 12px;
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+}
+
+.wqi-badge-excellent, .wqi-pill-excellent {
+    background: rgba(16, 185, 129, 0.18);
+    color: #10b981;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.wqi-badge-good, .wqi-pill-good {
+    background: rgba(59, 130, 246, 0.18);
+    color: #3b82f6;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.wqi-badge-poor, .wqi-pill-poor {
+    background: rgba(245, 158, 11, 0.18);
+    color: #f59e0b;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.wqi-badge-very_poor, .wqi-pill-very_poor {
+    background: rgba(249, 115, 22, 0.18);
+    color: #f97316;
+    border: 1px solid rgba(249, 115, 22, 0.35);
+}
+
+.wqi-badge-unsuitable, .wqi-pill-unsuitable {
+    background: rgba(239, 68, 68, 0.18);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.wqi-badge-nodata, .wqi-pill-nodata {
+    background: rgba(148, 163, 184, 0.15);
+    color: #94a3b8;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.wqi-topbar-right {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.wqi-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    background: rgba(99, 102, 241, 0.18);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    color: #c7d2fe;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.wqi-action-btn:hover, .wqi-action-btn:focus-visible {
+    background: rgba(99, 102, 241, 0.32);
+    color: #fff;
+    border-color: rgba(99, 102, 241, 0.6);
+    transform: translateY(-1px);
+}
+
+/* Cycle-specific WQI Strip inside sampling card */
+.cycle-wqi-strip {
+    padding: 0.45rem 1rem;
+    background: var(--theme-surface-subtle, rgba(255, 255, 255, 0.02));
+    border-bottom: 1px solid var(--border-contrast, rgba(255, 255, 255, 0.07));
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.76rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.cycle-wqi-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.cycle-wqi-label {
+    font-weight: 700;
+    color: var(--text-secondary, #cbd5e1);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.cycle-wqi-score {
+    font-size: 0.95rem;
+    font-weight: 900;
+    font-family: var(--font-mono, "JetBrains Mono", monospace);
+    color: var(--text-primary, #f8fafc);
+}
+
+.cycle-wqi-details {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.74rem;
+}
+
+.cycle-wqi-concern {
+    color: #f59e0b;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.cycle-wqi-optimal {
+    color: #10b981;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.cycle-wqi-pending {
+    color: var(--text-muted, #94a3b8);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* WQI Modal Dialog */
+.wqi-modal-dialog {
+    max-width: 980px;
+    width: 94vw;
+    max-height: 88vh;
+    border-radius: 16px;
+    background: var(--theme-surface, #0f172a);
+    color: var(--theme-text, #f8fafc);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.65);
+    padding: 0;
+}
+
+.wqi-modal-dialog::backdrop {
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(4px);
+}
+
+.wqi-dialog-inner {
+    display: flex;
+    flex-direction: column;
+    max-height: 85vh;
+}
+
+.wqi-dialog-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.wqi-dialog-eyebrow {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: #38bdf8;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.25rem;
+}
+
+.wqi-dialog-header h2 {
+    font-size: 1.3rem;
+    font-weight: 800;
+    margin: 0 0 0.25rem 0;
+    color: #f8fafc;
+}
+
+.wqi-dialog-header p {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    margin: 0;
+}
+
+.wqi-dialog-close {
+    background: transparent;
+    border: none;
+    font-size: 1.8rem;
+    line-height: 1;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 0 0.5rem;
+    transition: color 0.2s ease;
+}
+
+.wqi-dialog-close:hover { color: #fff; }
+
+.wqi-dialog-body {
+    padding: 1.25rem 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.wqi-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.wqi-summary-card {
+    padding: 1rem 1.15rem;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wqi-summary-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.wqi-summary-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.wqi-summary-num {
+    display: block;
+    font-size: 1.85rem;
+    font-weight: 900;
+    font-family: var(--font-mono, "JetBrains Mono", monospace);
+    margin: 0.4rem 0 0.25rem 0;
+    color: #f8fafc;
+}
+
+.wqi-summary-desc {
+    font-size: 0.74rem;
+    color: #94a3b8;
+    margin: 0;
+    line-height: 1.35;
+}
+
+.wqi-mini-stat-row {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.75rem;
+}
+
+.wqi-mini-stat-row > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.wqi-mini-stat-row span {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    color: #94a3b8;
+    font-weight: 700;
+}
+
+.wqi-mini-stat-row strong {
+    font-size: 1.1rem;
+    font-weight: 800;
+}
+
+.wqi-mini-stat-row small {
+    font-size: 0.72rem;
+    color: #cbd5e1;
+}
+
+/* Five-tier classification scale strip */
+.wqi-scale-strip {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.wqi-scale-step {
+    padding: 0.55rem 0.5rem;
+    border-radius: 6px;
+    text-align: center;
+    border: 1px solid transparent;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transition: all 0.2s ease;
+}
+
+.wqi-scale-range {
+    font-size: 0.65rem;
+    font-weight: 800;
+    font-family: var(--font-mono, monospace);
+    letter-spacing: 0.04em;
+}
+
+.wqi-scale-step strong {
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.wqi-scale-step small {
+    font-size: 0.62rem;
+    line-height: 1.2;
+    opacity: 0.85;
+}
+
+.wqi-scale-excellent { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+.wqi-scale-excellent.is-active { border-color: #10b981; background: rgba(16, 185, 129, 0.22); box-shadow: 0 0 10px rgba(16, 185, 129, 0.3); }
+
+.wqi-scale-good { background: rgba(59, 130, 246, 0.1); color: #3b82f6; }
+.wqi-scale-good.is-active { border-color: #3b82f6; background: rgba(59, 130, 246, 0.22); box-shadow: 0 0 10px rgba(59, 130, 246, 0.3); }
+
+.wqi-scale-poor { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+.wqi-scale-poor.is-active { border-color: #f59e0b; background: rgba(245, 158, 11, 0.22); box-shadow: 0 0 10px rgba(245, 158, 11, 0.3); }
+
+.wqi-scale-very-poor { background: rgba(249, 115, 22, 0.1); color: #f97316; }
+.wqi-scale-very-poor.is-active { border-color: #f97316; background: rgba(249, 115, 22, 0.22); box-shadow: 0 0 10px rgba(249, 115, 22, 0.3); }
+
+.wqi-scale-unsuitable { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+.wqi-scale-unsuitable.is-active { border-color: #ef4444; background: rgba(239, 68, 68, 0.22); box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+
+/* Table Section */
+.wqi-table-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.wqi-table-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.wqi-table-heading h3 {
+    font-size: 0.92rem;
+    font-weight: 800;
+    margin: 0;
+    color: #f8fafc;
+}
+
+.wqi-table-heading p {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    margin: 2px 0 0 0;
+}
+
+.wqi-concern-banner {
+    padding: 0.25rem 0.65rem;
+    border-radius: 6px;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #f59e0b;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.wqi-table-wrap {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.wqi-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.76rem;
+}
+
+.wqi-table th {
+    background: rgba(255, 255, 255, 0.04);
+    padding: 0.55rem 0.75rem;
+    font-weight: 700;
+    color: #94a3b8;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    white-space: nowrap;
+}
+
+.wqi-table td {
+    padding: 0.55rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    color: #cbd5e1;
+}
+
+.wqi-table tfoot th {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.65rem 0.75rem;
+    font-weight: 800;
+    color: #f8fafc;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.wqi-row-concern {
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.wqi-unit {
+    color: #94a3b8;
+    margin-left: 0.3rem;
+}
+
+/* Treatment plants overview section */
+.wqi-plants-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.wqi-plants-section h3 {
+    font-size: 0.92rem;
+    font-weight: 800;
+    margin: 0;
+    color: #f8fafc;
+}
+
+.wqi-plants-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+.wqi-plant-card {
+    padding: 0.75rem 0.85rem;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.wqi-plant-card.is-selected {
+    border-color: #38bdf8;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.wqi-plant-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.wqi-plant-card-head strong {
+    font-size: 0.78rem;
+    color: #f8fafc;
+}
+
+.wqi-plant-card-body {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.wqi-plant-score {
+    font-size: 1.25rem;
+    font-weight: 900;
+    font-family: var(--font-mono, monospace);
+    color: #f8fafc;
+}
+
+.wqi-plant-card-body small {
+    font-size: 0.68rem;
+    color: #94a3b8;
+}
+
+.wqi-dialog-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.wqi-footer-note {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+@media (max-width: 768px) {
+    .wqi-scale-strip {
+        grid-template-columns: 1fr;
+    }
+    .wqi-topbar {
+        padding: 0.5rem;
+    }
+}
+
 /* ==============================================================================

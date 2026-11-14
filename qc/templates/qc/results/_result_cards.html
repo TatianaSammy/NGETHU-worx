@@ -24,6 +24,29 @@
         </div>
         {% endif %}
 
+        <!-- Cycle-specific WQI Assessment Strip -->
+        <div class="cycle-wqi-strip wqi-strip-{{ card.wqi.tier_key|default:'nodata' }}">
+            <div class="cycle-wqi-meta">
+                <span class="cycle-wqi-label"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> {{ card.time_label }} Cycle WQI:</span>
+                <strong class="cycle-wqi-score">{{ card.wqi.display_score|default:"—" }}</strong>
+                <span class="wqi-tier-pill wqi-pill-{{ card.wqi.tier_key|default:'nodata' }}">{{ card.wqi.tier_label|default:"Awaiting readings" }}</span>
+            </div>
+            <div class="cycle-wqi-details">
+                {% if card.wqi.parameters_of_concern %}
+                <span class="cycle-wqi-concern" title="Parameters with quality rating q_i > 50">
+                    <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> Concern:
+                    {% for p in card.wqi.parameters_of_concern|slice:":3" %}
+                        <strong>{{ p.name }}</strong> (q={{ p.qi }}){% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                </span>
+                {% elif card.wqi.parameters_evaluated %}
+                <span class="cycle-wqi-optimal"><i class="fa-solid fa-circle-check" aria-hidden="true"></i> {{ card.wqi.parameters_evaluated }} params evaluated · all within standard limits</span>
+                {% else %}
+                <span class="cycle-wqi-pending"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Record analytical values to evaluate cycle WQI</span>
+                {% endif %}
+            </div>
+        </div>
+
         <!-- Stage Groups — Water Types on the LEFT, Compact Zero-Scroll Grid -->
         <div id="card-body-{{ card.sampling_time.pk }}" class="card-cycle-body"
              style="display:flex!important;flex-direction:column;flex:1;min-height:0;overflow-y:auto;">

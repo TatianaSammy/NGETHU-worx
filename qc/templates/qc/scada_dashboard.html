@@ -11,6 +11,7 @@
 {% block sidebar %}{% endblock %}
 
 {% block content %}
+<script>document.body.classList.add('scada-fullscreen');</script>
 
 <div class="scada-dashboard-shell" id="scada-dashboard-root">
 
@@ -70,6 +71,18 @@
             <span class="scada-tab-badge badge-warning">{{ telemetry_kpis.danger_sensors }}</span>
             {% endif %}
         </button>
+
+        <button class="scada-tab-btn {% if active_tab == 'wqi' %}active{% endif %}"
+                onclick="switchScadaTab('wqi')"
+                data-tab="wqi">
+            <i class="fa-solid fa-gauge-high"></i>
+            <span>Water Quality Index</span>
+            {% if plant_wqi and plant_wqi.display_score != 'N/A' %}
+            <span class="scada-tab-badge" style="background: {{ plant_wqi.tier_tone }}22; color: {{ plant_wqi.tier_tone }}; border: 1px solid {{ plant_wqi.tier_tone }}55;">
+                {{ plant_wqi.display_score }}
+            </span>
+            {% endif %}
+        </button>
     </div>
 
     <!-- ════════════════════════════════════════════════
@@ -106,6 +119,11 @@
         <div class="scada-tab-pane-wrapper {% if active_tab == 'fleet' %}scada-pane-active{% endif %}" data-pane="fleet">
             {% include "qc/partials/_scada_tab_fleet.html" %}
         </div>
+
+        <!-- TAB 7: Water Quality Index (WQI) Analytics & Compliance -->
+        <div class="scada-tab-pane-wrapper {% if active_tab == 'wqi' %}scada-pane-active{% endif %}" data-pane="wqi">
+            {% include "qc/partials/_scada_tab_wqi.html" %}
+        </div>
     </div>
 
     <!-- ════════════════════════════════════════════════
@@ -132,6 +150,10 @@
 {{ chart_radar_data|json_script:"chart-radar-data" }}
 {{ chart_health_data|json_script:"chart-health-data" }}
 {{ chart_bubble_data|json_script:"chart-bubble-data" }}
+{{ chart_wqi_radar_data|json_script:"chart-wqi-radar-data" }}
+{{ chart_wqi_weights_data|json_script:"chart-wqi-weights-data" }}
+{{ chart_wqi_timeline_data|json_script:"chart-wqi-timeline-data" }}
+{{ chart_wqi_fleet_data|json_script:"chart-wqi-fleet-data" }}
 
 {% endblock %}
 
@@ -162,9 +184,11 @@ function switchScadaTab(tabKey) {
     url.searchParams.set('tab', tabKey);
     history.replaceState(null, '', url);
 
-    // Initialize charts if switching to trends tab
+    // Initialize charts if switching to trends or wqi tab
     if (tabKey === 'trends') {
         initTrendCharts();
+    } else if (tabKey === 'wqi') {
+        initWqiCharts();
     }
 }
 
@@ -196,7 +220,12 @@ let chartsInitialized = false;
 function readJsonScript(id) {
     try {
         const el = document.getElementById(id);
-        return el ? JSON.parse(el.textContent) : {};
+        if (!el) return {};
+        let data = JSON.parse(el.textContent);
+        if (typeof data === 'string') {
+            data = JSON.parse(data);
+        }
+        return data || {};
     } catch (e) {
         return {};
     }
@@ -356,11 +385,242 @@ function initTrendCharts() {
     }
 }
 
-// Auto-initialize charts if trends tab is active on load
+// ——————————————————————————————————————————————————————————————————
+//  WATER QUALITY INDEX (WQI) MULTI-MODEL CHART INITIALIZATION
+// ——————————————————————————————————————————————————————————————————
+let wqiChartsInitialized = false;
+
+function initWqiCharts() {
+    if (wqiChartsInitialized) return;
+    wqiChartsInitialized = true;
+
+    const chartDefaults = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { labels: { color: '#94a3b8', font: { size: 11, family: 'JetBrains Mono' } } },
+        },
+        scales: {
+            x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2e4f33' } },
+            y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e2e4f55' } },
+        },
+    };
+
+    // 1. Parameter Quality Rating Radar (qi vs Limit 100)
+    const radarData = readJsonScript('chart-wqi-radar-data');
+    const ctxWqiRadar = document.getElementById('scadaWqiRadarChart');
+    if (ctxWqiRadar && radarData.labels && radarData.labels.length) {
+        new Chart(ctxWqiRadar, {
+            type: 'radar',
+            data: {
+                labels: radarData.labels,
+                datasets: [
+                    {
+                        label: 'Quality Rating (qi)',
+                        data: radarData.qi_values || [],
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                        pointBackgroundColor: '#38bdf8',
+                        pointBorderColor: '#0ea5e9',
+                        pointHoverBackgroundColor: '#fff',
+                        pointRadius: 4,
+                        borderWidth: 2,
+                    },
+                    {
+                        label: 'Permissible Limit (100)',
+                        data: radarData.limits || radarData.labels.map(() => 100),
+                        borderColor: '#ef4444',
+                        borderDash: [6, 4],
+                        backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                        pointRadius: 0,
+                        borderWidth: 1.5,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        ticks: { color: '#64748b', backdropColor: 'transparent', font: { size: 9 } },
+                        grid: { color: '#1e2e4f55' },
+                        angleLines: { color: '#1e2e4f55' },
+                        pointLabels: { color: '#cbd5e1', font: { size: 10, family: 'JetBrains Mono' } },
+                        suggestedMin: 0,
+                        suggestedMax: 120,
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top', labels: { color: '#94a3b8', boxWidth: 12 } }
+                }
+            }
+        });
+    }
+
+    // 2. 14-Day Rolling Quality Index Trend Line Chart
+    const timelineData = readJsonScript('chart-wqi-timeline-data');
+    const ctxWqiTimeline = document.getElementById('scadaWqiTimelineChart');
+    if (ctxWqiTimeline && timelineData.labels && timelineData.labels.length) {
+        new Chart(ctxWqiTimeline, {
+            type: 'line',
+            data: {
+                labels: timelineData.labels,
+                datasets: [
+                    {
+                        label: 'Weighted Arithmetic WQI',
+                        data: timelineData.scores || [],
+                        borderColor: '#38bdf8',
+                        backgroundColor: 'rgba(56, 189, 248, 0.08)',
+                        fill: true,
+                        tension: 0.35,
+                        borderWidth: 2.5,
+                        pointRadius: 4,
+                        pointBackgroundColor: '#38bdf8',
+                    },
+                    {
+                        label: 'Weighted Geometric WQI',
+                        data: timelineData.geometric_scores || [],
+                        borderColor: '#a855f7',
+                        borderDash: [5, 4],
+                        tension: 0.35,
+                        borderWidth: 1.8,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#a855f7',
+                        fill: false,
+                    },
+                    {
+                        label: 'CCME WQI',
+                        data: timelineData.ccme_scores || [],
+                        borderColor: '#10b981',
+                        borderDash: [2, 2],
+                        tension: 0.35,
+                        borderWidth: 1.8,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#10b981',
+                        fill: false,
+                    }
+                ]
+            },
+            options: {
+                ...chartDefaults,
+                scales: {
+                    x: {
+                        ticks: { color: '#64748b', font: { size: 9 } },
+                        grid: { color: '#1e2e4f33' }
+                    },
+                    y: {
+                        suggestedMin: 0,
+                        suggestedMax: 100,
+                        title: { display: true, text: 'Composite Index Score', color: '#94a3b8' },
+                        ticks: { color: '#64748b' },
+                        grid: { color: '#1e2e4f55' }
+                    }
+                }
+            }
+        });
+    }
+
+    // 3. Parameter Weight Contribution Donut Chart
+    const weightsData = readJsonScript('chart-wqi-weights-data');
+    const ctxWqiWeights = document.getElementById('scadaWqiWeightsChart');
+    if (ctxWqiWeights && weightsData.labels && weightsData.labels.length) {
+        const palette = [
+            '#38bdf8', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6',
+            '#06b6d4', '#6366f1', '#14b8a6', '#f97316', '#a855f7',
+            '#64748b', '#eab308'
+        ];
+        new Chart(ctxWqiWeights, {
+            type: 'doughnut',
+            data: {
+                labels: weightsData.labels,
+                datasets: [{
+                    data: weightsData.values || [],
+                    backgroundColor: palette.slice(0, weightsData.labels.length),
+                    borderColor: '#0b1120',
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '62%',
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: { color: '#cbd5e1', font: { size: 10, family: 'JetBrains Mono' }, boxWidth: 10, padding: 8 }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => ` ${ctx.label}: ${ctx.raw}% relative weight`
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // 4. Multi-Plant Fleet Benchmark Bar Chart
+    const fleetData = readJsonScript('chart-wqi-fleet-data');
+    const ctxWqiFleet = document.getElementById('scadaWqiFleetChart');
+    if (ctxWqiFleet && fleetData.labels && fleetData.labels.length) {
+        const bgColors = (fleetData.scores || []).map(score => {
+            if (score <= 25) return '#10b981cc';
+            if (score <= 50) return '#38bdf8cc';
+            if (score <= 75) return '#f59e0bcc';
+            if (score <= 100) return '#f97316cc';
+            return '#ef4444cc';
+        });
+
+        new Chart(ctxWqiFleet, {
+            type: 'bar',
+            data: {
+                labels: fleetData.labels,
+                datasets: [{
+                    label: 'Composite WQI Score',
+                    data: fleetData.scores || [],
+                    backgroundColor: bgColors,
+                    borderColor: bgColors.map(c => c.replace('cc', 'ff')),
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                ...chartDefaults,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => ` Score: ${ctx.raw} (Lower is better)`
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        suggestedMin: 0,
+                        suggestedMax: 100,
+                        title: { display: true, text: 'WQI Score', color: '#94a3b8' },
+                        ticks: { color: '#64748b' },
+                        grid: { color: '#1e2e4f33' }
+                    },
+                    y: {
+                        ticks: { color: '#cbd5e1', font: { family: 'JetBrains Mono', size: 11 } },
+                        grid: { color: '#1e2e4f33' }
+                    }
+                }
+            }
+        });
+    }
+}
+
+// Auto-initialize charts if trends or wqi tab is active on load
 document.addEventListener('DOMContentLoaded', function() {
+    document.body.classList.add('scada-fullscreen');
     const activeTab = '{{ active_tab|default:"overview" }}';
     if (activeTab === 'trends') {
         initTrendCharts();
+    } else if (activeTab === 'wqi') {
+        initWqiCharts();
     }
 });
 </script>

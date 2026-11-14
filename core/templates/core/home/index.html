@@ -652,7 +652,10 @@ body::after{
     text-decoration:none;
     cursor:pointer;
     transition:all .2s ease;
+    font-family:inherit;
 }
+
+.launcher-logout-form{margin:0;}
 
 .btn-launcher-logout:hover,
 .btn-launcher-logout:focus-visible{
@@ -1453,10 +1456,13 @@ body::after{
             </div>
         </div>
 
-        <a href="/accounts/logout/" class="btn-launcher-logout" title="Sign Out of Session">
-            <i class="fa-solid fa-power-off"></i>
-            <span>Logout</span>
-        </a>
+        <form method="post" action="{% url 'accounts:logout' %}" class="launcher-logout-form">
+            {% csrf_token %}
+            <button type="submit" class="btn-launcher-logout" title="Sign Out of Session">
+                <i class="fa-solid fa-power-off"></i>
+                <span>Logout</span>
+            </button>
+        </form>
 
     </div>
 </section>
@@ -1534,7 +1540,7 @@ body::after{
 
 <script src="{% static 'core/js/fullscreen.js' %}?v=20261018-first-interaction"></script>
 <script src="{% static 'core/js/offline-queue.js' %}?v=20261024-offline" defer></script>
-<script src="{% static 'core/js/pwa.js' %}?v=20261027-no-auto-logout" defer></script>
+<script src="{% static 'core/js/pwa.js' %}?v=20261105-safe-logout" defer></script>
 </body>
 
 </html>

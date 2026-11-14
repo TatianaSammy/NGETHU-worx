@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+from django.db.models import Q
+
+
+def section_belongs_to_plant(section, plant_id):
+    if not section or not plant_id:
+        return False
+    return section.treatment_plant_id is None or section.treatment_plant_id == plant_id
+
+
+def section_scope_q(field_name, plant_id):
+    if not plant_id:
+        return Q(pk__in=[])
+    return Q(**{f"{field_name}__isnull": True}) | Q(**{field_name: plant_id})
+
 
 MODEL_SCOPE_PATHS = {
     "sc.auditlog": {"owner": "user_id"},
     "sc.shift": {"plant": ("treatment_plant_id",), "section": ("section_requirements__section_id",)},
     "sc.shiftsectionrequirement": {"plant": ("shift__treatment_plant_id",), "section": ("section_id",)},
-    "sc.shiftsupervisor": {"plant": ("treatment_plant_id", "user__assigned_treatment_plant_id"), "section": ("section_id", "user__section_id")},
+    "sc.shiftsupervisor": {"plant": ("treatment_plant_id", "shift__treatment_plant_id", "user__assigned_treatment_plant_id"), "section": ("section_id", "shift__section_requirements__section_id", "user__section_id")},
     "sc.annualleave": {"plant": ("treatment_plant_id", "staff__assigned_treatment_plant_id"), "section": ("staff__section_id",)},
     "sc.monthlydutyroster": {"plant": ("treatment_plant_id",), "section": ("assignments__staff__section_id",)},
     "sc.shiftassignment": {"plant": ("shift__treatment_plant_id", "duty_roster__treatment_plant_id", "staff__assigned_treatment_plant_id"), "section": ("staff__section_id",)},

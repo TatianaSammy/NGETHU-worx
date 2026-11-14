@@ -17,8 +17,48 @@
                 </small>
             </div>
 
-            <div class="badge bg-primary fs-6">
-                {{ groups|length }} Groups
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+
+                <button
+                    class="btn btn-success rounded-pill btn-sm"
+                    data-open-form-modal
+                    data-url="{% url 'accounts:group_create' %}"
+                    data-title="Create Group"
+                >
+                    <i class="fa fa-plus me-1"></i>
+                    Create Group
+                </button>
+
+                <div class="dropdown">
+                    <button
+                        class="btn btn-outline-primary rounded-pill btn-sm dropdown-toggle"
+                        data-bs-toggle="dropdown"
+                    >
+                        <i class="fa fa-download me-1"></i>
+                        Export
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                        <li><a class="dropdown-item" href="?tab=groups&export=csv"><i class="fa fa-file-csv text-success me-2"></i>CSV</a></li>
+                        <li><a class="dropdown-item" href="?tab=groups&export=xlsx"><i class="fa fa-file-excel text-success me-2"></i>Excel</a></li>
+                        <li><a class="dropdown-item" href="?tab=groups&export=json"><i class="fa fa-file-code text-warning me-2"></i>JSON</a></li>
+                        <li><a class="dropdown-item" href="?tab=groups&export=pdf"><i class="fa fa-file-pdf text-danger me-2"></i>PDF</a></li>
+                    </ul>
+                </div>
+
+                <button
+                    class="btn btn-outline-secondary rounded-pill btn-sm"
+                    data-open-import-modal
+                    data-resource="groups"
+                    data-title="Import Groups"
+                >
+                    <i class="fa fa-file-import me-1"></i>
+                    Import
+                </button>
+
+                <div class="badge bg-primary fs-6">
+                    {{ groups|length }} Groups
+                </div>
+
             </div>
 
         </div>
@@ -39,6 +79,7 @@
                         <th>Users</th>
                         <th>Permissions</th>
                         <th>Description</th>
+                        <th width="160">Actions</th>
                     </tr>
 
                 </thead>
@@ -91,13 +132,45 @@
 
                         </td>
 
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button
+                                    class="btn btn-outline-info"
+                                    data-open-form-modal
+                                    data-url="{% url 'accounts:group_detail' group.pk %}"
+                                    data-title="Group — {{ group.name }}"
+                                    title="View Details"
+                                >
+                                    <i class="fa fa-eye"></i>
+                                </button>
+                                <button
+                                    class="btn btn-outline-primary"
+                                    data-open-form-modal
+                                    data-url="{% url 'accounts:group_update' group.pk %}"
+                                    data-title="Edit Group — {{ group.name }}"
+                                    title="Edit"
+                                >
+                                    <i class="fa fa-pen"></i>
+                                </button>
+                                <button
+                                    class="btn btn-outline-danger"
+                                    data-open-delete-modal
+                                    data-url="{% url 'accounts:group_delete' group.pk %}"
+                                    data-name="{{ group.name }}"
+                                    title="Delete"
+                                >
+                                    <i class="fa fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+
                     </tr>
 
                     {% empty %}
 
                     <tr>
 
-                        <td colspan="5">
+                        <td colspan="6">
 
                             <div class="text-center py-5">
 
@@ -129,7 +202,7 @@
                             Total Groups
                         </th>
 
-                        <th colspan="3">
+                        <th colspan="4">
                             {{ groups|length }}
                         </th>
 

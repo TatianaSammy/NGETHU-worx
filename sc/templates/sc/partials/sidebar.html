@@ -1,7 +1,7 @@
 <aside class="sidebar collapsed" id="appSidebar">
-  <nav class="sidebar-nav" aria-label="Shift Control dashboard">
+  <nav class="sidebar-nav" aria-label="Shift Work Management dashboard">
     <ul class="sidebar-menu sc-dashboard-nav">
-      <li class="sidebar-section-title"><span class="label">SHIFT CONTROL</span></li>
+      <li class="sidebar-section-title"><span class="label">SHIFT WORK MANAGEMENT</span></li>
       {% for item in nav_items %}
         <li class="sidebar-item {% if selected_section == item.id %}active{% endif %}">
           <a href="{% url 'sc:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ selected_month }}&amp;year={{ selected_year }}&amp;section={{ item.id }}#{{ item.id }}"

@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from sc.models import AnnualLeave, ShiftAssignment
+from core.plant_section_scope import section_belongs_to_plant, section_scope_q
 
 from weeklytasks.models import DailyTaskAssignment, WeeklyDutyTask
 
@@ -35,7 +36,7 @@ def assign_task(task_id, from_date=None):
             if (
                 not plant_id
                 or not section_id
-                or task.section.treatment_plant_id != plant_id
+                or not section_belongs_to_plant(task.section, plant_id)
                 or not task.section.is_active
                 or task.week.schedule.treatment_plant_id != plant_id
                 or task.week.schedule.section_id != section_id
@@ -177,9 +178,8 @@ def assign_for_scope(plant_id, section_id, from_date=None):
         week__end_date__gte=from_date,
         week__schedule__treatment_plant_id=plant_id,
         week__schedule__section_id=section_id,
-        section__treatment_plant_id=plant_id,
         section__is_active=True,
-    ).order_by("week__start_date", "pk").values_list("pk", flat=True)
+    ).filter(section_scope_q("section__treatment_plant_id", plant_id)).order_by("week__start_date", "pk").values_list("pk", flat=True)
     return sum(assign_task(task_id, from_date=from_date) for task_id in task_ids)
 
 
@@ -188,7 +188,7 @@ def assign_for_user(user_id):
     if not user or not user.assigned_treatment_plant_id or not user.section_id:
         return 0
     if (
-        user.section.treatment_plant_id != user.assigned_treatment_plant_id
+        not section_belongs_to_plant(user.section, user.assigned_treatment_plant_id)
         or not user.section.is_active
     ):
         logger.info(

@@ -630,7 +630,14 @@ if ENVIRONMENT.strip().lower() in {"production", "prod"}:
 
 # =========================================================
 # CSRF TRUSTED ORIGINS
-CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS", "").split(",")
+_csrf_origins_raw = [x.strip() for x in env("CSRF_TRUSTED_ORIGINS", "").split(",") if x.strip()]
+_csrf_defaults = [
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
+    "http://127.0.0.1",
+    "http://localhost",
+]
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(_csrf_defaults + _csrf_origins_raw))
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

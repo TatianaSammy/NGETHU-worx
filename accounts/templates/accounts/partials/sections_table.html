@@ -97,6 +97,16 @@
 
                 </div>
 
+                <button
+                    class="btn btn-outline-secondary rounded-pill"
+                    data-open-import-modal
+                    data-resource="sections"
+                    data-title="Import Sections"
+                >
+                    <i class="fa fa-file-import me-2"></i>
+                    Import
+                </button>
+
                 {% if request.user.is_superuser %}
                 <button
                     class="btn btn-primary rounded-pill"

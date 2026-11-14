@@ -1193,53 +1193,58 @@ def sync_request_to_batch(
     if raw:
         return
 
-    batch = getattr(
-        instance,
-        "batch",
-        None,
-    )
-
-    if batch is None:
-        return
-
     if (
         instance.status
         != ChemicalAnalysisRequest.Status.COMPLETED
     ):
         return
-
-    if (
-        batch.status
-        == ChemicalBatch.Status.ANALYSED
-    ):
+    if not instance.batch_id:
         return
 
-    def synchronize():
+    def synchronize(request_id=instance.pk):
         try:
-            batch.transition_to(
-                ChemicalBatch.Status.ANALYSED,
-                performed_by=None,
-                auto=True,
-            )
+            with transaction.atomic():
+                request = (
+                    ChemicalAnalysisRequest.objects
+                    .select_for_update(of=("self",))
+                    .filter(
+                        pk=request_id,
+                        status=ChemicalAnalysisRequest.Status.COMPLETED,
+                    )
+                    .first()
+                )
+                if not request or not request.batch_id:
+                    return
+
+                batch = (
+                    ChemicalBatch.objects
+                    .select_for_update()
+                    .filter(pk=request.batch_id)
+                    .first()
+                )
+                if not batch or batch.status != ChemicalBatch.Status.RECEIVED:
+                    return
+
+                batch.transition_to(
+                    ChemicalBatch.Status.ANALYSED,
+                    performed_by=None,
+                    auto=True,
+                )
 
         except ValidationError as exc:
             logger.warning(
-                "Unable to synchronize batch status "
-                "from completed analysis request",
-                extra={
-                    "request_id": instance.pk,
-                    "batch_id": batch.pk,
-                    "error": str(exc),
-                },
+                "Unable to synchronize batch status from completed analysis request "
+                "request_id=%s batch_id=%s error=%s",
+                request_id,
+                instance.batch_id,
+                exc,
             )
 
         except Exception:
             logger.exception(
-                "Unexpected batch synchronization failure",
-                extra={
-                    "request_id": instance.pk,
-                    "batch_id": batch.pk,
-                },
+                "Unexpected batch synchronization failure request_id=%s batch_id=%s",
+                request_id,
+                instance.batch_id,
             )
 
     transaction.on_commit(synchronize)

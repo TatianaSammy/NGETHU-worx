@@ -44,7 +44,6 @@ class DashboardNotificationsView(LoginRequiredMixin, View):
                 from alerts.models import VoiceAlert
 
                 voices = VoiceAlert.objects.select_related(
-                    "voice_over",
                     "alert_config",
                     "alert_config__template",
                 )
@@ -62,7 +61,7 @@ class DashboardNotificationsView(LoginRequiredMixin, View):
                     voice = None
                 if voice and voice.profile_audio_ready:
                     alert["voice_url"] = voice.audio_file.url
-                    alert["voice_profile"] = voice.voice_over.name
+                    alert["voice_profile"] = "TTS"
                     config = voice.alert_config
                     alert["auto_voice"] = bool(
                         not config

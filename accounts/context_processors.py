@@ -31,7 +31,7 @@ APP_LABELS = {
     "PHadjustment": "pH Adjustment",
     "qc": "Quality Control",
     "qc_analytics": "QCA Results",
-    "sc": "Supply Chain",
+    "sc": "Shift Work Management",
     "t": "Treatment Plants",
     "weeklytasks": "Weekly Tasks",
     "wc": "Water Conservation",

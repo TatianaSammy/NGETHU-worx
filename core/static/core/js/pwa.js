@@ -1,4 +1,4 @@
-/* NCWSCwaterLAB — High Performance PWA shell with explicit logout sync */
+/* NCWSCwaterLAB — High Performance PWA shell */
 (function () {
     "use strict";
 
@@ -35,56 +35,7 @@
         }, { once: true });
     }
 
-    // 3. Synchronize an explicit logout across tabs in this browser.
-    var authChannel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("qad_auth_sync") : null;
-
-    function broadcastLogout(reason) {
-        var payload = JSON.stringify({
-            action: "logout",
-            reason: reason || "logged_out",
-            timestamp: Date.now()
-        });
-        try {
-            localStorage.setItem("qad_auth_logout_event", payload);
-        } catch (e) {}
-        if (authChannel) {
-            try {
-                authChannel.postMessage({ action: "logout", reason: reason || "logged_out" });
-            } catch (e) {}
-        }
-    }
-
-    function handleRemoteLogout(reason) {
-        if (reason === "window_closed") return;
-        sessionStorage.removeItem("qad_active_session");
-        var isLoginPage = window.location.pathname.includes("/login/");
-        if (!isLoginPage) {
-            window.location.href = "/accounts/login/?reason=" + encodeURIComponent(reason || "logged_out");
-        }
-    }
-
-    if (authChannel) {
-        authChannel.onmessage = function (event) {
-            if (event.data && event.data.action === "logout") {
-                handleRemoteLogout(event.data.reason);
-            }
-        };
-    }
-
-    window.addEventListener("storage", function (event) {
-        if (event.key === "qad_auth_logout_event" && event.newValue) {
-            try {
-                var data = JSON.parse(event.newValue);
-                if (data && data.action === "logout") {
-                    handleRemoteLogout(data.reason);
-                }
-            } catch (e) {}
-        }
-    });
-
-    // 4. Safe Session Navigation
-    // We do NOT send logout beacons on pagehide / tab switches because that causes
-    // premature logouts during normal navigation, dropdown changes, or page refreshes.
+    // 3. Safe Session Navigation
     window.addEventListener("keydown", function (e) {
         if (e.key === "Escape" || e.keyCode === 27) {
             if (document.fullscreenElement) {
@@ -93,19 +44,7 @@
         }
     });
 
-    // 5. Intercept Manual Logout Links to Broadcast to All Tabs
-    document.addEventListener("click", function (event) {
-        var target = event.target;
-        while (target && target !== document.body) {
-            if (target.tagName === "A" && target.href && (target.href.includes("/accounts/logout/") || target.href.endsWith("/logout/"))) {
-                broadcastLogout("logged_out");
-                break;
-            }
-            target = target.parentElement;
-        }
-    }, true);
-
-    // 7. Offline / Online Network Indicator
+    // 4. Offline / Online Network Indicator
     var networkNotice = null;
 
     function updateNetworkNotice() {
@@ -132,7 +71,7 @@
     window.addEventListener("offline", updateNetworkNotice);
     window.addEventListener("online", updateNetworkNotice);
 
-    // 8. Modern PWA Install Affordance
+    // 5. Modern PWA Install Affordance
     var installPrompt = null;
     var installButton = null;
 

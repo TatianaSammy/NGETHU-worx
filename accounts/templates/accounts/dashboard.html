@@ -22,9 +22,14 @@
         </div>
     </div>
 </div>
+
+{% include "accounts/partials/crud_modal.html" %}
+{% include "accounts/partials/delete_confirm_modal.html" %}
+{% include "accounts/partials/import_modal.html" %}
 {% endblock %}
 
 {% block extra_scripts %}
     {{ block.super }}
     <script src="{% static 'accounts/js/dashboard-tabs.js' %}?v=20261030-lazy-tabs" defer></script>
+    <script src="{% static 'accounts/js/accounts-crud.js' %}?v=20261112-v1" defer></script>
 {% endblock %}

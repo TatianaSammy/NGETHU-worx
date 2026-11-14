@@ -4,12 +4,22 @@ from datetime import date, timedelta
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from core.plant_section_scope import user_plant_section
-from sc.models import AnnualLeave, MonthlyDutyRoster, Shift, ShiftAssignment, ShiftSectionRequirement
+from core.plant_section_scope import section_scope_q, user_plant_section
+from sc.models import (
+    AnnualLeave,
+    MonthlyDutyRoster,
+    Shift,
+    ShiftAssignment,
+    ShiftHandover,
+    ShiftSectionRequirement,
+    ShiftSupervisor,
+)
+from t.models import TreatmentPlant
 from accounts.models import CustomUser
 
 
@@ -60,6 +70,10 @@ def _parse_range(data):
     return start, end
 
 
+def _is_roster_week(start, end):
+    return (start, end) in MonthlyDutyRoster.get_weeks_in_month(start.year, start.month)
+
+
 def _dates_for_type(start, end, day_type):
     days = []
     current = start
@@ -74,40 +88,297 @@ def _dates_for_type(start, end, day_type):
     return days
 
 
-def _shift_interval(shift, day_offset=0):
-    start = day_offset + shift.start_time.hour * 60 + shift.start_time.minute
-    end = day_offset + shift.end_time.hour * 60 + shift.end_time.minute
-    if end <= start:
-        end += 1440
-    return start, end
-
-
-def _shifts_overlap(first, first_date, second, second_date):
-    first_start, first_end = _shift_interval(first)
-    second_offset = (second_date - first_date).days * 1440
-    second_start, second_end = _shift_interval(second, second_offset)
-    return first_start < second_end and second_start < first_end
-
-
-def _staff_has_conflict(staff_id, assignment_date, shift, *, exclude_id=None):
-    existing = ShiftAssignment.objects.filter(
-        staff_id=staff_id,
-        date__range=(assignment_date - timedelta(days=1), assignment_date + timedelta(days=1)),
-        is_deleted=False,
-        shift__is_deleted=False,
-        shift__treatment_plant_id=shift.treatment_plant_id,
-    ).exclude(pk=exclude_id).select_related("shift")
-    for item in existing:
-        if _shifts_overlap(shift, assignment_date, item.shift, item.date):
-            return True
-    return False
-
-
 def _section_for_actor(request, plant_id, section_id):
     if request.user.is_superuser:
         return True
     actor_plant_id, actor_section_id = user_plant_section(request.user)
     return actor_plant_id == plant_id and actor_section_id == section_id
+
+
+def _can_manage_weekly_supervisors(user):
+    return user.is_superuser or any(
+        user.has_perm(permission)
+        for permission in (
+            "sc.add_shiftsupervisor",
+            "sc.change_shiftsupervisor",
+        )
+    )
+
+
+def _assign_weekly_supervisor(request, data):
+    if not _can_manage_weekly_supervisors(request.user):
+        return _json_error("You do not have permission to assign a weekly shift supervisor.", 403)
+    try:
+        shift_id = int(data.get("shift_id"))
+        section_id = int(data.get("section_id"))
+        plant_id = int(data.get("plant_id"))
+        user_id = int(data.get("user_id"))
+    except (TypeError, ValueError):
+        return _json_error("Choose a shift, plant, section, and staff member.")
+    week_start, week_end = _parse_range(data)
+    if not week_start or not week_end or not _is_roster_week(week_start, week_end):
+        return _json_error("Choose a valid duty roster week.")
+
+    try:
+        with transaction.atomic():
+            shift = Shift.objects.select_for_update().filter(
+                pk=shift_id,
+                treatment_plant_id=plant_id,
+                is_deleted=False,
+            ).first()
+            if not shift:
+                return _json_error("The selected shift is not available at this treatment plant.", 404)
+            if not _section_for_actor(request, plant_id, section_id):
+                return _json_error("The selected section is outside your assigned scope.", 403)
+            requirement = ShiftSectionRequirement.objects.select_for_update().filter(
+                shift_id=shift_id,
+                section_id=section_id,
+                section__is_active=True,
+            ).filter(section_scope_q("section__treatment_plant_id", plant_id)).first()
+            if not requirement:
+                return _json_error("This shift is not configured for the selected section.", 409)
+            staff = CustomUser.objects.select_for_update().filter(
+                pk=user_id,
+                is_active=True,
+            ).filter(
+                Q(is_superuser=True)
+                | Q(assigned_treatment_plant_id=plant_id, section_id=section_id)
+            ).first()
+            if not staff:
+                return _json_error("The selected user does not belong to this plant and section.", 409)
+            if not ShiftSupervisor.objects.filter(
+                treatment_plant_id=plant_id,
+                section_id=section_id,
+                user_id=user_id,
+                is_active=True,
+                user__is_active=True,
+                section__is_active=True,
+            ).filter(
+                Q(shift_id=shift_id) | Q(shift__isnull=True) | Q(shift__treatment_plant_id=plant_id)
+            ).exists():
+                return _json_error("Choose an active shift supervisor designated for this plant and section.", 409)
+            has_assignment = ShiftAssignment.objects.filter(
+                shift_id=shift_id,
+                staff_id=user_id,
+                staff__section_id=section_id,
+                date__range=(week_start, week_end),
+                is_deleted=False,
+            ).exists()
+
+            if not has_assignment:
+                assignment_id = data.get("assignment_id")
+                moved_assignment = None
+                if assignment_id:
+                    try:
+                        moved_assignment = ShiftAssignment.objects.select_for_update().filter(
+                            pk=int(assignment_id),
+                            staff_id=user_id,
+                            is_deleted=False,
+                        ).first()
+                    except (ValueError, TypeError):
+                        pass
+                if not moved_assignment:
+                    moved_assignment = ShiftAssignment.objects.select_for_update().filter(
+                        staff_id=user_id,
+                        staff__section_id=section_id,
+                        date__range=(week_start, week_end),
+                        is_deleted=False,
+                    ).first()
+
+                if moved_assignment:
+                    candidate_dates = [moved_assignment.date]
+                    curr = week_start
+                    while curr <= week_end:
+                        if curr != moved_assignment.date:
+                            candidate_dates.append(curr)
+                        curr += timedelta(days=1)
+
+                    moved = False
+                    for candidate_date in candidate_dates:
+                        day_type = (
+                            ShiftAssignment.DAYTYPE_WEEKEND
+                            if candidate_date.weekday() >= 5
+                            else ShiftAssignment.DAYTYPE_WEEKDAY
+                        )
+                        can_accept, _ = shift.can_accept_assignment(section_id, candidate_date, day_type=day_type)
+                        is_eligible, _ = shift.is_staff_eligible(
+                            staff, candidate_date, section=section_id, exclude_assignment_id=moved_assignment.pk
+                        )
+                        if can_accept and is_eligible:
+                            try:
+                                moved_assignment.move_assignment(
+                                    target_shift=shift,
+                                    target_date=candidate_date,
+                                    day_type=day_type,
+                                    moved_by=request.user,
+                                    remarks=f"Reassigned as weekly supervisor for {shift.name}.",
+                                )
+                                moved = True
+                                break
+                            except ValidationError:
+                                pass
+                    if not moved:
+                        # Fall back to moving with original date to surface domain error
+                        moved_assignment.move_assignment(
+                            target_shift=shift,
+                            target_date=moved_assignment.date,
+                            day_type=moved_assignment.day_type,
+                            moved_by=request.user,
+                            remarks=f"Reassigned as weekly supervisor for {shift.name}.",
+                        )
+                else:
+                    return _json_error("The shift supervisor must have a roster assignment on this shift during the selected week.", 409)
+
+            # Remove any weekly supervisor designation this user held on any other shift for this week
+            ShiftSupervisor.objects.filter(
+                user_id=user_id,
+                week_start__isnull=False,
+                week_start__lte=week_end,
+                week_end__gte=week_start,
+            ).exclude(shift_id=shift_id, section_id=section_id).delete()
+
+            designation, _created = ShiftSupervisor.objects.update_or_create(
+                shift_id=shift_id,
+                section_id=section_id,
+                week_start=week_start,
+                defaults={
+                    "treatment_plant_id": plant_id,
+                    "week_end": week_end,
+                    "user_id": user_id,
+                    "is_active": True,
+                    "designated_by": request.user,
+                },
+            )
+
+    except (IntegrityError, ValidationError) as error:
+        detail = "; ".join(error.messages) if isinstance(error, ValidationError) else "The weekly supervisor assignment conflicts with another duty."
+        return _json_error(detail, 409)
+
+    return JsonResponse({
+        "ok": True,
+        "message": f"{staff.get_full_name() or staff.get_username()} is assigned to supervise {shift.name} for {week_start:%d %b}–{week_end:%d %b %Y}.",
+        "user_id": staff.pk,
+        "shift_id": shift.pk,
+        "section_id": section_id,
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "assignment_id": designation.pk,
+    })
+
+
+def _balance_supervisors_action(request, data):
+    if not _can_manage_weekly_supervisors(request.user):
+        return _json_error("You do not have permission to balance shift supervisors.", 403)
+    try:
+        plant_id = int(data.get("plant_id"))
+        section_id = int(data.get("section_id"))
+        year = int(data.get("year"))
+        month = int(data.get("month"))
+    except (TypeError, ValueError):
+        return _json_error("A valid plant, section, year, and month must be provided.")
+
+    if not _section_for_actor(request, plant_id, section_id):
+        return _json_error("The selected section is outside your assigned scope.", 403)
+
+    from sc.services.supervisor_balance_service import balance_supervisors_for_roster
+
+    overwrite_existing = bool(data.get("overwrite_existing", False))
+    try:
+        result = balance_supervisors_for_roster(
+            treatment_plant_id=plant_id,
+            section_id=section_id,
+            year=year,
+            month=month,
+            designated_by=request.user,
+            overwrite_existing=overwrite_existing,
+        )
+    except Exception as exc:
+        return _json_error(f"Balancing failed: {str(exc)}", 500)
+
+    if not result.get("success"):
+        return _json_error(result.get("message", "Balancing failed."), 409)
+
+    return JsonResponse({
+        "ok": True,
+        "message": result.get("message"),
+        "slots_assigned": result.get("slots_assigned"),
+        "total_slots": result.get("total_slots"),
+        "summary": result.get("summary"),
+    })
+
+
+@login_required
+@require_GET
+def shift_supervisor_options(request):
+    if not (
+        request.user.is_superuser
+        or request.user.has_perm("sc.add_shiftsupervisor")
+        or request.user.has_perm("sc.change_shiftsupervisor")
+    ):
+        return _json_error("You do not have permission to manage shift supervisors.", 403)
+
+    plant_id = (request.GET.get("plant_id") or "").strip()
+    if not plant_id.isdecimal():
+        return _json_error("Choose a treatment plant.")
+    plant_id = int(plant_id)
+    actor_plant_id, actor_section_id = user_plant_section(request.user)
+    if not request.user.is_superuser and (
+        actor_plant_id != plant_id or not actor_section_id
+    ):
+        return _json_error("The selected plant is outside your assigned scope.", 403)
+
+    shifts = Shift.objects.filter(
+        treatment_plant_id=plant_id,
+        is_deleted=False,
+        section_requirements__section__is_active=True,
+    ).filter(section_scope_q(
+        "section_requirements__section__treatment_plant_id",
+        plant_id,
+    )).distinct().order_by("start_time", "name")
+    if not request.user.is_superuser:
+        shifts = shifts.filter(section_requirements__section_id=actor_section_id)
+
+    shift_id = (request.GET.get("shift_id") or "").strip()
+    selected_shift = None
+    if shift_id:
+        if not shift_id.isdecimal():
+            return _json_error("Choose a valid shift.")
+        selected_shift = shifts.filter(pk=shift_id).first()
+        if not selected_shift:
+            return _json_error("The selected shift is not configured for this plant and section.", 409)
+
+    sections = ShiftSectionRequirement.objects.none()
+    if selected_shift:
+        sections = ShiftSectionRequirement.objects.filter(
+            shift=selected_shift,
+            section__is_active=True,
+        ).filter(section_scope_q("section__treatment_plant_id", plant_id))
+        if not request.user.is_superuser:
+            sections = sections.filter(section_id=actor_section_id)
+        sections = sections.select_related("section").order_by("section__name")
+
+    section_id = (request.GET.get("section_id") or "").strip()
+    users = CustomUser.objects.none()
+    if section_id:
+        if not section_id.isdecimal() or not sections.filter(section_id=section_id).exists():
+            return _json_error("The selected section is not configured for this shift.", 409)
+        users = CustomUser.objects.filter(is_active=True).filter(
+            Q(is_superuser=True)
+            | Q(assigned_treatment_plant_id=plant_id, section_id=section_id)
+        ).order_by("last_name", "first_name", "username")
+
+    return JsonResponse({
+        "ok": True,
+        "shifts": [{
+            "id": shift.pk,
+            "label": f"{shift.name} · {shift.start_time:%H:%M}–{shift.end_time:%H:%M}",
+        } for shift in shifts],
+        "sections": [{"id": item.section_id, "label": item.section.name} for item in sections],
+        "users": [{
+            "id": user.pk,
+            "label": user.get_full_name() or user.get_username(),
+        } for user in users],
+    })
 
 
 @login_required
@@ -119,12 +390,17 @@ def roster_assignment_options(request):
         shift_id = int(request.GET.get("shift_id", ""))
     except (TypeError, ValueError):
         return _json_error("Choose a valid shift.")
-    shift = Shift.objects.filter(is_deleted=False).filter(pk=shift_id).first()
+    shift = Shift.objects.filter(is_deleted=False).select_related("treatment_plant").filter(pk=shift_id).first()
     if not shift:
         return _json_error("The selected shift is unavailable.", 404)
+    requested_plant = (request.GET.get("plant_id") or "").strip()
+    if not requested_plant or not requested_plant.isdecimal():
+        return _json_error("Choose a treatment plant before loading roster options.")
+    if int(requested_plant) != shift.treatment_plant_id:
+        return _json_error("The selected shift does not belong to this treatment plant.", 409)
     start, end = _parse_range({"week_start": request.GET.get("week_start"), "week_end": request.GET.get("week_end")})
     day_type = request.GET.get("day_type")
-    if not start or not end or day_type not in DAY_TYPES:
+    if not start or not end or not _is_roster_week(start, end) or day_type not in DAY_TYPES:
         return _json_error("Choose a valid roster week and day type.")
 
     plant_id = shift.treatment_plant_id
@@ -136,82 +412,58 @@ def roster_assignment_options(request):
     requirements = ShiftSectionRequirement.objects.filter(
         shift_id=shift.pk,
         shift__treatment_plant_id=plant_id,
-        section__treatment_plant_id=plant_id,
         section__is_active=True,
-    ).select_related("section").order_by("section__name")
+    ).filter(section_scope_q("section__treatment_plant_id", plant_id)).select_related("section").order_by("section__name")
+    requested_section = (request.GET.get("section_id") or "").strip()
+    if requested_section:
+        if not requested_section.isdecimal():
+            return _json_error("Choose a valid section.")
+        if not request.user.is_superuser and int(requested_section) != actor_section_id:
+            return _json_error("The requested section is outside your assigned scope.", 403)
+        requirements = requirements.filter(section_id=requested_section)
+        if not requirements.exists():
+            return _json_error("The selected section is not configured for this shift.", 403)
     if not request.user.is_superuser:
         requirements = requirements.filter(section_id=actor_section_id)
-    elif actor_section_id and requirements.filter(section_id=actor_section_id).exists():
-        requirements = requirements.filter(section_id=actor_section_id)
-    locked_section_id = actor_section_id if actor_section_id and requirements.filter(section_id=actor_section_id).exists() else None
+    preferred_section = (request.GET.get("preferred_section_id") or "").strip()
+    if preferred_section and (
+        not preferred_section.isdecimal()
+        or not requirements.filter(section_id=preferred_section).exists()
+    ):
+        preferred_section = ""
+    locked_section_id = None if request.user.is_superuser else actor_section_id
 
     dates = _dates_for_type(start, end, day_type)
     if not dates:
         day_label = "weekdays" if day_type == ShiftAssignment.DAYTYPE_WEEKDAY else "weekend days" if day_type == ShiftAssignment.DAYTYPE_WEEKEND else "dates"
-        return JsonResponse({"ok": True, "slots": [], "locked_section_id": locked_section_id, "message": f"No {day_label} fall within this duty week."})
+        return JsonResponse({"ok": True, "slots": [], "plant": {"id": shift.treatment_plant_id, "name": shift.treatment_plant.name}, "locked_section_id": locked_section_id, "preferred_section_id": preferred_section or None, "can_select_section": request.user.is_superuser, "message": f"No {day_label} fall within this duty week."})
 
     requirements = list(requirements)
     if not requirements:
         return JsonResponse({
             "ok": True,
             "slots": [],
+            "plant": {"id": shift.treatment_plant_id, "name": shift.treatment_plant.name},
             "locked_section_id": locked_section_id,
+            "preferred_section_id": preferred_section or None,
+            "can_select_section": request.user.is_superuser,
             "message": "No active section is configured for this shift within the selected treatment plant.",
         })
 
-    staff_by_section = {
-        requirement.section_id: list(CustomUser.objects.filter(
-            is_active=True,
-            assigned_treatment_plant_id=plant_id,
-            section_id=requirement.section_id,
-        ).order_by("last_name", "first_name", "username"))
-        for requirement in requirements
-    }
     slots = []
+    capacity_messages = []
     for assignment_date in dates:
         sections = []
         for requirement in requirements:
-            staff = staff_by_section[requirement.section_id]
-            if not staff:
-                continue
-            staff_ids = [person.pk for person in staff]
-            unavailable = set(AnnualLeave.objects.filter(
-                staff_id__in=staff_ids,
-                treatment_plant_id=plant_id,
-                status__in=AnnualLeave.UNAVAILABLE_STATUSES,
-                start_date__lte=assignment_date,
-                end_date__gte=assignment_date,
-            ).values_list("staff_id", flat=True))
-            assigned = list(ShiftAssignment.objects.filter(
-                shift_id=shift.pk,
-                date=assignment_date,
-                is_deleted=False,
-                staff__assigned_treatment_plant_id=plant_id,
-                staff__section_id=requirement.section_id,
-            ).select_related("staff", "shift"))
-            if len(assigned) >= requirement.maximum_allowed:
-                continue
-            assigned_ids = {item.staff_id for item in assigned}
-            overlapping_ids = {
-                item.staff_id
-                for item in ShiftAssignment.objects.filter(
-                    staff__in=staff,
-                    date__range=(assignment_date - timedelta(days=1), assignment_date + timedelta(days=1)),
-                    is_deleted=False,
-                    shift__is_deleted=False,
-                    shift__treatment_plant_id=plant_id,
-                ).select_related("shift")
-                if _shifts_overlap(shift, assignment_date, item.shift, item.date)
-            }
-            candidates = [
-                person for person in staff
-                if person.pk not in unavailable
-                and person.pk not in assigned_ids
-                and person.pk not in overlapping_ids
-            ]
+            can_accept, capacity_message = shift.can_accept_assignment(requirement.section, assignment_date, day_type=day_type)
+            candidates = shift.get_available_staff(assignment_date, section=requirement.section) if can_accept else []
+            if capacity_message:
+                capacity_messages.append(capacity_message)
             sections.append({
                 "id": requirement.section_id,
                 "name": requirement.section.name,
+                "capacity_available": can_accept,
+                "capacity_message": capacity_message or "",
                 "users": [{
                     "id": person.pk,
                     "name": person.get_full_name() or person.get_username(),
@@ -222,10 +474,188 @@ def roster_assignment_options(request):
             "label": assignment_date.strftime("%a, %d %b"),
             "sections": sections,
         })
-    has_active_staff = any(staff_by_section.values())
+    has_active_staff = CustomUser.objects.filter(
+        is_active=True,
+        assigned_treatment_plant_id=plant_id,
+        section_id__in=[requirement.section_id for requirement in requirements],
+    ).exists()
     has_candidates = any(section["users"] for slot in slots for section in slot["sections"])
-    message = "" if has_candidates else "No active staff are assigned to this section." if not has_active_staff else "No staff are eligible for these dates; check current assignments, leave or off-duty records, and shift capacity."
-    return JsonResponse({"ok": True, "slots": slots, "locked_section_id": locked_section_id, "message": message})
+    capacity_open = any(section["capacity_available"] for slot in slots for section in slot["sections"])
+    if has_candidates:
+        message = ""
+    elif not has_active_staff:
+        message = "No active staff are assigned to the configured section."
+    elif not capacity_open:
+        message = capacity_messages[0] if capacity_messages else "The shift is at capacity."
+    else:
+        message = "No staff are eligible for these dates; check current assignments, leave or off-duty records, and shift capacity."
+    return JsonResponse({
+        "ok": True,
+        "slots": slots,
+        "plant": {"id": shift.treatment_plant_id, "name": shift.treatment_plant.name},
+        "locked_section_id": locked_section_id,
+        "preferred_section_id": preferred_section or None,
+        "can_select_section": request.user.is_superuser,
+        "message": message,
+    })
+
+
+def _assign_leave(request, data):
+    if not (
+        request.user.is_superuser
+        or request.user.has_perm("sc.change_shiftassignment")
+        or request.user.has_perm("sc.add_annualleave")
+        or request.user.has_perm("sc.manage_staff_availability")
+    ):
+        return _json_error("You do not have permission to manage staff availability.", 403)
+
+    try:
+        staff_id = int(data.get("staff_id"))
+        plant_id = int(data.get("plant_id"))
+    except (TypeError, ValueError):
+        return _json_error("Choose a treatment plant and staff member.")
+
+    week_start, week_end = _parse_range(data)
+    if not week_start or not week_end or not _is_roster_week(week_start, week_end):
+        return _json_error("Choose a valid duty roster week.")
+
+    try:
+        with transaction.atomic():
+            plant = TreatmentPlant.objects.select_for_update().filter(pk=plant_id).first()
+            if not plant:
+                return _json_error("Treatment plant not found.", 404)
+
+            staff = CustomUser.objects.select_for_update().filter(pk=staff_id, is_active=True).first()
+            if not staff:
+                return _json_error("Staff member not found or inactive.", 404)
+
+            if not staff.is_superuser and staff.assigned_treatment_plant_id != plant_id:
+                return _json_error("Staff member does not belong to this treatment plant.", 409)
+
+            # 1. Remove any weekly supervisor assignments held by this staff for this week
+            ShiftSupervisor.objects.filter(
+                user_id=staff_id,
+                week_start__isnull=False,
+                week_start__lte=week_end,
+                week_end__gte=week_start,
+            ).delete()
+
+            # 2. For any shifts where staff was supervising, reset supervisor to active static supervisor or None
+            supervised_assignments = ShiftAssignment.objects.select_for_update().filter(
+                supervisor_id=staff_id,
+                date__range=(week_start, week_end),
+                is_deleted=False,
+            )
+            for sa in supervised_assignments:
+                fallback_sup = ShiftSupervisor.get_active_supervisor(
+                    treatment_plant_id=plant_id,
+                    section_id=sa.staff.section_id,
+                    shift_id=sa.shift_id,
+                    assignment_date=sa.date,
+                )
+                sa.supervisor = fallback_sup if fallback_sup and fallback_sup.pk != staff_id else None
+                sa.save(update_fields=("supervisor",))
+
+            # 3. Clear temporary supervisor or handover assignments for this staff
+            ShiftAssignment.objects.filter(
+                temp_supervisor_id=staff_id,
+                date__range=(week_start, week_end),
+                is_deleted=False,
+            ).update(temp_supervisor=None, temp_supervisor_start=None, temp_supervisor_end=None)
+
+            ShiftAssignment.objects.filter(
+                handover_to_id=staff_id,
+                date__range=(week_start, week_end),
+                is_deleted=False,
+            ).update(handover_to=None)
+
+            # Clear any ShiftHandover supervisor references for this staff during this week
+            ShiftHandover.objects.filter(
+                date__range=(week_start, week_end),
+                incoming_supervisor_id=staff_id,
+            ).update(incoming_supervisor=None)
+
+            ShiftHandover.objects.filter(
+                date__range=(week_start, week_end),
+                outgoing_supervisor_id=staff_id,
+            ).update(outgoing_supervisor=None)
+
+            # 4. Remove all roster assignments for this staff during this week
+            staff_assignments = ShiftAssignment.objects.select_for_update().filter(
+                staff_id=staff_id,
+                date__range=(week_start, week_end),
+                is_deleted=False,
+            )
+            for sa in staff_assignments:
+                sa.delete()
+
+            # 5. Clear DailyTaskAssignments if any
+            try:
+                from weeklytasks.models import DailyTaskAssignment
+                DailyTaskAssignment.objects.filter(
+                    user_id=staff_id,
+                    date__range=(week_start, week_end),
+                ).delete()
+            except Exception:
+                pass
+
+            # 6. Create or update AnnualLeave record
+            leave = AnnualLeave.objects.select_for_update().filter(
+                staff=staff,
+                treatment_plant=plant,
+                start_date__lte=week_end,
+                end_date__gte=week_start,
+            ).first()
+
+            if not leave:
+                leave = AnnualLeave(
+                    staff=staff,
+                    treatment_plant=plant,
+                    start_date=week_start,
+                    end_date=week_end,
+                    status=AnnualLeave.STATUS_ANNUAL_LEAVE,
+                    reason=f"Assigned from weekly duty roster by {request.user.get_username()}.",
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+            else:
+                leave.start_date = min(leave.start_date, week_start)
+                leave.end_date = max(leave.end_date, week_end)
+                leave.status = AnnualLeave.STATUS_ANNUAL_LEAVE
+                leave.updated_by = request.user
+                # Clean up any assignments and handovers across the expanded range
+                ShiftAssignment.objects.filter(
+                    staff_id=staff_id,
+                    date__range=(leave.start_date, leave.end_date),
+                    is_deleted=False,
+                ).delete()
+                ShiftSupervisor.objects.filter(
+                    user_id=staff_id,
+                    week_start__isnull=False,
+                    week_start__lte=leave.end_date,
+                    week_end__gte=leave.start_date,
+                ).delete()
+                ShiftHandover.objects.filter(
+                    date__range=(leave.start_date, leave.end_date),
+                    incoming_supervisor_id=staff_id,
+                ).update(incoming_supervisor=None)
+                ShiftHandover.objects.filter(
+                    date__range=(leave.start_date, leave.end_date),
+                    outgoing_supervisor_id=staff_id,
+                ).update(outgoing_supervisor=None)
+
+            leave.full_clean()
+            leave.save()
+
+            return JsonResponse({
+                "ok": True,
+                "message": f"{staff.get_full_name() or staff.get_username()} placed on annual leave for {week_start:%d %b}–{week_end:%d %b %Y}.",
+                "staff_id": staff.pk,
+                "leave_id": leave.pk,
+            })
+    except (IntegrityError, ValidationError) as error:
+        detail = "; ".join(error.messages) if isinstance(error, ValidationError) else "Could not record annual leave due to a conflict."
+        return _json_error(detail, 409)
 
 
 @login_required
@@ -235,6 +665,12 @@ def roster_assignment_action(request):
     if data is None:
         return _json_error("The request body is not valid JSON.")
     action = data.get("action")
+    if action == "supervisor":
+        return _assign_weekly_supervisor(request, data)
+    if action == "balance_supervisors":
+        return _balance_supervisors_action(request, data)
+    if action == "leave":
+        return _assign_leave(request, data)
     required_permission = "sc.add_shiftassignment" if action == "add" else "sc.change_shiftassignment"
     if action not in {"add", "move"}:
         return _json_error("Choose an add or move action.")
@@ -257,6 +693,7 @@ def roster_assignment_action(request):
     if (
         not week_start
         or not week_end
+        or not _is_roster_week(week_start, week_end)
         or assignment_date not in _dates_for_type(week_start, week_end, day_type)
     ):
         return _json_error("The selected date does not match this roster cell.")
@@ -272,14 +709,18 @@ def roster_assignment_action(request):
                 shift = Shift.objects.filter(is_deleted=False, pk=shift_id).first()
                 if not shift:
                     return _json_error("The selected shift is unavailable.", 404)
+                requested_plant = str(data.get("plant_id") or "").strip()
+                if not requested_plant or not requested_plant.isdecimal():
+                    return _json_error("Choose a treatment plant before adding staff.")
+                if int(requested_plant) != shift.treatment_plant_id:
+                    return _json_error("The selected shift does not belong to this treatment plant.", 409)
                 if not _section_for_actor(request, shift.treatment_plant_id, section_id):
                     return _json_error("The selected section is outside your assigned scope.", 403)
                 requirement = ShiftSectionRequirement.objects.select_for_update().filter(
                     shift_id=shift.pk,
                     section_id=section_id,
-                    section__treatment_plant_id=shift.treatment_plant_id,
                     section__is_active=True,
-                ).first()
+                ).filter(section_scope_q("section__treatment_plant_id", shift.treatment_plant_id)).first()
                 if not requirement:
                     return _json_error("This shift is not configured for the selected section.", 400)
                 staff = CustomUser.objects.select_for_update().filter(
@@ -290,38 +731,25 @@ def roster_assignment_action(request):
                 ).first()
                 if not staff:
                     return _json_error("That staff member no longer belongs to this plant and section.", 409)
-                count = ShiftAssignment.objects.filter(
-                    shift_id=shift.pk,
-                    date=assignment_date,
-                    is_deleted=False,
-                    staff__assigned_treatment_plant_id=shift.treatment_plant_id,
-                    staff__section_id=section_id,
-                ).count()
-                if count >= requirement.maximum_allowed:
-                    return _json_error("This shift has reached its maximum staffing limit.", 409)
-                if AnnualLeave.is_unavailable(staff.pk, assignment_date):
-                    return _json_error("This staff member is on annual leave or off duty for that date.", 409)
-                if _staff_has_conflict(staff.pk, assignment_date, shift):
-                    return _json_error("This staff member already has an overlapping shift on that date.", 409)
-                roster, _created = MonthlyDutyRoster.objects.get_or_create(
-                    treatment_plant_id=shift.treatment_plant_id,
-                    month=assignment_date.month,
-                    year=assignment_date.year,
-                    defaults={"created_by": request.user, "notes": "Created from the duty roster dashboard."},
-                )
-                assignment = ShiftAssignment(
-                    duty_roster=roster,
-                    shift=shift,
+
+                # Gate creation directly through ShiftAssignment.create_assignment
+                assignment = ShiftAssignment.create_assignment(
                     staff=staff,
+                    shift=shift,
                     date=assignment_date,
                     day_type=day_type,
+                    remarks=f"Added from the weekly duty roster by {request.user.get_username()}.",
+                    created_by=request.user,
                 )
-                assignment._audit_user = request.user
-                assignment.save()
             else:
                 assignment_id = int(data.get("assignment_id"))
-                assignment = _scoped_assignment_queryset(request.user).select_for_update().filter(pk=assignment_id).first()
-                if not assignment:
+                if not _scoped_assignment_queryset(request.user).filter(pk=assignment_id).exists():
+                    return _json_error("The roster entry was not found in your scope.", 404)
+                assignment = ShiftAssignment.objects.select_for_update().filter(
+                    pk=assignment_id,
+                    is_deleted=False,
+                ).first()
+                if not assignment or not _scoped_assignment_queryset(request.user).filter(pk=assignment.pk).exists():
                     return _json_error("The roster entry was not found in your scope.", 404)
                 target_shift = Shift.objects.filter(
                     is_deleted=False,
@@ -330,50 +758,40 @@ def roster_assignment_action(request):
                 ).first()
                 if not target_shift:
                     return _json_error("The destination shift is unavailable in this treatment plant.", 404)
-                section_id = assignment.staff.section_id
-                if not assignment.staff.is_superuser and not ShiftSectionRequirement.objects.filter(
-                    shift_id=target_shift.pk,
-                    section_id=section_id,
-                    section__treatment_plant_id=target_shift.treatment_plant_id,
-                    section__is_active=True,
-                ).exists():
-                    return _json_error("The destination shift is not configured for this staff member's section.", 409)
+                requested_plant = str(data.get("plant_id") or "").strip()
+                if not requested_plant or not requested_plant.isdecimal():
+                    return _json_error("Choose a treatment plant before moving staff.")
+                if int(requested_plant) != target_shift.treatment_plant_id:
+                    return _json_error("The selected shift does not belong to this treatment plant.", 409)
                 start, end = _parse_range(data)
                 if not start or not end or not start <= assignment_date <= end:
                     return _json_error("The destination date is outside the selected roster week.")
-                requirement = ShiftSectionRequirement.objects.select_for_update().filter(
-                    shift_id=target_shift.pk,
-                    section_id=section_id,
-                    section__treatment_plant_id=target_shift.treatment_plant_id,
-                    section__is_active=True,
-                ).first()
-                if not requirement:
-                    return _json_error("The destination shift is not configured for this staff member's section.", 409)
-                assigned_count = ShiftAssignment.objects.filter(
-                    shift_id=target_shift.pk,
-                    date=assignment_date,
-                    is_deleted=False,
-                    staff__assigned_treatment_plant_id=target_shift.treatment_plant_id,
-                    staff__section_id=section_id,
-                ).exclude(pk=assignment.pk).count()
-                if assigned_count >= requirement.maximum_allowed:
-                    return _json_error("The destination shift has reached its maximum staffing limit.", 409)
-                if AnnualLeave.is_unavailable(assignment.staff_id, assignment_date):
-                    return _json_error("This staff member is on annual leave or off duty for that date.", 409)
-                if _staff_has_conflict(assignment.staff_id, assignment_date, target_shift, exclude_id=assignment.pk):
-                    return _json_error("This staff member already has an overlapping shift on that date.", 409)
-                roster, _created = MonthlyDutyRoster.objects.get_or_create(
-                    treatment_plant_id=target_shift.treatment_plant_id,
-                    month=assignment_date.month,
-                    year=assignment_date.year,
-                    defaults={"created_by": request.user, "notes": "Created from the duty roster dashboard."},
+
+                # Gate move directly through assignment.move_assignment
+                eligible_date = assignment_date
+                is_eligible, _ = target_shift.is_staff_eligible(
+                    assignment.staff, assignment_date, section=assignment.staff.section_id, exclude_assignment_id=assignment.pk
                 )
-                assignment.shift = target_shift
-                assignment.date = assignment_date
-                assignment.day_type = day_type
-                assignment.duty_roster = roster
-                assignment._audit_user = request.user
-                assignment.save()
+                can_accept, _ = target_shift.can_accept_assignment(
+                    assignment.staff.section_id, assignment_date, day_type=day_type
+                )
+                if not is_eligible or not can_accept:
+                    category_dates = _dates_for_type(start, end, day_type)
+                    for cd in category_dates:
+                        can_acc, _ = target_shift.can_accept_assignment(assignment.staff.section_id, cd, day_type=day_type)
+                        is_el, _ = target_shift.is_staff_eligible(assignment.staff, cd, section=assignment.staff.section_id, exclude_assignment_id=assignment.pk)
+                        if can_acc and is_el:
+                            eligible_date = cd
+                            break
+
+                note = f"Moved on the weekly duty roster by {request.user.get_username()} at {timezone.localtime():%Y-%m-%d %H:%M}."
+                assignment.move_assignment(
+                    target_shift=target_shift,
+                    target_date=eligible_date,
+                    day_type=day_type,
+                    moved_by=request.user,
+                    remarks=note,
+                )
             return JsonResponse({
                 "ok": True,
                 "message": "Roster updated.",

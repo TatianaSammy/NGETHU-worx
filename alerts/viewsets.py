@@ -16,7 +16,6 @@ from .models import (
     AlertConfig,
     AlertState,
     AlertNotification,
-    VoiceOver,
     VoiceAlert,
     AlarmAcknowledgment,
     AlertLog,
@@ -28,7 +27,6 @@ from .serializers import (
     AlertConfigSerializer,
     AlertStateSerializer,
     AlertNotificationSerializer,
-    VoiceOverSerializer,
     VoiceAlertSerializer,
     AlarmAcknowledgmentSerializer,
     AlertLogSerializer,
@@ -178,30 +176,6 @@ class AlertCategoryViewSet(viewsets.ModelViewSet):
     queryset = AlertCategory.objects.select_related("parent").order_by("name")
 
 
-class VoiceOverViewSet(viewsets.ModelViewSet):
-    """Voice artist samples and synthetic speech clones."""
-
-    serializer_class = VoiceOverSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    queryset = VoiceOver.objects.select_related("user").order_by("slot", "name")
-
-    @action(detail=True, methods=["post"])
-    def test_voice(self, request, pk=None):
-        voice = self.get_object()
-        message = request.data.get("message") or f"Test speech synthesis for voice artist {voice.name}."
-        from .tasks import generate_voice_notification
-        generate_voice_notification.delay(
-            message=message,
-            title="Voice Test",
-            forced_voice_id=voice.pk,
-            recipient_ids=[request.user.pk],
-        )
-        return Response({
-            "success": True,
-            "message": f"Test voice generation dispatched for {voice.name}.",
-        }, status=status.HTTP_200_OK)
-
-
 class VoiceAlertViewSet(viewsets.ModelViewSet):
     """Persistent synthesized voice alerts."""
 
@@ -210,7 +184,6 @@ class VoiceAlertViewSet(viewsets.ModelViewSet):
     queryset = VoiceAlert.objects.select_related(
         "alert_config",
         "alert_state",
-        "voice_over",
         "speaker_user",
     ).order_by("-created_at")
 

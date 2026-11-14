@@ -245,7 +245,7 @@ def deliver_alert_notification(notification_id):
         return notification.delivery_status
     voice_alert = VoiceAlert.objects.filter(alert_state=state).order_by("-created_at").first()
     voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
-    voice_profile = voice_alert.voice_over.name if voice_url else ""
+    voice_profile = "TTS" if voice_url else ""
     channel_layer = get_channel_layer()
 
     for channel in notification.channels or []:
@@ -635,7 +635,7 @@ def generate_voice_notification(
     recipient_ids=None,
 ):
     try:
-        from alerts.models import VoiceAlert, AlertConfig, VoiceOver, AlertState
+        from alerts.models import VoiceAlert, AlertConfig, AlertState
         cfg = (
             AlertConfig.objects.select_related("template").filter(pk=alert_config_id).first()
             if alert_config_id else None
@@ -670,7 +670,6 @@ def generate_voice_notification(
             or (cfg.template_id and (not cfg.template.active or not cfg.template.auto_voice_enabled))
         ):
             return None
-        forced_voice = VoiceOver.objects.filter(pk=forced_voice_id).first() if forced_voice_id else None
         resolved_title = title or (state.title if state and state.title else (cfg.alert_type if cfg else "Alert Notification"))
         resolved_message = message or (state.message if state else "")
         if not source_key and state:
@@ -683,7 +682,6 @@ def generate_voice_notification(
                 title=resolved_title,
                 alert_config=cfg,
                 alert_state=state,
-                forced_voice=forced_voice,
                 source_key=source_key,
             )
         voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
@@ -736,7 +734,7 @@ def generate_voice_notification(
                             "alert_type": ca_alert.alert_type,
                             "instance_ref": str(ca_alert.analysis_request_id or ca_alert.batch_id or ""),
                             "voice_url": voice_url,
-                            "voice_profile": voice_alert.voice_over.name if voice_alert.voice_over_id else "",
+                            "voice_profile": "TTS" if voice_url else "",
                             "auto_voice": True,
                             "repeat_voice": False,
                             "timestamp": timezone.now().isoformat(),
@@ -749,7 +747,7 @@ def generate_voice_notification(
                             "type": "voice.alert",
                             "id": f"state_{state.pk}" if state else f"voice_{voice_alert.pk}",
                             "audio_url": voice_url,
-                            "voice_profile": voice_alert.voice_over.name if voice_alert.voice_over_id else "",
+                            "voice_profile": "TTS" if voice_url else "",
                             "message": resolved_message,
                             "title": resolved_title,
                             "auto_voice": True,
@@ -867,7 +865,7 @@ def repeat_workflow_voice_alert(voice_alert_id):
             "message": ca_alert.message,
             "title": ca_alert.title,
             "voice_url": voice_alert.audio_file.url if voice_alert.profile_audio_ready else None,
-            "voice_profile": voice_alert.voice_over.name if voice_alert.voice_over_id else "",
+            "voice_profile": "TTS" if voice_alert.profile_audio_ready else "",
             "user_ids": [ca_alert.recipient_id],
             "priority": ca_alert.severity,
             "alert_type": ca_alert.alert_type,
@@ -901,7 +899,7 @@ def trigger_alarm(user_id, message, alarm_sound_path=None, alert_state_id=None):
             return
         voice_alert = VoiceAlert.objects.filter(alert_state_id=alert_state_id).order_by("-created_at").first() if alert_state_id else None
         voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
-        voice_profile = voice_alert.voice_over.name if voice_alert and voice_alert.voice_over_id else ""
+        voice_profile = "TTS" if voice_url else ""
         state = voice_alert.alert_state if voice_alert else None
         async_to_sync(channel_layer.group_send)(
             f"user_{user_id}_alerts",
@@ -1017,7 +1015,7 @@ def repeat_alarm_until_acknowledged(self, alert_state_id, interval_sec=30, max_r
 
         voice_alert = VoiceAlert.objects.filter(alert_state=state).exclude(audio_file="").order_by("-created_at").first()
         voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
-        voice_profile = voice_alert.voice_over.name if voice_alert and voice_alert.voice_over_id else ""
+        voice_profile = "TTS" if voice_url else ""
         if not voice_url:
             # TTS can finish after the initial reminder becomes due. Keep the
             # durable reminder pending and let the next scheduler pass retry.

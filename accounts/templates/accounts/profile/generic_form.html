@@ -1,0 +1,47 @@
+{% extends "accounts/base.html" %}
+{% load static %}
+
+{% block title %}
+{{ title|default:"Manage Record" }} | Accounts
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="card border-0 shadow-sm mx-auto" style="max-width: 680px;">
+        <div class="card-header bg-white border-bottom py-3">
+            <h4 class="mb-0 fw-bold">
+                <i class="fa fa-{{ icon|default:'cube' }} text-primary me-2"></i>
+                {{ title|default:"Manage Record" }}
+            </h4>
+            {% if subtitle %}
+            <small class="text-muted">{{ subtitle }}</small>
+            {% endif %}
+        </div>
+        <div class="card-body p-4">
+            <form method="post" action="{{ action_url|default:request.path }}" {% if form.is_multipart %}enctype="multipart/form-data"{% endif %}>
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                <div class="alert alert-danger mb-3">{{ form.non_field_errors }}</div>
+                {% endif %}
+                {% for field in form %}
+                <div class="mb-3">
+                    <label for="{{ field.id_for_label }}" class="form-label fw-bold">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}
+                    <div class="form-text small text-muted">{{ field.help_text }}</div>
+                    {% endif %}
+                    {% if field.errors %}
+                    <div class="text-danger small mt-1">{{ field.errors|striptags }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                <div class="d-flex justify-content-end gap-2 pt-3 border-top">
+                    <a href="{% url 'accounts:profile' %}" class="btn btn-secondary rounded-pill px-4">Cancel</a>
+                    <button type="submit" class="btn btn-primary rounded-pill px-4">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

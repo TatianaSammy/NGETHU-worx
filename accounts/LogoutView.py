@@ -1,28 +1,19 @@
 import logging
 from django.views import View
 from django.contrib.auth import logout as auth_logout
+from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
-from django.http import HttpResponse
-
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
 
 logger = logging.getLogger(__name__)
 
 
-@method_decorator(csrf_exempt, name="dispatch")
 class LogoutView(View):
 
     def post(self, request):
         if request.POST.get("action") == "window_close":
             return HttpResponse(status=204)
-        return self.get(request)
-
-    def get(self, request):
-        if request.GET.get("reason") == "window_closed":
-            return redirect(self._safe_redirect())
 
         user = request.user
         session_key = request.session.session_key

@@ -217,6 +217,32 @@ class SCADADashboardService:
                 .order_by("name")
             )
 
+        # -------------------------------------------------------------
+        # 6. Water Quality Index (WQI) Analytics & Multi-Model Engine
+        # -------------------------------------------------------------
+        from qc.services.wqi_service import (
+            get_dashboard_wqi_summary,
+            get_plant_wqi,
+            get_plant_wqi_timeline,
+            generate_wqi_compliance_report,
+        )
+        wqi_summary = get_dashboard_wqi_summary(
+            user=self.user,
+            selected_plant=self.plant,
+            target_date=self.selected_date,
+        )
+        plant_wqi = wqi_summary.get("plant_scoped") or {}
+        overall_wqi = wqi_summary.get("overall") or {}
+        wqi_timeline = get_plant_wqi_timeline(
+            treatment_plant_id=self.plant.pk if self.plant else 0,
+            days=14,
+            target_date=self.selected_date,
+        )
+        wqi_report = generate_wqi_compliance_report(
+            treatment_plant_id=self.plant.pk if self.plant else 0,
+            target_date=self.selected_date,
+        )
+
         return {
             "plant": self.plant,
             "selected_plant": self.plant,
@@ -253,6 +279,15 @@ class SCADADashboardService:
             "current_dosages": current_dosages,
             "phase_concentrations": phase_concentrations,
             "filter_phase_groups": filter_phase_groups,
+
+            # WQI Subsystem
+            "wqi_summary": wqi_summary,
+            "plant_wqi": plant_wqi,
+            "overall_wqi": overall_wqi,
+            "all_plants_wqi": wqi_summary.get("all_plants", []),
+            "wqi_timeline": wqi_timeline,
+            "wqi_report": wqi_report,
+            "is_scoped_user": not getattr(self.user, "is_superuser", False),
         }
 
     def _reconcile_streams(

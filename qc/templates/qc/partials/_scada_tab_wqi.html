@@ -1,0 +1,383 @@
+<!-- ══════════════════════════════════════════════════════════════════════════
+     TAB 7: WATER QUALITY INDEX (WQI) — ULTRA-ADVANCED ANALYTICAL COMMAND TAB
+     Cyber-industrial multi-model water quality assessment & reporting suite
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="scada-wqi-container" id="scada-wqi-root">
+
+    <!-- ── TOP KPI EXECUTIVE DECK ─────────────────────────────────────────── -->
+    <div class="scada-wqi-kpi-grid">
+
+        <!-- 1. Primary Composite WQI Meter Card -->
+        <div class="scada-wqi-card scada-wqi-primary-kpi tone-{{ plant_wqi.tone|default:'secondary' }}">
+            <div class="scada-wqi-card-header">
+                <div class="scada-wqi-title-group">
+                    <span class="scada-wqi-icon"><i class="fa-solid fa-gauge-high"></i></span>
+                    <div>
+                        <h3>Composite Water Quality Index</h3>
+                        <p class="scada-wqi-subtitle">NSF / Brown Weighted Arithmetic Model · {{ plant_wqi.plant_name }}</p>
+                    </div>
+                </div>
+                <span class="scada-badge badge-{{ plant_wqi.tone|default:'secondary' }} scada-wqi-badge-glow">
+                    {{ plant_wqi.tier_label }}
+                </span>
+            </div>
+
+            <div class="scada-wqi-hero-score-row">
+                <div class="scada-wqi-score-display">
+                    <span class="scada-wqi-big-number">{{ plant_wqi.display_score }}</span>
+                    <span class="scada-wqi-score-scale">/ 100+</span>
+                </div>
+                <div class="scada-wqi-hero-meta">
+                    <div class="scada-wqi-desc">{{ plant_wqi.description }}</div>
+                    <div class="scada-wqi-tags">
+                        <span class="scada-wqi-tag"><i class="fa-solid fa-flask"></i> {{ plant_wqi.parameters_evaluated }} Params Evaluated</span>
+                        <span class="scada-wqi-tag"><i class="fa-solid fa-shield-halved"></i> {{ plant_wqi.compliance_rate|default:"0.0" }}% Compliant</span>
+                        {% if plant_wqi.concerns_count > 0 %}
+                        <span class="scada-wqi-tag tag-warning"><i class="fa-solid fa-triangle-exclamation"></i> {{ plant_wqi.concerns_count }} Parameters of Concern</span>
+                        {% else %}
+                        <span class="scada-wqi-tag tag-success"><i class="fa-solid fa-circle-check"></i> Zero Contaminant Exceedances</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visual 5-Tier Status Track -->
+            <div class="scada-wqi-scale-track">
+                <div class="scada-wqi-track-step {% if plant_wqi.score is not None and plant_wqi.score <= 25 %}active{% endif %}" style="--step-color: #10b981;">
+                    <div class="scada-step-bar"></div>
+                    <span>0–25 Excellent</span>
+                </div>
+                <div class="scada-wqi-track-step {% if plant_wqi.score is not None and plant_wqi.score > 25 and plant_wqi.score <= 50 %}active{% endif %}" style="--step-color: #3b82f6;">
+                    <div class="scada-step-bar"></div>
+                    <span>26–50 Good</span>
+                </div>
+                <div class="scada-wqi-track-step {% if plant_wqi.score is not None and plant_wqi.score > 50 and plant_wqi.score <= 75 %}active{% endif %}" style="--step-color: #f59e0b;">
+                    <div class="scada-step-bar"></div>
+                    <span>51–75 Poor</span>
+                </div>
+                <div class="scada-wqi-track-step {% if plant_wqi.score is not None and plant_wqi.score > 75 and plant_wqi.score <= 100 %}active{% endif %}" style="--step-color: #f97316;">
+                    <div class="scada-step-bar"></div>
+                    <span>76–100 Very Poor</span>
+                </div>
+                <div class="scada-wqi-track-step {% if plant_wqi.score is not None and plant_wqi.score > 100 %}active{% endif %}" style="--step-color: #ef4444;">
+                    <div class="scada-step-bar"></div>
+                    <span>>100 Unsuitable</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Multi-Model Comparator & Cross-Plant Benchmark -->
+        <div class="scada-wqi-card scada-wqi-models-kpi">
+            <div class="scada-wqi-card-header">
+                <div class="scada-wqi-title-group">
+                    <span class="scada-wqi-icon"><i class="fa-solid fa-layer-group"></i></span>
+                    <div>
+                        <h3>Multi-Model Index Engine</h3>
+                        <p class="scada-wqi-subtitle">Concurrent Standard Formulations</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="scada-wqi-models-grid">
+                <div class="scada-wqi-model-box">
+                    <div class="scada-model-label">Arithmetic WQI (NSF)</div>
+                    <div class="scada-model-val text-{{ plant_wqi.tone|default:'cyan' }}">
+                        {{ plant_wqi.wqi_arithmetic|default:plant_wqi.display_score }}
+                    </div>
+                    <div class="scada-model-sub">Standard weighted sum</div>
+                </div>
+
+                <div class="scada-wqi-model-box">
+                    <div class="scada-model-label">Geometric WQI (WQIG)</div>
+                    <div class="scada-model-val text-cyan">
+                        {{ plant_wqi.wqi_geometric|default:"—" }}
+                    </div>
+                    <div class="scada-model-sub">Outlier-damped product</div>
+                </div>
+
+                <div class="scada-wqi-model-box">
+                    <div class="scada-model-label">CCME Index (Canada)</div>
+                    <div class="scada-model-val text-{{ plant_wqi.ccme_wqi.tone|default:'cyan' }}">
+                        {{ plant_wqi.ccme_wqi.display_score|default:"—" }}
+                    </div>
+                    <div class="scada-model-sub">{{ plant_wqi.ccme_wqi.tier|default:"Standard" }} (0–100)</div>
+                </div>
+
+                <div class="scada-wqi-model-box">
+                    <div class="scada-model-label">Fleet Multi-Plant Avg</div>
+                    <div class="scada-model-val text-{{ overall_wqi.tone|default:'muted' }}">
+                        {{ overall_wqi.display_score|default:"—" }}
+                    </div>
+                    <div class="scada-model-sub">{{ overall_wqi.evaluated_plants_count }} plants combined</div>
+                </div>
+            </div>
+
+            <!-- Dynamic Actions Toolbar -->
+            <div class="scada-wqi-actions-toolbar">
+                <a href="?tab=wqi&plant={{ plant.pk }}&date={{ selected_date|date:'Y-m-d' }}&export=wqi_report"
+                   target="_blank"
+                   class="scada-btn scada-btn-primary">
+                    <i class="fa-solid fa-file-invoice"></i>
+                    <span>Official Dossier Report</span>
+                </a>
+                <a href="?tab=wqi&plant={{ plant.pk }}&date={{ selected_date|date:'Y-m-d' }}&export=wqi_csv"
+                   class="scada-btn scada-btn-secondary">
+                    <i class="fa-solid fa-file-csv"></i>
+                    <span>Export CSV</span>
+                </a>
+                <a href="?tab=wqi&plant={{ plant.pk }}&date={{ selected_date|date:'Y-m-d' }}&export=wqi_json"
+                   target="_blank"
+                   class="scada-btn scada-btn-secondary">
+                    <i class="fa-solid fa-code"></i>
+                    <span>Telemetry JSON</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── ECLIPSING & CRITICAL EXCEEDANCE ALERT BANNER ───────────────────── -->
+    {% if plant_wqi.eclipsing_detected %}
+    <div class="scada-wqi-eclipse-banner">
+        <div class="scada-eclipse-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <div class="scada-eclipse-body">
+            <h4>Aggregation Eclipse Detected</h4>
+            <p>
+                Although the overall composite WQI indicates <strong>{{ plant_wqi.tier_label }}</strong> ({{ plant_wqi.display_score }}),
+                individual parameters critically exceed permissible limits:
+                <strong>{{ plant_wqi.eclipsed_parameters|join:", " }}</strong>.
+                Aggregated scoring masks these isolated excursions. Prioritize immediate chemical remediation.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ── WATER USE SUITABILITY MATRIX ───────────────────────────────────── -->
+    <div class="scada-wqi-section-header">
+        <div class="scada-section-title">
+            <i class="fa-solid fa-water"></i>
+            <span>Water Use Suitability Matrix</span>
+            <small>Multi-category domain suitability evaluated against KEBS KS 05-459, WHO, and FAO standards</small>
+        </div>
+    </div>
+
+    <div class="scada-wqi-suitability-grid">
+        {% for cat_key, cat in plant_wqi.suitability_matrix.items %}
+        <div class="scada-suitability-card tone-{{ cat.tone }}">
+            <div class="scada-suitability-icon"><i class="fa-solid {{ cat.icon }}"></i></div>
+            <div class="scada-suitability-content">
+                <div class="scada-suitability-head">
+                    <span class="scada-suitability-name">{{ cat_key|title }}</span>
+                    <span class="scada-badge badge-{{ cat.tone }}">{{ cat.score|floatformat:0 }}%</span>
+                </div>
+                <div class="scada-suitability-label">{{ cat.label }}</div>
+                <div class="scada-suitability-desc">{{ cat.description }}</div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="scada-empty-scope">
+            <i class="fa-solid fa-circle-info"></i>
+            <div>
+                <strong>Suitability matrix awaiting analytical input</strong>
+                <span>Enter laboratory results on the Lab Worksheets tab to populate application suitability.</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- ── REMEDIATION PRIORITY & OPERATIONAL ACTION PROTOCOL ─────────────── -->
+    {% if plant_wqi.remediation_priorities %}
+    <div class="scada-wqi-section-header" style="margin-top: 1.5rem;">
+        <div class="scada-section-title">
+            <i class="fa-solid fa-wrench"></i>
+            <span>Remediation Priority & Operational Action Protocol</span>
+            <small>Ranked by maximum composite WQI improvement potential (ΔWQI gain)</small>
+        </div>
+    </div>
+
+    <div class="scada-wqi-remediation-grid">
+        {% for rem in plant_wqi.remediation_priorities %}
+        <div class="scada-remediation-card">
+            <div class="scada-remediation-head">
+                <div class="scada-remediation-name">
+                    <span class="scada-badge {{ rem.badge_class }}">{{ rem.severity }}</span>
+                    <strong>{{ rem.name }}</strong>
+                    <span class="scada-remediation-val">{{ rem.current_value }} {{ rem.unit }} (Rating: {{ rem.qi }})</span>
+                </div>
+                <div class="scada-remediation-gain" title="Improvement to composite WQI if parameter is normalized">
+                    <span>Gain: <strong>-{{ rem.wqi_gain }} pts</strong></span>
+                    <small>Projected WQI: {{ rem.projected_wqi }}</small>
+                </div>
+            </div>
+            <div class="scada-remediation-action">
+                <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                <span>{{ rem.action }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- ── ANALYTICAL CHART GRID ───────────────────────────────────────────── -->
+    <div class="scada-wqi-section-header" style="margin-top: 1.5rem;">
+        <div class="scada-section-title">
+            <i class="fa-solid fa-chart-pie"></i>
+            <span>Diagnostic Visualizations & Historical Telemetry</span>
+            <small>Interactive parameter ratings, weight contributions, and 14-day rolling timeline</small>
+        </div>
+        <div class="scada-trend-summary">
+            <span>Trend: <strong class="text-{{ wqi_timeline.trend_tone|default:'cyan' }}">{{ wqi_timeline.trend_label }}</strong></span>
+        </div>
+    </div>
+
+    <div class="scada-wqi-charts-grid">
+        <!-- Chart 1: Parameter Quality Rating Radar -->
+        <div class="scada-chart-card">
+            <div class="scada-chart-card-header">
+                <div>
+                    <h4>Parameter Rating Radar (qi)</h4>
+                    <p>Deviation relative to permissible boundary (100 = Limit)</p>
+                </div>
+                <span class="scada-chart-pill">Radar Diagnostic</span>
+            </div>
+            <div class="scada-chart-canvas-wrap">
+                <canvas id="scadaWqiRadarChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Chart 2: 14-Day Rolling WQI Timeline -->
+        <div class="scada-chart-card">
+            <div class="scada-chart-card-header">
+                <div>
+                    <h4>14-Day Rolling Quality Index Trend</h4>
+                    <p>Historical daily composite WQI trajectory</p>
+                </div>
+                <span class="scada-chart-pill">Timeline</span>
+            </div>
+            <div class="scada-chart-canvas-wrap">
+                <canvas id="scadaWqiTimelineChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Chart 3: Parameter Weight Contribution Donut -->
+        <div class="scada-chart-card">
+            <div class="scada-chart-card-header">
+                <div>
+                    <h4>Weight Distribution (wi %)</h4>
+                    <p>Relative health significance based on inverse permissible limit</p>
+                </div>
+                <span class="scada-chart-pill">Normalized Weights</span>
+            </div>
+            <div class="scada-chart-canvas-wrap">
+                <canvas id="scadaWqiWeightsChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Chart 4: Multi-Plant Fleet Benchmark -->
+        <div class="scada-chart-card">
+            <div class="scada-chart-card-header">
+                <div>
+                    <h4>Fleet Benchmark Matrix</h4>
+                    <p>Comparative Water Quality Index across all NCWSC facilities</p>
+                </div>
+                <span class="scada-chart-pill">Fleet Ranking</span>
+            </div>
+            <div class="scada-chart-canvas-wrap">
+                <canvas id="scadaWqiFleetChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── PARAMETER BREAKDOWN REGULATORY AUDIT TABLE ───────────────────────── -->
+    <div class="scada-wqi-section-header" style="margin-top: 1.5rem;">
+        <div class="scada-section-title">
+            <i class="fa-solid fa-table-list"></i>
+            <span>Detailed Parameter Assessment & Mathematical Breakdown</span>
+            <small>Weighted Arithmetic Mean Formulation: WQI = Σ(wi · qi) / Σwi</small>
+        </div>
+    </div>
+
+    <div class="scada-wqi-table-shell">
+        <table class="scada-wqi-table">
+            <thead>
+                <tr>
+                    <th>Parameter</th>
+                    <th>Measured (Vi)</th>
+                    <th>Standard Limit (Si)</th>
+                    <th>Ideal (Videal)</th>
+                    <th>Rating (qi)</th>
+                    <th>Weight (wi)</th>
+                    <th>Weight %</th>
+                    <th>Sub-Index (wi·qi)</th>
+                    <th>Classification</th>
+                    <th>Compliance</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in plant_wqi.breakdown %}
+                <tr class="{% if p.is_exceeded %}row-exceeded{% elif p.is_concern %}row-concern{% endif %}">
+                    <td>
+                        <strong>{{ p.name }}</strong>
+                        <small class="scada-wqi-param-unit">{{ p.unit }}</small>
+                    </td>
+                    <td>
+                        <strong class="scada-mono-text">{{ p.value }}</strong>
+                    </td>
+                    <td class="scada-mono-text">
+                        {% if p.min_limit is not None and p.max_limit is not None %}
+                            {{ p.min_limit }} – {{ p.max_limit }}
+                        {% elif p.max_limit is not None %}
+                            ≤ {{ p.max_limit }}
+                        {% elif p.min_limit is not None %}
+                            ≥ {{ p.min_limit }}
+                        {% else %}
+                            {{ p.limit }}
+                        {% endif %}
+                    </td>
+                    <td class="scada-mono-text">{{ p.ideal }}</td>
+                    <td>
+                        <span class="scada-mono-badge {% if p.qi > 100 %}badge-danger{% elif p.qi > 50 %}badge-warning{% else %}badge-nominal{% endif %}">
+                            {{ p.qi }}
+                        </span>
+                    </td>
+                    <td class="scada-mono-text">{{ p.wi }}</td>
+                    <td class="scada-mono-text">{{ p.wi_percent }}%</td>
+                    <td class="scada-mono-text"><strong>{{ p.wi_qi }}</strong></td>
+                    <td>
+                        <span class="scada-badge badge-{{ p.tone }}">{{ p.tier_label }}</span>
+                    </td>
+                    <td>
+                        {% if p.is_exceeded %}
+                            <span class="scada-badge badge-danger"><i class="fa-solid fa-xmark"></i> Exceeded</span>
+                        {% elif p.is_concern %}
+                            <span class="scada-badge badge-warning"><i class="fa-solid fa-triangle-exclamation"></i> Concern</span>
+                        {% else %}
+                            <span class="scada-badge badge-success"><i class="fa-solid fa-check"></i> Compliant</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="10" style="text-align: center; padding: 2.5rem; color: var(--scada-text-muted);">
+                        No parameter readings recorded for evaluation at {{ plant_wqi.plant_name }} on this date.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            {% if plant_wqi.breakdown %}
+            <tfoot>
+                <tr class="scada-wqi-table-total">
+                    <td colspan="5"><strong>Composite Weighted Arithmetic Index:</strong></td>
+                    <td class="scada-mono-text"><strong>Σwi = {{ plant_wqi.sum_wi }}</strong></td>
+                    <td class="scada-mono-text"><strong>100.0%</strong></td>
+                    <td class="scada-mono-text"><strong>WQI = {{ plant_wqi.score }}</strong></td>
+                    <td colspan="2">
+                        <span class="scada-badge badge-{{ plant_wqi.tone }}">{{ plant_wqi.tier_label }} Quality</span>
+                    </td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+
+</div>
+

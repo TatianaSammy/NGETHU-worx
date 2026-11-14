@@ -1,13 +1,14 @@
 .sc-roster-overview {
-  --roster-muted: #64717d;
+  --roster-muted: var(--theme-muted, #64717d);
   overflow: visible;
-  margin: 0 0 19px;
-  border: 1px solid #cfd5da;
-  border-left: 4px solid #c9762d;
-  border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgba(32, 52, 69, .07);
-  color: #20252b;
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: var(--theme-surface, #fff);
+  box-shadow: none !important;
+  color: var(--theme-text, #20252b);
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 .sc-roster-header {
@@ -16,8 +17,8 @@
   align-items: center;
   gap: 22px;
   padding: 16px 20px;
-  border-bottom: 1px solid #dfe3e6;
-  background: linear-gradient(110deg, #fff 0%, #fff 72%, #fff8f1 100%);
+  border-bottom: 1px solid var(--theme-border, #dfe3e6);
+  background: var(--theme-surface-strong, var(--theme-surface));
 }
 
 .sc-roster-heading > span {
@@ -208,16 +209,50 @@
 
 .sc-roster-table-wrap {
   width: 100%;
-  overflow: auto;
+  overflow-y: scroll !important;
+  overflow-x: hidden;
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--theme-border-strong, #64748b) var(--theme-surface-muted, transparent) !important;
+}
+
+.sc-roster-table-wrap::-webkit-scrollbar {
+  display: block !important;
+  width: 10px !important;
+}
+
+.sc-roster-table-wrap::-webkit-scrollbar-track {
+  background: var(--theme-surface-muted, rgba(0, 0, 0, 0.15)) !important;
+  border-radius: 6px;
+}
+
+.sc-roster-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--theme-border-strong, #64748b) !important;
+  border-radius: 6px;
+}
+
+.sc-roster-table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-accent, #00e5ff) !important;
 }
 
 .sc-roster-table {
   width: 100%;
   min-width: 990px;
+  min-height: 100% !important;
+  height: 100% !important;
+  display: table !important;
   border-collapse: collapse;
   table-layout: fixed;
   font-family: Arial, Helvetica, sans-serif;
   font-size: .7rem;
+}
+
+.sc-roster-table tbody {
+  display: table-row-group !important;
+  height: 100% !important;
+}
+
+.sc-roster-table tbody tr {
+  height: 1% !important;
 }
 
 .sc-roster-table col:nth-child(1) { width: 14%; }
@@ -235,14 +270,15 @@
 
 .sc-roster-table thead th {
   padding: 8px 7px;
-  background: #f1f3f4;
-  color: #242b30;
+  background: var(--theme-surface-strong, var(--theme-surface)) !important;
+  color: var(--theme-text) !important;
   font-family: Georgia, "Times New Roman", serif;
   font-size: .65rem;
   font-weight: 800;
   line-height: 1.2;
   text-align: center;
   vertical-align: middle;
+  border-bottom: 2px solid var(--theme-border-strong, #64748b) !important;
 }
 
 .sc-roster-table thead small {
@@ -252,7 +288,7 @@
 
 .sc-roster-table tbody td {
   padding: 8px 9px;
-  color: #252a2f;
+  color: var(--theme-text) !important;
   line-height: 1.35;
   vertical-align: middle;
   overflow-wrap: anywhere;

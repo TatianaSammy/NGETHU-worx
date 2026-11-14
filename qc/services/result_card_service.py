@@ -110,6 +110,10 @@ class AnalysisCard:
 
     groups: List[ResultGroup]
 
+    wqi: Dict[str, Any] = field(
+        default_factory=dict
+    )
+
 
 class ResultCardService:
 
@@ -230,12 +234,18 @@ class ResultCardService:
         analyses: List[WaterAnalysis],
         result_map: Dict[int, list],
         plant_has_phases: bool,
+        treatment_plant_id: Optional[int] = None,
     ) -> Optional[AnalysisCard]:
 
         if not analyses:
             return None
 
         sampling_time = analyses[0].analysis_time
+
+        # Resolve treatment_plant_id from first analysis if not provided
+        _plant_id = treatment_plant_id
+        if _plant_id is None and analyses:
+            _plant_id = getattr(analyses[0], "treatment_plant_id", None)
 
         groups = []
 
@@ -267,13 +277,20 @@ class ResultCardService:
         if not groups:
             return None
 
-        return AnalysisCard(
+        card = AnalysisCard(
             sampling_time=sampling_time,
             time_label=sampling_time.time.strftime(
                 "%H:%M"
             ),
             groups=groups,
         )
+        try:
+            from qc.services.wqi_service import calculate_wqi_for_card
+            # Pass treatment_plant_id so card WQI can load full plant limits from DB
+            card.wqi = calculate_wqi_for_card(card, treatment_plant_id=_plant_id)
+        except Exception as e:
+            logger.debug("[ResultCardService] Card WQI calculation notice: %s", e)
+        return card
 
 
     @classmethod
@@ -734,6 +751,7 @@ class ResultCardService:
             analyses=current_analyses,
             result_map=result_map,
             plant_has_phases=plant_has_phases,
+            treatment_plant_id=getattr(treatment_plant, "pk", None),
         )
 
         cards = [card] if card else []
@@ -926,6 +944,10 @@ class ResultCardService:
         plant = context.get("plant")
         current = context.get("current_analysis")
 
+        wqi_summary = context.get("wqi_summary") or {}
+        overall_wqi = context.get("overall_wqi") or wqi_summary.get("overall") or {}
+        plant_wqi = context.get("plant_wqi") or wqi_summary.get("plant_scoped") or {}
+
         return {
             "ok": True,
             "generated_at": (
@@ -946,6 +968,11 @@ class ResultCardService:
             "current_dosages": context.get("current_dosages") or [],
             "phase_concentrations": context.get("phase_concentrations") or [],
             "card_count": len(cards),
+            "wqi": {
+                "overall": overall_wqi,
+                "plant": plant_wqi,
+                "cycle": cards[0].wqi if cards else {},
+            },
             "fingerprint": cls.build_fingerprint(context),
         }
 

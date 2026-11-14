@@ -3,6 +3,8 @@ from django.shortcuts import render, redirect
 from django.conf import settings
 from django.contrib.auth import authenticate, login as auth_login, get_user_model
 from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.middleware.csrf import get_token
 from django.views import View
 from django.http import JsonResponse
@@ -13,6 +15,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+@method_decorator(ensure_csrf_cookie, name="dispatch")
 class LoginView(View):
     template_name = "accounts/login.html"
 

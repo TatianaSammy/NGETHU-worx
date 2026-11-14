@@ -17,15 +17,6 @@ html[data-theme="dawn"],
 html[data-theme="gold"],
 html[data-theme="autumn"],
 html[data-theme="winter"],
-html[data-theme="night"],
-html[data-theme="dark"],
-html[data-theme="oled"],
-html[data-theme="amoled"],
-html[data-theme="emerald-dark"],
-html[data-theme="dusk"],
-html[data-theme="inferno"],
-html[data-theme="aurora"],
-html[data-theme="celestial"],
 html[data-theme="high-contrast"],
 html[data-theme="contrast"] {
     color-scheme: light;
@@ -141,6 +132,9 @@ html[data-theme="contrast"] {
     color-scheme: light;
 }
 
+html[data-theme="cyber"],
+html[data-theme="cyber-command"],
+html[data-theme="abyss"],
 html[data-theme="night"],
 html[data-theme="dark"],
 html[data-theme="oled"],
@@ -236,9 +230,9 @@ body .table {
 }
 
 body .table thead th {
-    background-color: var(--theme-surface-muted, #f2f4f7);
-    color: var(--theme-text, #182230);
-    border-color: var(--theme-border, #d0d5dd);
+    background-color: var(--table-header-bg, var(--theme-surface-strong, var(--theme-surface-muted))) !important;
+    color: var(--theme-text) !important;
+    border-color: var(--theme-border) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

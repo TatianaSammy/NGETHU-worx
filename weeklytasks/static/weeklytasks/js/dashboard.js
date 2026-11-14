@@ -1,97 +1,6 @@
 (function () {
   "use strict";
 
-  function readData(id) {
-    var node = document.getElementById(id);
-    if (!node) return null;
-    try { return JSON.parse(node.textContent || "{}"); } catch (_) { return null; }
-  }
-
-  document.addEventListener("DOMContentLoaded", function () {
-    if (typeof Chart === "undefined") return;
-    var chartInstances = [];
-    var trend = readData("weekly-trend-data");
-    var trendCanvas = document.getElementById("weeklyAssignmentTrend");
-    if (trend && trendCanvas) {
-      var ctx = trendCanvas.getContext("2d");
-      var gradient = ctx.createLinearGradient(0, 0, 0, 240);
-      gradient.addColorStop(0, "rgba(83, 115, 220, .25)");
-      gradient.addColorStop(1, "rgba(83, 115, 220, 0)");
-      chartInstances.push(new Chart(ctx, {
-        type: "bar",
-        data: {
-          labels: trend.map(function (row) { return row.label; }),
-          datasets: [{
-            label: "People assignments",
-            data: trend.map(function (row) { return row.count; }),
-            backgroundColor: gradient,
-            borderColor: "#5279d9",
-            borderWidth: 1.5,
-            borderRadius: 7,
-            maxBarThickness: 34
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: { backgroundColor: "#122b45", padding: 10 }
-          },
-          scales: {
-            x: { grid: { display: false }, ticks: { color: "#8694a6", font: { size: 10 } } },
-            y: { beginAtZero: true, grid: { color: "rgba(117,132,154,.12)" }, ticks: { precision: 0, color: "#8694a6", font: { size: 10 } } }
-          }
-        }
-      }));
-    }
-
-    var shifts = readData("weekly-shift-data");
-    var shiftCanvas = document.getElementById("weeklyShiftDistribution");
-    if (shifts && shiftCanvas) {
-      chartInstances.push(new Chart(shiftCanvas.getContext("2d"), {
-        type: "doughnut",
-        data: {
-          labels: shifts.labels.length ? shifts.labels : ["No assignments"],
-          datasets: [{
-            data: shifts.values.length ? shifts.values : [1],
-            backgroundColor: shifts.values.length ? ["#17a6bd", "#5683e1", "#28ae80", "#dba53a", "#806bc5", "#d76578"] : ["#e6edf3"],
-            borderWidth: 0,
-            hoverOffset: 5
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          cutout: "68%",
-          plugins: {
-            legend: { position: "bottom", labels: { usePointStyle: true, boxWidth: 8, padding: 13, color: "#75849a", font: { size: 10 } } },
-            tooltip: { enabled: shifts.values.length > 0, backgroundColor: "#122b45", padding: 10 }
-          }
-        }
-      }));
-    }
-    function applyChartTheme() {
-      var style = getComputedStyle(document.documentElement);
-      var muted = style.getPropertyValue("--theme-muted").trim() || "#75849a";
-      var border = style.getPropertyValue("--theme-border").trim() || "rgba(117,132,154,.16)";
-      chartInstances.forEach(function (chart) {
-        if (chart.options.scales) Object.keys(chart.options.scales).forEach(function (axis) {
-          if (chart.options.scales[axis].ticks) chart.options.scales[axis].ticks.color = muted;
-          if (chart.options.scales[axis].grid && chart.options.scales[axis].grid.display !== false) chart.options.scales[axis].grid.color = border;
-        });
-        if (chart.options.plugins && chart.options.plugins.legend && chart.options.plugins.legend.labels) chart.options.plugins.legend.labels.color = muted;
-        chart.update("none");
-      });
-    }
-    applyChartTheme();
-    window.addEventListener("themeChanged", applyChartTheme);
-  });
-})();
-
-(function () {
-  "use strict";
-
   function csrfToken() {
     var item = document.cookie.split(";").map(function (part) { return part.trim(); }).find(function (part) { return part.indexOf("csrftoken=") === 0; });
     var token = item ? decodeURIComponent(item.slice("csrftoken=".length)) : "";
@@ -148,13 +57,18 @@
     }
 
     async function openAdd(record) {
-      if (!dialog) return;
+      if (!dialog || !record) return;
+      var taskId = record.dataset.taskId;
+      if (!taskId) {
+        notify("Task plan is not initialized for this cell.", true);
+        return;
+      }
       document.getElementById("weekly-dialog-status").textContent = "Checking available staff…";
-      document.getElementById("weekly-dialog-task").value = record.dataset.taskId;
-      document.getElementById("weekly-assignment-subtitle").textContent = record.dataset.sectionName + " · " + record.dataset.startDate + " to " + record.dataset.endDate;
+      document.getElementById("weekly-dialog-task").value = taskId;
+      document.getElementById("weekly-assignment-subtitle").textContent = (record.dataset.templateName || record.dataset.sectionName || "Routine Task") + " · " + record.dataset.startDate + " to " + record.dataset.endDate;
       try {
         var url = new URL(root.dataset.optionsUrl, window.location.origin);
-        url.searchParams.set("task_id", record.dataset.taskId);
+        url.searchParams.set("task_id", taskId);
         var response = await fetch(url, { credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" } });
         var result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.message || "Unable to load task candidates.");
@@ -230,9 +144,13 @@
       if (!record || !dragged) return;
       event.preventDefault();
       record.classList.remove("is-drop-target");
-      if (dragged.plantId !== record.dataset.plantId || dragged.sectionId !== record.dataset.sectionId) return notify("Weekly task assignments cannot be moved outside their treatment plant and section.", true);
+      if (dragged.plantId !== record.dataset.plantId || (dragged.sectionId && record.dataset.sectionId && dragged.sectionId !== record.dataset.sectionId)) {
+        return notify("Weekly task assignments cannot be moved outside their treatment plant and section.", true);
+      }
+      var taskId = record.dataset.taskId;
+      if (!taskId) return notify("Task plan is not available for this cell.", true);
       try {
-        await post({ action: "move", assignment_id: dragged.id, task_id: record.dataset.taskId, date: targetDate(record, dragged.date), shift_id: "" });
+        await post({ action: "move", assignment_id: dragged.id, task_id: taskId, date: targetDate(record, dragged.date), shift_id: "" });
         notify("Weekly task assignment moved. Refreshing the schedule…", false);
         window.setTimeout(function () { window.location.reload(); }, 500);
       } catch (error) { notify(error.message, true); }
@@ -270,7 +188,6 @@
     var filter = document.getElementById("weekly-schedule-filter");
     var density = document.getElementById("weekly-density-toggle");
     var reset = document.getElementById("weekly-filter-reset");
-    var clock = document.getElementById("weekly-live-clock");
     function apply() {
       var query = (search.value || "").trim().toLocaleLowerCase();
       root.querySelectorAll("[data-weekly-row]").forEach(function (row) {
@@ -290,9 +207,6 @@
       density.setAttribute("aria-pressed", String(active));
     });
     reset.addEventListener("click", function () { search.value = ""; filter.value = "all"; root.classList.remove("is-compact"); density.setAttribute("aria-pressed", "false"); apply(); });
-    function updateClock() { clock.textContent = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date()); }
-    updateClock();
-    window.setInterval(updateClock, 1000);
   }
 
   document.addEventListener("DOMContentLoaded", function () { scheduleActions(); scheduleControls(); });

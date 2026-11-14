@@ -68,7 +68,8 @@
 
 .company-subtitle {
     font-size: .72rem;
-    color: var(--theme-muted);
+    color: var(--theme-text-secondary, #cbd5e1);
+    font-weight: 550;
 
     white-space: nowrap;
     overflow: hidden;
@@ -80,12 +81,13 @@
     align-items: center;
     gap: .4rem;
     max-width: 190px;
-    padding: .35rem .6rem;
-    border: 1px solid var(--theme-border);
+    padding: .35rem .65rem;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 35%, var(--theme-border));
+    background: color-mix(in srgb, var(--theme-accent) 8%, var(--theme-surface-strong));
     border-radius: 999px;
-    color: var(--theme-muted);
+    color: var(--theme-text);
     font-size: .68rem;
-    font-weight: 650;
+    font-weight: 700;
     line-height: 1.2;
     white-space: nowrap;
 }
@@ -394,6 +396,7 @@
 
 .user-menu-actions li[role="none"] > a,
 .user-menu-actions li[role="none"] > button,
+.user-menu-actions li[role="none"] > form > button,
 .user-menu-action {
     display: flex;
     align-items: center;
@@ -416,7 +419,9 @@
 .user-menu-actions li[role="none"] > a:hover,
 .user-menu-actions li[role="none"] > a:focus-visible,
 .user-menu-actions li[role="none"] > button:hover,
-.user-menu-actions li[role="none"] > button:focus-visible {
+.user-menu-actions li[role="none"] > button:focus-visible,
+.user-menu-actions li[role="none"] > form > button:hover,
+.user-menu-actions li[role="none"] > form > button:focus-visible {
     background: color-mix(in srgb, var(--theme-accent) 10%, transparent);
     color: var(--theme-accent);
     outline: none;
@@ -433,6 +438,10 @@
     height: 1px;
     margin: .2rem .55rem;
     background: var(--theme-border);
+}
+
+.user-menu-actions li[role="none"] > form {
+    margin: 0;
 }
 
 .user-menu-actions .user-menu-action--logout {

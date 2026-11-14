@@ -51,6 +51,61 @@
         </div>
     </div>
 
+    <!-- Water Quality Index (WQI) Real-Time Composite Bar -->
+    <div id="wqi-topbar" class="wqi-topbar" role="region" aria-label="Water Quality Index Status">
+        <div class="wqi-topbar-left">
+            <span class="wqi-topbar-label"><i class="fa-solid fa-gauge-high" aria-hidden="true"></i> WQI Assessment</span>
+        </div>
+
+        <div class="wqi-topbar-center">
+            <!-- Overall WQI (All Treatment Plants Average) -->
+            <div class="wqi-chip wqi-chip-overall wqi-tone-{{ overall_wqi.tier_key|default:'nodata' }}"
+                 title="Overall Water Quality Index averaged across all {{ overall_wqi.plant_count|default:0 }} treatment plants. {{ overall_wqi.description }}">
+                <span class="wqi-chip-icon"><i class="fa-solid fa-earth-africa" aria-hidden="true"></i></span>
+                <div class="wqi-chip-text">
+                    <div class="wqi-chip-meta">
+                        <span class="wqi-chip-label">Overall (All Plants Avg)</span>
+                        <span class="wqi-badge wqi-badge-{{ overall_wqi.tier_key|default:'nodata' }}">{{ overall_wqi.tier_label|default:"No Data" }}</span>
+                    </div>
+                    <div class="wqi-chip-score">
+                        <strong class="wqi-val">{{ overall_wqi.display_score|default:"—" }}</strong>
+                        <small class="wqi-note">avg / {{ overall_wqi.plant_count|default:0 }} plants</small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Treatment Plant Scoped WQI -->
+            <div class="wqi-chip wqi-chip-plant wqi-tone-{{ plant_wqi.tier_key|default:'nodata' }}"
+                 title="Plant-scoped WQI for {{ plant_wqi.plant_name|default:plant.name|default:'Current Plant' }}. {{ plant_wqi.description }}">
+                <span class="wqi-chip-icon"><i class="fa-solid fa-industry" aria-hidden="true"></i></span>
+                <div class="wqi-chip-text">
+                    <div class="wqi-chip-meta">
+                        <span class="wqi-chip-label">{% if is_scoped_user %}Assigned Plant{% else %}Scoped Plant{% endif %}: {{ plant_wqi.plant_name|default:plant.name|default:"Unassigned" }}</span>
+                        <span class="wqi-badge wqi-badge-{{ plant_wqi.tier_key|default:'nodata' }}">{{ plant_wqi.tier_label|default:"No Data" }}</span>
+                    </div>
+                    <div class="wqi-chip-score">
+                        <strong class="wqi-val">{{ plant_wqi.display_score|default:"—" }}</strong>
+                        <small class="wqi-note">
+                            {{ plant_wqi.parameters_evaluated|default:0 }} params ·
+                            {% if plant_wqi.concerns_count %}
+                                <span class="wqi-warn-text">{{ plant_wqi.concerns_count }} concern{{ plant_wqi.concerns_count|pluralize }}</span>
+                            {% else %}
+                                <span class="wqi-ok-text">Optimal</span>
+                            {% endif %}
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="wqi-topbar-right">
+            <a href="{% url 'qc:scada_dashboard' %}?tab=wqi{% if plant %}&plant={{ plant.pk }}{% endif %}" class="wqi-action-btn" title="Open full Water Quality Index cockpit in QC SCADA Sentinel">
+                <i class="fa-solid fa-gauge-high" aria-hidden="true"></i>
+                <span>SCADA WQI Cockpit</span>
+            </a>
+        </div>
+    </div>
+
     <!-- Active Analysis Metadata Topbar (stays even if card partial is refreshing) -->
     {% if cards or current_analysis or current_time_label %}
     {% with card=cards.0 %}

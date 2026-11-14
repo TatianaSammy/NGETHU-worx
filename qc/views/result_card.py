@@ -36,6 +36,7 @@ from qc.services.operational_summary import (
     get_filter_sidebar_groups,
     get_operational_summary,
 )
+from qc.services.wqi_service import get_dashboard_wqi_summary
 
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,19 @@ class ResultCardEntryView(
 
             }
 
+            wqi_summary = get_dashboard_wqi_summary(
+                user=request.user,
+                selected_plant=None,
+                target_date=self.resolve_date(),
+            )
+            empty.update({
+                "wqi_summary": wqi_summary,
+                "overall_wqi": wqi_summary["overall"],
+                "plant_wqi": wqi_summary["plant_scoped"],
+                "all_plants_wqi": wqi_summary.get("all_plants", []),
+                "is_scoped_user": not request.user.is_superuser,
+            })
+
             if self.wants_json():
                 return JsonResponse(
                     ResultCardService.serialize_live_payload(empty)
@@ -243,6 +257,20 @@ class ResultCardEntryView(
             "phase_concentrations": phase_concentrations,
 
             "filter_phase_groups": filter_phase_groups,
+        })
+
+        # Water Quality Index (Overall across all plants + plant-scoped)
+        wqi_summary = get_dashboard_wqi_summary(
+            user=request.user,
+            selected_plant=plant,
+            target_date=self.resolve_date(),
+        )
+        context.update({
+            "wqi_summary": wqi_summary,
+            "overall_wqi": wqi_summary["overall"],
+            "plant_wqi": wqi_summary["plant_scoped"],
+            "all_plants_wqi": wqi_summary.get("all_plants", []),
+            "is_scoped_user": not request.user.is_superuser,
         })
 
         # Merge shift data only if resolved — preserves context-processor values
@@ -458,6 +486,18 @@ class ResultCardEntryView(
             "laboratory": laboratory,
             "available_plants": self.get_available_plants(),
             "live_url": self.build_live_url(plant),
+        })
+        wqi_summary = get_dashboard_wqi_summary(
+            user=self.request.user,
+            selected_plant=plant,
+            target_date=self.resolve_date(),
+        )
+        context.update({
+            "wqi_summary": wqi_summary,
+            "overall_wqi": wqi_summary["overall"],
+            "plant_wqi": wqi_summary["plant_scoped"],
+            "all_plants_wqi": wqi_summary.get("all_plants", []),
+            "is_scoped_user": not self.request.user.is_superuser,
         })
         resp = render(self.request, self.partial_template_name, context)
         resp["HX-Trigger"] = '{"resultsSaved": true, "updated": %d}' % updated

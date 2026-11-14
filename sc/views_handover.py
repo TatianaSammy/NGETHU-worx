@@ -14,7 +14,7 @@ from django.db import transaction
 from django.core.exceptions import PermissionDenied
 from core.plant_section_scope import scoped_queryset, user_plant_section
 
-from sc.models import Shift, ShiftHandover, ShiftAssignment, Apparatus, ApparatusCondition, AuditLog
+from sc.models import Shift, ShiftHandover, ShiftAssignment, Apparatus, ApparatusCondition, AuditLog, AuditMixin
 from sc.services.shift_service import (
     get_current_shift_data,
     get_next_shift,
@@ -39,7 +39,7 @@ def shift_handover_modal_data(request):
     plant = shift_data.get("plant")
     current_shift = shift_data.get("current_shift")
     next_shift = shift_data.get("next_shift")
-    supervisor = shift_data.get("supervisor") or user
+    supervisor = shift_data.get("supervisor")
 
     if not current_shift or not plant:
         return JsonResponse({"success": False, "message": "No active shift configured for treatment plant."}, status=400)
@@ -115,7 +115,7 @@ def shift_handover_modal_data(request):
             "id": supervisor.id,
             "name": supervisor.get_full_name() or supervisor.username,
             "username": supervisor.username,
-        },
+        } if supervisor else None,
         "eligible_outgoing_supervisors": outgoing_list,
         "eligible_incoming_supervisors": incoming_list,
         "apparatus_list": apparatus_list,
@@ -140,14 +140,14 @@ def shift_handover_submit(request):
 
     shift_id = data.get("shift_id")
     next_shift_id = data.get("next_shift_id")
-    outgoing_sup_id = data.get("outgoing_supervisor_id") or user.id
+    outgoing_sup_id = data.get("outgoing_supervisor_id")
     incoming_sup_id = data.get("incoming_supervisor_id")
     handover_notes = (data.get("handover_notes") or "").strip()
     pending_work = (data.get("pending_work") or "").strip()
     apparatus_conditions = data.get("apparatus_conditions") or []
 
-    if not shift_id or not incoming_sup_id:
-        return JsonResponse({"success": False, "message": "Shift and Incoming Supervisor are required."}, status=400)
+    if not shift_id or not outgoing_sup_id or not incoming_sup_id:
+        return JsonResponse({"success": False, "message": "Shift, designated Outgoing Supervisor, and designated Incoming Supervisor are required."}, status=400)
 
     try:
         current_shift = Shift.objects.get(pk=shift_id)
@@ -388,7 +388,17 @@ def shift_takeover_confirm(request):
         )
         if not request.user.is_superuser:
             assignment_updates = assignment_updates.filter(staff__assigned_treatment_plant_id=plant_id, staff__section_id=section_id)
-        assignment_updates.update(handover_to=auth_user)
+        for assignment in assignment_updates.select_for_update().select_related("staff", "shift", "duty_roster"):
+            previous_handover_user_id = assignment.handover_to_id
+            assignment.handover_to = auth_user
+            assignment.save(update_fields=("handover_to",))
+            AuditMixin.create_audit(
+                user=request.user,
+                action="update",
+                instance=assignment,
+                before={"handover_to": previous_handover_user_id},
+                after={"handover_to": auth_user.pk},
+            )
 
         # Audit log entry
         from django.contrib.contenttypes.models import ContentType

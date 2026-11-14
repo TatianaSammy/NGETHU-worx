@@ -1,199 +1,110 @@
 {% extends "sc/base.html" %}
 {% load static %}
 
-{% block title %}Shift Control | Operations{% endblock %}
-{% block extra_styles %}<link rel="stylesheet" href="{% static 'core/css/operations_dashboard.css' %}?v=20261028-operations"><link rel="stylesheet" href="{% static 'sc/css/duty_roster.css' %}?v=20261104-dynamic-roster">{% endblock %}
+{% block title %}Shift Work Management | Duty Roster{% endblock %}
+
+{% block sidebar %}{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{% static 'sc/css/duty_roster.css' %}?v=20261113-fitscreen">
+<link rel="stylesheet" href="{% static 'sc/css/shift_assignment_table.css' %}?v=20261113-fitscreen">
+{% endblock %}
 
 {% block page_content %}
-<div class="ops-dashboard sc-dashboard">
-  {% if selected_section == "overview" %}
-  <section class="sc-roster-overview" id="overview" aria-labelledby="sc-roster-title" data-options-url="{% url 'sc:roster-assignment-options' %}" data-action-url="{% url 'sc:roster-assignment-action' %}">
-    <header class="sc-roster-header">
-      <div class="sc-roster-heading"><span>SHIFT CONTROL · DUTY SCHEDULE</span><h1 id="sc-roster-title">Duty roster for {{ month_label }}</h1><p>{% if selected_plant %}{{ selected_plant.name }}{% elif show_plant_selector %}All treatment plants{% else %}Plant assignment unavailable{% endif %}</p></div>
-      <div class="sc-roster-control-group">
-        <form method="get" class="sc-roster-filters" aria-label="Duty roster filters">
-          <input type="hidden" name="section" value="overview">
-          <div class="sc-roster-filter-row">
-            {% if show_plant_selector %}<label><span>Treatment plant</span><select name="plant" id="sc-plant"><option value="">All plants</option>{% for plant in plant_options %}<option value="{{ plant.pk }}" {% if selected_plant.pk == plant.pk %}selected{% endif %}>{{ plant.code }} · {{ plant.name }}</option>{% endfor %}</select></label>{% endif %}
-            <label><span>Month</span><select name="month">{% for value, label in month_choices %}<option value="{{ value }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-            <label><span>Year</span><select name="year">{% for value in year_choices %}<option value="{{ value }}" {% if selected_year == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-            <button type="submit"><i class="fas fa-filter"></i> Apply</button>
-            <nav class="sc-roster-month-nav" aria-label="Roster month navigation"><a href="{{ previous_month_url }}" title="Previous month"><i class="fas fa-chevron-left"></i><span>Previous</span></a><a href="{{ next_month_url }}" title="Next month"><span>Next</span><i class="fas fa-chevron-right"></i></a></nav>
-            <details class="sc-roster-export">
-              <summary><i class="fas fa-arrow-up-from-bracket" aria-hidden="true"></i><span>Export</span><i class="fas fa-chevron-down" aria-hidden="true"></i></summary>
-              <div class="sc-roster-export-menu">
-                <a href="?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ selected_month }}&amp;year={{ selected_year }}&amp;export=csv"><i class="fas fa-file-csv"></i> CSV spreadsheet</a>
-                <a href="?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ selected_month }}&amp;year={{ selected_year }}&amp;export=xlsx"><i class="fas fa-file-excel"></i> Excel workbook</a>
-                <a href="?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ selected_month }}&amp;year={{ selected_year }}&amp;export=pdf"><i class="fas fa-file-pdf"></i> PDF report</a>
-                <a href="?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ selected_month }}&amp;year={{ selected_year }}&amp;export=docx"><i class="fas fa-file-word"></i> Word document</a>
-              </div>
-            </details>
-          </div>
-        </form>
-      </div>
-    </header>
-    <div class="sc-roster-command-bar" aria-label="Roster tools">
-      <div class="sc-roster-command-status"><span class="sc-roster-live-indicator"></span><strong>LIVE ROSTER</strong><span>{{ roster_assignment_count }} assignments</span><span>{{ roster_staff_count }} active staff in scope</span><time id="sc-roster-clock" aria-live="off"></time></div>
-      <div class="sc-roster-command-tools"><label class="sc-roster-search"><i class="fas fa-magnifying-glass"></i><input id="sc-roster-search-input" type="search" placeholder="Find a staff member or shift" autocomplete="off"></label><select id="sc-roster-status-filter" aria-label="Filter roster rows"><option value="all">All roster rows</option><option value="assigned">With assignments</option><option value="open">Needs staffing</option></select><button type="button" id="sc-roster-density-toggle"><i class="fas fa-compress-alt"></i><span>Compact</span></button><button type="button" id="sc-roster-filter-reset"><i class="fas fa-rotate-left"></i><span>Reset</span></button></div>
+<main class="sc-assignment-dashboard sc-roster-overview" data-options-url="{% url 'sc:roster-assignment-options' %}" data-action-url="{% url 'sc:roster-assignment-action' %}" data-superuser="{{ is_superuser|yesno:'true,false' }}" data-can-manage-supervisors="{{ can_manage_supervisors|yesno:'true,false' }}" data-can-edit-roster="{{ can_edit_roster|yesno:'true,false' }}" aria-labelledby="sc-assignment-title">
+  <header class="sc-assignment-header">
+    <div class="sc-assignment-title-block">
+      <span class="sc-assignment-eyebrow"><i class="fas fa-calendar-check" aria-hidden="true"></i> Shift Work Management · Live duty roster</span>
+      <h1 id="sc-assignment-title">Duty roster for {{ month_label }}</h1>
+      <p>{{ scope_description }} <span aria-hidden="true">·</span> {{ total_assignments }} assignments</p>
     </div>
-    <div class="sc-roster-interaction-hint"><i class="fas fa-circle-info"></i><span>{% if can_edit_roster %}Drag a staff chip to another shift cell to move the assignment.{% endif %}{% if can_add_roster %} Right-click a shift cell or use its add button to select staff for that shift.{% endif %}{% if not can_add_roster and not can_edit_roster %}Roster is read-only for your account.{% endif %}</span><span class="sc-roster-scope-lock"><i class="fas fa-shield-halved"></i>{% if show_plant_selector %}Superuser scope{% else %}Plant and section scoped{% endif %}</span></div>
-    {% for document in roster_documents %}
-    <article class="sc-roster-document">
-      <div class="sc-roster-table-wrap"><table class="sc-roster-table">
-        {% if not selected_plant and show_plant_selector %}<caption class="sc-roster-plant"><i class="fas fa-location-dot"></i>{{ document.plant.name }}</caption>{% endif %}
-        <colgroup><col><col><col><col><col><col><col></colgroup>
-        <thead><tr><th rowspan="2">Week beginning–ending</th><th rowspan="2">Time in hours</th><th colspan="3">On duty</th><th rowspan="2">Supervisor</th><th rowspan="2">Annual leave / off duty</th></tr><tr><th>Public holiday</th><th>Week days<br><small>(working days)</small></th><th>Saturday and Sunday</th></tr></thead>
+    <div class="sc-assignment-header-tools">
+      <form method="get" class="sc-assignment-filters" data-cascade-section="{{ show_plant_selector|yesno:'true,false' }}" aria-label="Filter duty roster">
+        <a class="sc-assignment-period-link sc-nav-switch-btn" href="{% url 'weeklytasks:dashboard' %}?month={{ selected_month }}&year={{ selected_year }}{% if selected_plant %}&plant={{ selected_plant.pk }}{% endif %}" title="Navigate to weekly routine tasks dashboard"><i class="fas fa-list-check" aria-hidden="true"></i> Weekly Duties</a>
+        <label><span>Month</span><select name="month">{% for value, label in month_choices %}<option value="{{ value }}" {% if selected_month == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label><span>Year</span><select name="year">{% for value in year_choices %}<option value="{{ value }}" {% if selected_year == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+        {% if show_plant_selector %}<label><span>Treatment plant</span><select name="plant"><option value="">All plants</option>{% for plant in plant_options %}<option value="{{ plant.pk }}" {% if selected_plant.pk == plant.pk %}selected{% endif %}>{{ plant.code }} · {{ plant.name }}</option>{% endfor %}</select></label>{% endif %}
+        <label><span>Section</span><select name="filter_section" {% if not show_plant_selector %}disabled{% endif %}><option value="">{% if show_plant_selector %}All sections{% else %}{{ selected_section.name|default:"Section unavailable" }}{% endif %}</option>{% if show_plant_selector %}{% for section in sections %}<option value="{{ section.pk }}" {% if selected_section.pk == section.pk %}selected{% endif %}>{{ section.name }}</option>{% endfor %}{% endif %}</select></label>
+        <label><span>In charge</span><select name="incharge" disabled title="Overall section supervisor (in charge)"><option value="">{% if incharge_user %}{{ incharge_user.get_full_name|default:incharge_user.username }}{% else %}No in charge{% endif %}</option></select></label>
+        <label><span>Shift</span><select name="shift"><option value="">All shifts</option>{% for shift in shift_options %}<option value="{{ shift.pk }}" {% if selected_shift == shift.pk|stringformat:"s" %}selected{% endif %}>{{ shift.name }} · {{ shift.treatment_plant.code }}</option>{% endfor %}</select></label>
+        <label><span>Attendance</span><select name="attendance"><option value="">All statuses</option>{% for value, label in attendance_choices %}<option value="{{ value }}" {% if attendance_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label><span>Day type</span><select name="day_type"><option value="">All day types</option>{% for value, label in day_type_choices %}<option value="{{ value }}" {% if day_type_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        <label class="sc-assignment-search"><span>Find staff or shift</span><input type="search" name="q" value="{{ search_query }}" placeholder="Name, shift, remarks" autocomplete="off"></label>
+        <button class="sc-assignment-apply" type="submit"><i class="fas fa-filter" aria-hidden="true"></i> Apply</button>
+        {% if can_manage_supervisors and selected_plant and selected_section %}
+        <button type="button" class="sc-assignment-period-link sc-balance-supervisors-btn" id="scBalanceSupervisorsBtn"
+          data-plant-id="{{ selected_plant.pk }}"
+          data-section-id="{{ selected_section.pk }}"
+          data-year="{{ selected_year }}"
+          data-month="{{ selected_month }}"
+          title="Dynamically balance weekly supervision among all available shift supervisors in this section">
+          <i class="fas fa-scale-balanced" aria-hidden="true"></i> Balance Supervisors
+        </button>
+        {% endif %}
+        <a class="sc-assignment-period-link" href="{{ previous_month_url }}" aria-label="Previous month"><i class="fas fa-chevron-left" aria-hidden="true"></i> Previous</a>
+        <a class="sc-assignment-period-link" href="{{ next_month_url }}" aria-label="Next month">Next <i class="fas fa-chevron-right" aria-hidden="true"></i></a>
+        <details class="sc-assignment-export"><summary><i class="fas fa-arrow-up-from-bracket" aria-hidden="true"></i> Export <i class="fas fa-chevron-down" aria-hidden="true"></i></summary><div class="sc-assignment-export-menu"><a href="{{ export_urls.csv }}"><i class="fas fa-file-csv" aria-hidden="true"></i> CSV spreadsheet</a><a href="{{ export_urls.xlsx }}"><i class="fas fa-file-excel" aria-hidden="true"></i> Excel workbook</a><a href="{{ export_urls.pdf }}"><i class="fas fa-file-pdf" aria-hidden="true"></i> PDF report</a><a href="{{ export_urls.docx }}"><i class="fas fa-file-word" aria-hidden="true"></i> Word document</a></div></details>
+      </form>
+    </div>
+  </header>
+
+  <section class="sc-assignment-table-panel" aria-label="Weekly shift assignments">
+    {% if scope_issue %}
+    <div class="sc-assignment-scope-message" role="status"><i class="fas fa-shield-halved" aria-hidden="true"></i><div><strong>{% if scope_issue == "plant" %}No treatment plant is assigned to your account{% elif scope_issue == "section" %}No valid section is assigned to this treatment plant{% elif scope_issue == "invalid_plant" %}The selected treatment plant is unavailable{% else %}The selected section is unavailable{% endif %}</strong><span>{% if scope_issue == "plant" %}Ask an administrator to assign your account to a treatment plant.{% elif scope_issue == "section" %}Duty records remain limited to a valid section within your assigned treatment plant.{% else %}Choose a treatment plant and section within your permitted scope.{% endif %}</span></div></div>
+    {% elif not table_row_count %}
+    <div class="sc-assignment-scope-message" role="status"><i class="fas fa-calendar-xmark" aria-hidden="true"></i><div><strong>No shift requirements are configured for this scope</strong><span>Configure active shift and section requirements to populate the roster.</span></div></div>
+    {% else %}
+    <div class="sc-assignment-table-wrap">
+      <table class="sc-assignment-table sc-weekly-roster-table">
+        <colgroup>
+          <col class="sc-roster-col-week">
+          <col class="sc-roster-col-time">
+          <col class="sc-roster-col-duty sc-roster-col-holiday">
+          <col class="sc-roster-col-duty sc-roster-col-weekday">
+          <col class="sc-roster-col-duty sc-roster-col-weekend">
+          <col class="sc-roster-col-supervisor">
+          <col class="sc-roster-col-leave">
+        </colgroup>
+        <thead><tr class="sc-roster-group-heading"><th scope="col" rowspan="2">Week beginning–ending</th><th scope="col" rowspan="2">Time in hours</th><th scope="colgroup" colspan="3">On duty</th><th scope="col" rowspan="2">Supervisor for the week</th><th scope="col" rowspan="2">Annual leave / off duty</th></tr><tr><th scope="col">Public holiday</th><th scope="col">Weekdays <small>(working days)</small></th><th scope="col">Saturday and Sunday</th></tr></thead>
         <tbody>
-          {% for row in document.rows %}<tr class="sc-roster-data-row" data-roster-row data-shift-name="{{ row.shift_name|lower }}" data-assignment-count="{{ row.assignment_count }}"><td class="sc-roster-date"><strong>{{ row.week_start|date:"j" }}–{{ row.week_end|date:"j M Y" }}</strong><small>{{ row.week_start|date:"D" }} → {{ row.week_end|date:"D" }}</small></td><td class="sc-roster-time"><strong>{{ row.start_time|time:"Hi" }} Hrs – {{ row.end_time|time:"Hi" }} Hrs</strong><small>{{ row.shift_name }}</small><span class="sc-roster-row-load">{{ row.assignment_count }} assigned</span></td>
-            {% for cell in row.roster_cells %}
-            <td class="sc-roster-slot sc-roster-slot--{{ cell.status }}{% if not cell.has_dates %} sc-roster-slot--no-dates{% endif %}" data-roster-dropzone data-has-dates="{{ cell.has_dates|yesno:'true,false' }}" data-no-dates-label="{{ cell.no_dates_label }}" data-shift-id="{{ row.shift_id }}" data-plant-id="{{ row.plant_id }}" data-week-start="{{ row.week_start|date:'Y-m-d' }}" data-week-end="{{ row.week_end|date:'Y-m-d' }}" data-day-type="{{ cell.day_type }}" data-category="{{ cell.category }}" aria-label="{{ row.shift_name }} {{ cell.category }}">
-              <div class="sc-roster-slot-toolbar"><span>{{ cell.assigned_count }} assigned</span>{% if can_add_roster and cell.has_dates %}<button type="button" class="sc-roster-add-trigger" data-open-roster-add title="Add staff to {{ row.shift_name }} {{ cell.category }}" aria-label="Add staff to {{ row.shift_name }} {{ cell.category }}"><i class="fas fa-user-plus"></i></button>{% elif not cell.has_dates %}<small>{{ cell.no_dates_label }}</small>{% endif %}</div>
-              {% if not cell.has_dates %}<div class="sc-roster-slot-readiness is-variable"><span>{{ cell.no_dates_label }}</span></div>{% elif cell.required != None %}<div class="sc-roster-slot-readiness"><span>{{ cell.assigned_count }} / {{ cell.required }} expected{% if cell.gap %} · {{ cell.gap }} open{% else %} · covered{% endif %}</span><i><b style="width:{{ cell.fill }}%"></b></i></div>{% else %}<div class="sc-roster-slot-readiness is-variable"><span>{{ cell.assigned_count }} assigned · holiday staffing varies</span></div>{% endif %}
-              <div class="sc-roster-assignees">{% for assignment in cell.assignments %}<span class="sc-roster-assignee" draggable="{% if can_edit_roster %}true{% else %}false{% endif %}" data-assignment-id="{{ assignment.id }}" data-date="{{ assignment.date|date:'Y-m-d' }}" data-day-type="{{ assignment.day_type }}" data-section-id="{{ assignment.section_id|default:'' }}" title="{{ assignment.name }} · {{ assignment.date|date:'D, d M Y' }}{% if assignment.section_name %} · {{ assignment.section_name }}{% endif %}"><strong>{{ assignment.name }}</strong><small>{{ assignment.date|date:"D d" }}</small></span>{% empty %}<span class="sc-roster-slot-empty">Unstaffed</span>{% endfor %}</div>
+          {% for week in weeks %}{% for row in week.rows %}
+          <tr class="sc-roster-week-row{% if forloop.first %} sc-roster-week-start{% endif %}">
+            {% if forloop.first %}<th class="sc-roster-week-label" scope="rowgroup" rowspan="{{ week.row_count }}"><strong>{{ week.start|date:"jS" }}–{{ week.end|date:"jS M, Y" }}</strong><small>{{ week.start|date:"D, d M" }} to {{ week.end|date:"D, d M" }}</small></th>{% endif %}
+            <th class="sc-roster-shift-label" scope="row"><strong>{{ row.shift.start_time|time:"H:i" }}–{{ row.shift.end_time|time:"H:i" }}</strong><small>{{ row.shift.name }}{% if row.shift.is_overnight %} · overnight{% endif %}</small>{% if row.shift.handover_time %}<small>Handover {{ row.shift.handover_time|time:"H:i" }}{% if row.shift.takeover_time %} · Takeover {{ row.shift.takeover_time|time:"H:i" }}{% endif %}</small>{% endif %}<small>Required {{ row.requirements.minimum_required }} min · {{ row.requirements.preferred_required }} preferred · {{ row.requirements.maximum_allowed }} max / day</small>{% if show_plant_selector and not selected_plant %}<small>{{ row.shift.treatment_plant.name }}</small>{% endif %}{% if show_plant_selector and not selected_section %}<small>{{ row.section.name }}</small>{% endif %}</th>
+            {% for day_type in row.category_slots %}
+            <td class="sc-roster-duty-cell" {% if can_add_roster or can_edit_roster %}data-roster-dropzone data-has-dates="true" data-no-dates-label="No matching dates exist in this roster week." data-shift-id="{{ row.shift.pk }}" data-section-id="{{ row.section.pk }}" data-plant-id="{{ row.plant_id }}" data-week-start="{{ week.start|date:'Y-m-d' }}" data-week-end="{{ week.end|date:'Y-m-d' }}" data-day-type="{{ day_type.value }}" data-category="{{ day_type.label }}"{% endif %}>
+              <div class="sc-roster-assignment-list sc-roster-inline-names">{% for assignment in day_type.assignments %}<span class="sc-assignment-staff sc-staff-inline-item{% if assignment.attendance_status != 'present' %} is-{{ assignment.attendance_status }}{% endif %}" draggable="{% if can_edit_roster or can_manage_supervisors %}true{% else %}false{% endif %}" data-assignment-id="{{ assignment.pk }}" data-staff-id="{{ assignment.staff_id }}" data-date="{{ assignment.date|date:'Y-m-d' }}" data-shift-id="{{ assignment.shift_id }}" data-section-id="{{ row.section.pk }}" data-plant-id="{{ row.plant_id }}" data-week-start="{{ week.start|date:'Y-m-d' }}" data-week-end="{{ week.end|date:'Y-m-d' }}" data-attendance="{{ assignment.attendance_status }}" data-supervisor-eligible="{% if assignment.staff_id == row.shift_supervisor_id or assignment.staff_id in row.eligible_supervisor_ids %}true{% else %}false{% endif %}" title="Assignment #{{ assignment.pk }} · {{ assignment.staff.get_full_name|default:assignment.staff.get_username }} · {{ assignment.date|date:'D, d M Y' }} · {{ assignment.get_attendance_status_display }}{% if assignment.remarks %} · {{ assignment.remarks }}{% endif %}"><span class="sc-staff-name">{{ assignment.staff.get_full_name|default:assignment.staff.get_username }}</span>{% if not forloop.last %}<span class="sc-staff-comma">, </span>{% endif %}</span>{% empty %}<span class="sc-roster-no-assignment">No assignment</span>{% endfor %}</div>
+              {% if can_add_roster %}<button type="button" class="sc-assignment-add" data-open-roster-add title="Add staff for {{ day_type.label|lower }}" aria-label="Add staff for {{ day_type.label|lower }} on {{ row.shift.name }}"><i class="fas fa-user-plus" aria-hidden="true"></i><span>Add staff</span></button>{% endif %}
             </td>
             {% endfor %}
-            <td class="sc-roster-supervisor">{{ row.supervisors|join:" / "|default:"—" }}</td><td class="sc-roster-leave">{{ row.annual_leave|join:" / "|default:"—" }}</td></tr>
-          {% empty %}<tr><td colspan="7"><div class="sc-roster-empty-state"><i class="fas fa-calendar-xmark"></i><strong>{% if scope_issue == 'section' %}No valid section is assigned to this treatment plant{% else %}No shift definitions for this plant and section{% endif %}</strong><span>{% if scope_issue == 'section' %}Your plant assignment is shown above. A matching section assignment is required before duty records can be displayed.{% else %}Configure active shifts and assignments within your assigned scope to populate this duty roster.{% endif %}</span></div></td></tr>{% endfor %}
+            <td class="sc-roster-supervisor-cell" {% if can_manage_supervisors %}data-supervisor-dropzone data-shift-id="{{ row.shift.pk }}" data-section-id="{{ row.section.pk }}" data-plant-id="{{ row.plant_id }}" data-week-start="{{ week.start|date:'Y-m-d' }}" data-week-end="{{ week.end|date:'Y-m-d' }}" title="Drop a designated supervisor here. They must have an assignment on this shift during this week."{% endif %}>
+              {% if row.supervisor %}
+              <span class="sc-roster-supervisor-pill{% if row.supervisor_is_temporary %} is-temporary{% endif %}" title="{% if row.supervisor_is_temporary %}Temporary cover{% else %}Weekly shift supervisor{% endif %} · {{ row.shift.name }} · {{ row.section.name }} · {{ week.start|date:'d M' }}–{{ week.end|date:'d M Y' }}."><i class="fas {% if row.supervisor_is_temporary %}fa-user-clock{% else %}fa-user-shield{% endif %}" aria-hidden="true"></i><strong>{{ row.supervisor.get_full_name|default:row.supervisor.get_username }}</strong></span>
+              <small class="sc-roster-supervisor-source">{% if row.supervisor_is_temporary %}Temporary cover{% if row.supervisor_temp_start %} · {{ row.supervisor_temp_start|date:"D H:i" }}{% endif %}{% if row.supervisor_temp_end %}–{{ row.supervisor_temp_end|date:"H:i" }}{% endif %}{% elif row.supervisor_is_weekly %}Weekly assignment · {{ row.section.name }}{% else %}Default designation · {{ row.section.name }}{% endif %}</small>
+              {% if can_manage_supervisors %}<small class="sc-roster-supervisor-hint">Drag a designated supervisor on duty this week to assign</small>{% endif %}
+              {% else %}
+              <span class="sc-roster-cell-empty">{% if row.shift_supervisor_id and not row.supervisor_is_rostered %}{{ row.shift_supervisor.get_full_name|default:row.shift_supervisor.get_username }} or another section supervisor on duty can be assigned{% elif can_manage_supervisors %}Drag a designated supervisor from this shift to assign{% else %}No weekly supervisor assigned{% endif %}</span>
+              {% if can_manage_supervisors %}<small class="sc-roster-supervisor-hint">Drag any designated supervisor assigned to this shift during this week.</small>{% endif %}
+              {% endif %}
+              {% if row.supervisor_conflict %}<span class="sc-roster-supervisor-alert" title="More than one active temporary supervisor is recorded for this week. The most recently assigned active cover is shown."><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> Multiple temporary cover records</span>{% endif %}
+            </td>
+            {% if forloop.first %}<td class="sc-roster-leave-cell" rowspan="{{ week.row_count }}" {% if can_edit_roster or can_manage_supervisors %}data-leave-dropzone data-plant-id="{{ row.plant_id }}" data-week-start="{{ week.start|date:'Y-m-d' }}" data-week-end="{{ week.end|date:'Y-m-d' }}" title="Drop a staff member here to assign annual leave / off duty for this week."{% endif %}><div class="sc-roster-leave-list sc-roster-inline-names">{% for leave in week.leave %}<span class="sc-roster-leave-item" title="{{ leave.staff.get_full_name|default:leave.staff.get_username }} · {{ leave.get_status_display }} · {{ leave.start_date|date:'d M' }}–{{ leave.end_date|date:'d M Y' }}"><strong>{{ leave.staff.get_full_name|default:leave.staff.get_username }}</strong>{% if not forloop.last %}<span class="sc-staff-comma">, </span>{% endif %}</span>{% empty %}<span class="sc-roster-cell-empty">None recorded</span>{% endfor %}</div></td>{% endif %}
+          </tr>
+          {% endfor %}{% endfor %}
         </tbody>
-      </table></div>
-    </article>
-    {% empty %}
-    <div class="sc-roster-empty-state sc-roster-empty-state--global"><i class="fas fa-calendar-xmark"></i><strong>{% if show_plant_selector %}No active shift definitions are available in this scope{% elif scope_issue == 'plant' %}No treatment plant is assigned to your account{% elif scope_issue == 'section' %}No valid section is assigned to this treatment plant{% else %}No active shift definitions are available for your scope{% endif %}</strong><span>{% if show_plant_selector %}Select a plant with configured shifts or add active shift definitions to populate the roster.{% elif scope_issue == 'plant' %}Ask an administrator to assign a treatment plant to your account. Duty assignments remain limited to your assigned plant and section.{% elif scope_issue == 'section' %}Your plant assignment is shown above. Ask an administrator to assign you to a section within that plant before duty records can be displayed.{% else %}No active shift or duty assignments are available for your assigned plant and section.{% endif %}</span></div>
-    {% endfor %}
-  {% if can_add_roster %}<dialog class="sc-roster-assignment-dialog" id="sc-roster-assignment-dialog" aria-labelledby="sc-roster-dialog-title"><form id="sc-roster-assignment-form"><header><div><span class="ops-eyebrow">SCOPED STAFFING ACTION</span><h2 id="sc-roster-dialog-title">Add a staff member</h2><p id="sc-roster-dialog-subtitle">Select a date within this week and a staff member from your section.</p></div><button type="button" class="sc-roster-dialog-close" data-close-roster-dialog aria-label="Close">×</button></header><label><span>Duty date</span><input type="date" name="date" id="sc-roster-dialog-date" required></label><label><span>Section</span><select name="section_id" id="sc-roster-dialog-section" required></select></label><label><span>Staff member</span><select name="staff_id" id="sc-roster-dialog-staff" required></select></label><p class="sc-roster-dialog-status" id="sc-roster-dialog-status" role="status"></p><footer><button type="button" data-close-roster-dialog>Cancel</button><button type="submit" class="sc-roster-dialog-submit"><i class="fas fa-user-plus"></i> Add to shift</button></footer><input type="hidden" name="shift_id" id="sc-roster-dialog-shift"><input type="hidden" name="day_type" id="sc-roster-dialog-day-type"><input type="hidden" name="week_start" id="sc-roster-dialog-week-start"><input type="hidden" name="week_end" id="sc-roster-dialog-week-end"></form></dialog>{% endif %}
-    <div class="sc-roster-toast" id="sc-roster-toast" role="status" aria-live="polite"></div>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "operations-metrics" %}
-  <section class="ops-section sc-metrics-tab" id="operations-metrics">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">LIVE OPERATIONS</span><h2>Shift control indicators</h2><p>Current staffing, attendance and equipment readiness for the selected scope.</p></div><span class="ops-count-pill">{{ month_label }}</span></div>
-    <section class="ops-kpi-grid" aria-label="Shift Control key performance indicators">
-      {% for item in kpis %}
-        <a class="ops-kpi ops-kpi--{{ item.tone }}" href="{% url 'sc:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ selected_month }}&amp;year={{ selected_year }}&amp;section={{ item.target }}#{{ item.target }}">
-          <div class="ops-kpi__top"><span>{{ item.label }}</span><i class="fas fa-{{ item.icon }}"></i></div>
-          <strong>{{ item.value }}</strong>
-          <small>{{ item.detail }}</small>
-        </a>
-      {% endfor %}
-    </section>
-  <section class="ops-panel sc-live-shifts" aria-labelledby="sc-now-title" id="live-shifts">
-    <div class="ops-panel__heading"><div><span class="ops-eyebrow">CURRENT ROSTER</span><h2 id="sc-now-title">Shifts active now</h2></div><a href="{% url 'sc:dashboard' %}?{% if selected_plant %}plant={{ selected_plant.pk }}&amp;{% endif %}month={{ selected_month }}&amp;year={{ selected_year }}&amp;section=staffing#staffing">View coverage <i class="fas fa-arrow-right"></i></a></div>
-    <div class="ops-shift-strip">
-      {% for shift in current_shifts %}
-        <article class="ops-shift-tile"><span class="ops-live-dot"></span><div><strong>{{ shift.name }}</strong><small>{{ shift.start_time|time:"H:i" }} – {{ shift.end_time|time:"H:i" }}</small></div><span class="ops-chip ops-chip--green">LIVE</span></article>
-      {% empty %}
-        <div class="ops-empty-inline"><i class="fas fa-moon"></i><span>No shift is active at the current local time.</span></div>
-      {% endfor %}
+      </table>
     </div>
+    {% endif %}
   </section>
-  </section>
-  {% endif %}
 
-  {% if selected_section == "shift-catalog" %}
-  <section class="ops-section" id="shift-catalog">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">SHIFT CONFIGURATION</span><h2>Shift catalogue</h2><p>Active shift definitions and transition times at the selected plant.</p></div><span class="ops-count-pill">{{ shift_count }} active</span></div>
-    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Shift</th><th>Plant</th><th>Operating hours</th><th>Handover</th><th>Takeover</th><th>Current state</th></tr></thead><tbody>
-      {% for shift in shift_rows %}<tr><td class="ops-strong">{{ shift.name }}</td><td>{{ shift.treatment_plant.name }}</td><td>{{ shift.start_time|time:"H:i" }} – {{ shift.end_time|time:"H:i" }}{% if shift.is_overnight %}<small> · overnight</small>{% endif %}</td><td>{{ shift.handover_time|time:"H:i"|default:"—" }}</td><td>{{ shift.takeover_time|time:"H:i"|default:"—" }}</td><td>{% if shift.is_active_now %}<span class="ops-chip ops-chip--green">Active now</span>{% else %}<span class="ops-chip ops-chip--slate">Off shift</span>{% endif %}</td></tr>
-      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-arrows-rotate"></i><strong>No active shift definitions</strong><span>Active shifts will appear when configured for this plant.</span></div></td></tr>{% endfor %}
-    </tbody></table></div></article>
-  </section>
+  {% if can_add_roster %}
+  <dialog class="sc-roster-assignment-dialog" id="sc-roster-assignment-dialog" aria-labelledby="sc-roster-dialog-title"><form id="sc-roster-assignment-form"><header><div><span class="sc-assignment-eyebrow">Model-scoped staffing action</span><h2 id="sc-roster-dialog-title">Add a staff member</h2><p id="sc-roster-dialog-subtitle">The shift and plant come from this roster cell. Choose its configured section and an eligible staff member.</p></div><button type="button" class="sc-roster-dialog-close" data-close-roster-dialog aria-label="Close">×</button></header><div class="sc-roster-dialog-scope"><span><small>Treatment plant</small><strong id="sc-roster-dialog-plant">Loading plant…</strong></span></div><label><span>Duty date</span><input type="date" name="date" id="sc-roster-dialog-date" required></label><label><span>Section · ShiftSectionRequirement</span><select name="section_id" id="sc-roster-dialog-section" required></select></label><label><span>Staff member · eligible users in this section</span><select name="staff_id" id="sc-roster-dialog-staff" required></select></label><p class="sc-roster-dialog-status" id="sc-roster-dialog-status" role="status"></p><footer><button type="button" data-close-roster-dialog>Cancel</button><button type="submit" class="sc-roster-dialog-submit"><i class="fas fa-user-plus" aria-hidden="true"></i> Add to shift</button></footer><input type="hidden" name="shift_id" id="sc-roster-dialog-shift"><input type="hidden" name="plant_id" id="sc-roster-dialog-plant-id"><input type="hidden" name="day_type" id="sc-roster-dialog-day-type"><input type="hidden" name="week_start" id="sc-roster-dialog-week-start"><input type="hidden" name="week_end" id="sc-roster-dialog-week-end"></form></dialog>
   {% endif %}
-
-  {% if selected_section == "staffing" %}
-  <section class="ops-section" id="staffing">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">CAPACITY & COVERAGE</span><h2>Staffing coverage</h2><p>Today's scheduled headcount compared with each shift and section requirement.</p></div><div class="ops-score"><strong>{{ coverage_rate }}%</strong><span>staffing coverage</span></div></div>
-    <div class="ops-two-col">
-      <article class="ops-panel">
-        <div class="ops-panel__heading"><div><h3>Coverage by shift and section</h3><span class="ops-muted">{{ understaffed_count }} requirement{{ understaffed_count|pluralize }} below target</span></div></div>
-        <div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Shift</th><th>Section</th><th>Scheduled / required</th><th>Coverage</th><th>Gap</th></tr></thead><tbody>
-          {% for row in coverage_rows %}<tr><td class="ops-strong">{{ row.shift }}</td><td>{{ row.section }}</td><td>{{ row.assigned }} / {{ row.required }}</td><td><div class="ops-progress"><span style="width:{{ row.fill }}%"></span></div><small>{{ row.fill }}%</small></td><td>{% if row.gap %}<span class="ops-chip ops-chip--rose">−{{ row.gap }}</span>{% else %}<span class="ops-chip ops-chip--green">Covered</span>{% endif %}</td></tr>
-          {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-people-group"></i><strong>No shift requirements configured</strong><span>Coverage will appear after shift and section requirements are recorded.</span></div></td></tr>{% endfor %}
-        </tbody></table></div>
-      </article>
-      <article class="ops-panel ops-chart-panel"><div class="ops-panel__heading"><div><h3>Rostered staff this week</h3><span class="ops-muted">Assignment volume by day</span></div></div><div class="ops-chart-box"><canvas id="scAttendanceTrend" aria-label="Shift assignment trend over the current week"></canvas></div></article>
-    </div>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "attendance" %}
-  <section class="ops-section" id="attendance">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">ATTENDANCE INTELLIGENCE</span><h2>Attendance</h2><p>Recorded attendance status from shift assignments, with monthly attendance rate.</p></div><div class="ops-score"><strong>{{ attendance_month.present|default:0 }}/{{ attendance_month.absent|default:0 }}</strong><span>present / absent this month</span></div></div>
-    <div class="ops-two-col">
-      <article class="ops-panel"><div class="ops-panel__heading"><div><h3>Attendance status · {{ month_label }}</h3><span class="ops-muted">{{ attendance_month.present|default:0 }} present · {{ attendance_month.late|default:0 }} late · {{ attendance_month.absent|default:0 }} absent · {{ attendance_month.excused|default:0 }} excused</span></div></div><div class="ops-status-stack">
-        <div><span class="ops-status-label"><i class="ops-dot ops-dot--green"></i>Present</span><strong>{{ attendance_month.present|default:0 }}</strong><div class="ops-progress"><span class="ops-fill--green" style="width:{{ attendance_rate }}%"></span></div></div>
-        <div><span class="ops-status-label"><i class="ops-dot ops-dot--amber"></i>Late</span><strong>{{ attendance_month.late|default:0 }}</strong></div>
-        <div><span class="ops-status-label"><i class="ops-dot ops-dot--rose"></i>Absent</span><strong>{{ attendance_month.absent|default:0 }}</strong></div>
-        <div><span class="ops-status-label"><i class="ops-dot ops-dot--blue"></i>Excused</span><strong>{{ attendance_month.excused|default:0 }}</strong></div>
-      </div></article>
-      <article class="ops-panel"><div class="ops-panel__heading"><div><h3>Today's attendance</h3><span class="ops-muted">{{ today|date:"D, d M" }}</span></div></div><div class="ops-attendance-today"><div class="ops-attendance-total"><strong>{{ attendance_today.present|default:0 }}</strong><span>present</span></div><div><span>Late</span><strong>{{ attendance_today.late|default:0 }}</strong></div><div><span>Absent</span><strong>{{ attendance_today.absent|default:0 }}</strong></div><div><span>Excused</span><strong>{{ attendance_today.excused|default:0 }}</strong></div></div></article>
-    </div>
-    <article class="ops-panel" style="margin-top:13px"><div class="ops-panel__heading"><div><h3>Today's shift assignments</h3><span class="ops-muted">Attendance register · up to 30 records</span></div></div><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Staff member</th><th>Section</th><th>Shift</th><th>Attendance</th><th>Remarks</th></tr></thead><tbody>
-      {% for assignment in today_assignment_rows %}<tr><td class="ops-strong">{{ assignment.staff.get_full_name|default:assignment.staff.username }}</td><td>{{ assignment.staff.section.name|default:"—" }}</td><td>{{ assignment.shift.name }}</td><td><span class="ops-chip {% if assignment.attendance_status == 'present' %}ops-chip--green{% elif assignment.attendance_status == 'absent' %}ops-chip--rose{% elif assignment.attendance_status == 'late' %}ops-chip--amber{% else %}ops-chip--blue{% endif %}">{{ assignment.get_attendance_status_display }}</span></td><td>{{ assignment.remarks|default:"—"|truncatechars:90 }}</td></tr>
-      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-user-check"></i><strong>No shift assignments recorded today</strong><span>Today's attendance register will appear here when assignments are created.</span></div></td></tr>{% endfor %}
-    </tbody></table></div></article>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "rosters" %}
-  <section class="ops-section" id="rosters">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">MONTHLY PLANNING</span><h2>Duty rosters</h2><p>Roster plans created for {{ month_label }}.</p></div><span class="ops-count-pill">{{ roster_count }} roster plans</span></div>
-    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Plant</th><th>Month</th><th>Assignments</th><th>Created by</th><th>Created</th><th>Notes</th></tr></thead><tbody>
-      {% for roster in roster_rows %}<tr><td class="ops-strong">{{ roster.treatment_plant.name }}</td><td>{{ roster.month }}/{{ roster.year }}</td><td>{{ roster.assignment_count }}</td><td>{{ roster.created_by.get_full_name|default:"—" }}</td><td>{{ roster.created_at|date:"d M Y" }}</td><td>{{ roster.notes|default:"—"|truncatechars:90 }}</td></tr>
-      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-calendar-xmark"></i><strong>No monthly roster records</strong><span>There are no roster plans for the selected plant and month.</span></div></td></tr>{% endfor %}
-    </tbody></table></div></article>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "annual-leave" %}
-  <section class="ops-section" id="annual-leave">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">STAFF AVAILABILITY</span><h2>Annual leave & off duty</h2><p>Active availability periods overlapping {{ month_label }}. Both statuses immediately block shift duties and daily task assignments.</p></div><span class="ops-count-pill">{{ availability_count }} record{{ availability_count|pluralize }}</span></div>
-    <article class="ops-panel"><div class="ops-panel__heading"><div><h3>Availability periods</h3><span class="ops-muted">A staff member can be marked unavailable only after conflicting duties, tasks and handovers are reassigned or removed.</span></div>{% if perms.sc.view_annualleave or perms.sc.manage_staff_availability %}<a href="{% url 'admin:sc_annualleave_changelist' %}"><i class="fas fa-calendar-plus"></i> Manage availability</a>{% endif %}</div><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Staff member</th><th>Plant</th><th>Dates</th><th>Days</th><th>Availability</th><th>Reason</th><th>Set by</th><th>Last changed by</th></tr></thead><tbody>
-      {% for record in availability_rows %}<tr><td class="ops-strong">{{ record.staff.get_full_name|default:record.staff.username }}</td><td>{{ record.treatment_plant.name }}</td><td>{{ record.start_date|date:"d M Y" }} – {{ record.end_date|date:"d M Y" }}</td><td>{{ record.duration_days }}</td><td><span class="ops-chip {% if record.status == 'annual_leave' %}ops-chip--green{% else %}ops-chip--amber{% endif %}">{{ record.get_status_display }}</span></td><td>{{ record.reason|default:"—"|truncatechars:70 }}</td><td>{{ record.created_by.get_full_name|default:record.created_by.username|default:"—" }}</td><td>{{ record.updated_by.get_full_name|default:record.updated_by.username|default:"—" }}</td></tr>
-      {% empty %}<tr><td colspan="8"><div class="ops-empty"><i class="fas fa-calendar-check"></i><strong>No annual leave or off-duty periods in this window</strong><span>Authorized staff can record either status directly. There is no approval step.</span></div></td></tr>{% endfor %}
-    </tbody></table></div></article>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "supervisors" %}
-  <section class="ops-section" id="supervisors">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">LEADERSHIP COVERAGE</span><h2>Shift supervisors</h2><p>Active supervisory appointments at the selected plant.</p></div><span class="ops-count-pill">{{ supervisors|length }} shown</span></div>
-    <div class="ops-people-grid">{% for assignment in supervisors %}<article class="ops-person-card"><div class="ops-avatar">{{ assignment.user.first_name|default:assignment.user.username|slice:":1"|upper }}{{ assignment.user.last_name|slice:":1"|upper }}</div><div><strong>{{ assignment.user.get_full_name|default:assignment.user.username }}</strong><span>{{ assignment.section.name|default:"Plant-wide" }}</span><small>{{ assignment.treatment_plant.name }}</small></div><span class="ops-chip ops-chip--green">ACTIVE</span></article>{% empty %}<div class="ops-empty"><i class="fas fa-user-shield"></i><strong>No active supervisor records</strong><span>Supervisor coverage will appear here when assigned.</span></div>{% endfor %}</div>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "handovers" %}
-  <section class="ops-section" id="handovers">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">SHIFT CONTINUITY</span><h2>Recent handovers</h2><p>Takeover status and pending work from recent shift transitions.</p></div><span class="ops-count-pill">{{ latest_handovers|length }} recent</span></div>
-    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Date</th><th>Shift</th><th>Outgoing supervisor</th><th>Incoming supervisor</th><th>Takeover</th><th>Pending work</th></tr></thead><tbody>
-      {% for handover in latest_handovers %}<tr><td>{{ handover.date|date:"d M Y" }}</td><td class="ops-strong">{{ handover.shift.name }}</td><td>{{ handover.outgoing_supervisor.get_full_name|default:"—" }}</td><td>{{ handover.incoming_supervisor.get_full_name|default:"—" }}</td><td>{% if handover.is_taken_over %}<span class="ops-chip ops-chip--green">Taken over</span>{% else %}<span class="ops-chip ops-chip--amber">Waiting</span>{% endif %}</td><td>{{ handover.pending_work|default:"No pending work recorded"|truncatechars:100 }}</td></tr>
-      {% empty %}<tr><td colspan="6"><div class="ops-empty"><i class="fas fa-right-left"></i><strong>No shift handovers recorded</strong><span>Handover activity will show here once a shift transition is logged.</span></div></td></tr>{% endfor %}
-    </tbody></table></div></article>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "apparatus" %}
-  <section class="ops-section" id="apparatus">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">ASSET READINESS</span><h2>Apparatus condition</h2><p>Latest condition recorded through shift handover inspections.</p></div><span class="ops-count-pill">{{ apparatus_attention }} need attention or reporting</span></div>
-    <article class="ops-panel"><div class="ops-table-wrap"><table class="ops-table"><thead><tr><th>Apparatus</th><th>Linked equipment</th><th>Latest condition</th><th>Inspection date</th><th>Remarks</th></tr></thead><tbody>
-      {% for row in apparatus_rows %}<tr><td class="ops-strong">{{ row.name }}</td><td>{{ row.equipment }}</td><td><span class="ops-chip {% if row.status == 'working' %}ops-chip--green{% elif row.status == 'unreported' %}ops-chip--slate{% else %}ops-chip--rose{% endif %}">{{ row.status|title }}</span></td><td>{{ row.date|date:"d M Y"|default:"—" }}</td><td>{{ row.remarks|default:"—"|truncatechars:90 }}</td></tr>
-      {% empty %}<tr><td colspan="5"><div class="ops-empty"><i class="fas fa-screwdriver-wrench"></i><strong>No apparatus linked</strong><span>Apparatus linked to plant equipment will appear here.</span></div></td></tr>{% endfor %}
-    </tbody></table></div></article>
-  </section>
-  {% endif %}
-
-  {% if selected_section == "activity" %}
-  <section class="ops-section" id="activity">
-    <div class="ops-section-heading"><div><span class="ops-eyebrow">TRACEABILITY</span><h2>Recent audit activity</h2><p>{% if show_plant_selector %}Latest Shift Control changes{% else %}Your latest Shift Control changes{% endif %}.</p></div></div>
-    <article class="ops-panel"><div class="ops-timeline">{% for entry in audit_logs %}<div class="ops-timeline__row"><span class="ops-timeline__icon"><i class="fas fa-{% if entry.action == 'create' %}plus{% elif entry.action == 'delete' %}trash{% else %}pen{% endif %}"></i></span><div><strong>{{ entry.action|title }} · {{ entry.content_type.name|title }}</strong><p>{{ entry.object_repr }}</p><small>{{ entry.user.get_full_name|default:"System" }} · {{ entry.timestamp|date:"d M Y, H:i" }}</small></div></div>{% empty %}<div class="ops-empty"><i class="fas fa-clock-rotate-left"></i><strong>No audit events to show</strong><span>Recent changes will be listed here as they happen.</span></div>{% endfor %}</div></article>
-  </section>
-  {% endif %}
-</div>
-{{ attendance_trend|json_script:"sc-trend-data" }}
+  <div class="sc-roster-toast" id="sc-roster-toast" role="status" aria-live="polite"></div>
+</main>
 {% endblock %}
 
 {% block extra_scripts %}
 {{ block.super }}
-<script src="{% static 'js/Chart.min.js' %}"></script>
-<script src="{% static 'sc/js/dashboard.js' %}?v=20261104-dynamic-roster"></script>
+<script src="{% static 'sc/js/dashboard.js' %}?v=20261110-v5-drag-supervisor-leave"></script>
 {% endblock %}

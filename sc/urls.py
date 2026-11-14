@@ -1,6 +1,6 @@
 from django.urls import path
 from .ViewDashboard import DashboardView
-from .dashboard_actions import roster_assignment_action, roster_assignment_options
+from .dashboard_actions import roster_assignment_action, roster_assignment_options, shift_supervisor_options
 from .views_handover import (
     shift_handover_modal_data,
     shift_handover_submit,
@@ -13,6 +13,7 @@ app_name = "sc"
 urlpatterns = [
     path("roster/assignment-options/", roster_assignment_options, name="roster-assignment-options"),
     path("roster/assignment-action/", roster_assignment_action, name="roster-assignment-action"),
+    path("roster/supervisor-options/", shift_supervisor_options, name="roster-supervisor-options"),
     # ---------------- Shift Handover & Takeover ----------------
     path("handover/modal-data/", shift_handover_modal_data, name="handover-modal-data"),
     path("handover/submit/", shift_handover_submit, name="handover-submit"),

@@ -1,10 +1,9 @@
 import logging
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 
-from core.models import Section
-from sc.models import MonthlyDutyRoster
+from sc.models import MonthlyDutyRoster, ShiftSectionRequirement
 from weeklytasks.models import DailyTaskAssignment, DutyWeek, MonthlyDutySchedule, WeeklyDutyTask
 
 
@@ -102,22 +101,26 @@ def sync_shift_control_roster(roster_id, section_id=None):
 
 
 def _sync_plant_month(month, year, plant_id=None, section_id=None):
-    sections = Section.objects.filter(
-        is_active=True,
-        shift_requirements__shift__is_deleted=False,
-        shift_requirements__shift__treatment_plant_id=F("treatment_plant_id"),
+    requirements = ShiftSectionRequirement.objects.filter(
+        shift__is_deleted=False,
+        section__is_active=True,
+    ).filter(
+        Q(section__treatment_plant_id=F("shift__treatment_plant_id"))
+        | Q(section__treatment_plant__isnull=True)
     )
     if plant_id:
-        sections = sections.filter(treatment_plant_id=plant_id)
+        requirements = requirements.filter(shift__treatment_plant_id=plant_id)
     if section_id:
-        sections = sections.filter(pk=section_id)
+        requirements = requirements.filter(section_id=section_id)
     synced_schedule_ids = []
-    for section in sections.distinct().order_by("treatment_plant_id", "pk"):
+    for plant_scope_id, scope_section_id in requirements.values_list(
+        "shift__treatment_plant_id", "section_id"
+    ).distinct().order_by("shift__treatment_plant_id", "section_id"):
         schedule, created = MonthlyDutySchedule.objects.get_or_create(
             month=month,
             year=year,
-            treatment_plant_id=section.treatment_plant_id,
-            section_id=section.pk,
+            treatment_plant_id=plant_scope_id,
+            section_id=scope_section_id,
         )
         if not created:
             ensure_duty_weeks(schedule.pk)

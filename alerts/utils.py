@@ -194,42 +194,28 @@ class SafeConditionEvaluator:
 # =====================================================
 class TextToSpeechEngine:
     @staticmethod
-    async def generate_voice_notification(message, filename='notification.mp3', voice_over=None):
+    async def generate_voice_notification(message, filename='notification.mp3', **kwargs):
         try:
-            from asgiref.sync import sync_to_async
-            from alerts.models import VoiceOver, synthesize_alert_audio
+            from alerts.models import synthesize_simple_tts
 
-            if voice_over is None:
-                voice_over = await sync_to_async(VoiceOver.get_next_voice)()
-            if voice_over is None:
-                logger.error("No active VoiceOver profile is available for alert speech.")
-                return None
-            audio_bytes, _ = await asyncio.to_thread(
-                synthesize_alert_audio,
-                message,
-                voice_over,
-                voice_over.accent_profile,
-                voice_over.speech_rate,
-            )
+            audio_bytes, ext = await asyncio.to_thread(synthesize_simple_tts, message)
             if not audio_bytes:
                 return None
-            output_path = filename
-            if audio_bytes.startswith(b"RIFF") and audio_bytes[8:12] == b"WAVE":
-                output_path = os.path.splitext(filename)[0] + ".wav"
+            output_path = os.path.splitext(filename)[0] + f".{ext}"
             await asyncio.to_thread(_write_voice_file, output_path, audio_bytes)
-            logger.info("Voice notification saved with profile %s", voice_over.name)
+            logger.info("Voice notification saved to %s", output_path)
             return output_path
         except Exception as e:
-            logger.error("Failed to generate profile-based voice notification: %s", e)
+            logger.error("Failed to generate voice notification: %s", e)
             return None
 
     @staticmethod
-    async def generate_voice_notification_gtts(message, filename='notification.mp3', voice_over=None):
-        return await TextToSpeechEngine.generate_voice_notification(message, filename, voice_over)
+    async def generate_voice_notification_gtts(message, filename='notification.mp3', **kwargs):
+        return await TextToSpeechEngine.generate_voice_notification(message, filename, **kwargs)
 
     @staticmethod
-    async def speak_alert(message, voice_over=None):
-        return await TextToSpeechEngine.generate_voice_notification(message, voice_over=voice_over)
+    async def speak_alert(message, **kwargs):
+        return await TextToSpeechEngine.generate_voice_notification(message, **kwargs)
 
 
 def _write_voice_file(filename, audio_bytes):

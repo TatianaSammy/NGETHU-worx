@@ -1,0 +1,29 @@
+<!-- Universal Delete Modal -->
+<div class="modal fade" id="universalDeleteModal" tabindex="-1" aria-labelledby="universalDeleteModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+            <div class="modal-header bg-danger text-white py-3">
+                <h5 class="modal-title fw-bold" id="universalDeleteModalTitle">
+                    <i class="fa fa-triangle-exclamation me-2"></i>
+                    Confirm Delete
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4 text-center">
+                <p class="mb-1 text-muted">Are you sure you want to delete:</p>
+                <h6 class="fw-bold text-danger mb-3" id="universalDeleteObjectName">This record</h6>
+                <small class="text-muted d-block">This action cannot be undone.</small>
+            </div>
+            <div class="modal-footer bg-light border-top justify-content-center py-3">
+                <button type="button" class="btn btn-secondary rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
+                <form id="universalDeleteForm" method="post" action="">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-danger rounded-pill px-3">
+                        <i class="fa fa-trash me-1"></i> Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+

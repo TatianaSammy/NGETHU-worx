@@ -265,7 +265,7 @@ class ChemicalAlertsService:
                         analysis_request__status=ChemicalAnalysisRequest.Status.PENDING,
                         analysis_request__assigned_analysts__isnull=True,
                     )
-                    .exclude(analysis_request_id__in=persistent_assignment_requests)
+                    .exclude(analysis_request__pk__in=persistent_assignment_requests)
                     .select_related("chemical", "analysis_request")
                     .order_by("-created_at")
                 )

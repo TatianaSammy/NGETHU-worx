@@ -198,31 +198,52 @@ code, pre, kbd, samp, .font-mono {
     color: var(--theme-text) !important;
 }
 
-/* Tables */
-.table {
+/* Tables - Universal High-Legibility & Theme-Sensitive Styling */
+.table,
+table:not(.ui-datepicker-calendar) {
     --bs-table-bg: transparent;
     --bs-table-color: var(--theme-text);
     color: var(--theme-text) !important;
     border-color: var(--theme-border) !important;
 }
 
-.table th {
-    background-color: var(--theme-surface-muted) !important;
-    color: var(--theme-muted) !important;
+.table th,
+table:not(.ui-datepicker-calendar) th {
+    background-color: var(--theme-surface-strong) !important;
+    color: var(--theme-text) !important;
     font-size: var(--font-size-xs);
-    font-weight: 700;
+    font-weight: 800;
     text-transform: uppercase;
     letter-spacing: var(--tracking-wide);
-    border-bottom: 1px solid var(--theme-border) !important;
+    border-color: var(--theme-border) !important;
+    opacity: 1 !important;
 }
 
-.table td {
+.table th small,
+table:not(.ui-datepicker-calendar) th small {
+    color: var(--theme-text-secondary) !important;
+    font-weight: 650;
+    opacity: 1 !important;
+}
+
+.table td,
+table:not(.ui-datepicker-calendar) td {
     color: var(--theme-text) !important;
-    border-bottom: 1px solid var(--theme-border) !important;
+    border-color: var(--theme-border) !important;
 }
 
-.table-hover tbody tr:hover td {
-    background-color: var(--theme-surface-muted) !important;
+.table td small,
+table:not(.ui-datepicker-calendar) td small,
+.table td .text-muted,
+table:not(.ui-datepicker-calendar) td .text-muted {
+    color: var(--theme-text-secondary) !important;
+    opacity: 1 !important;
+    font-weight: 550;
+}
+
+.table-hover tbody tr:hover td,
+table.table-hover tbody tr:hover td {
+    background-color: var(--row-hover-bg, var(--theme-accent-soft)) !important;
 }
 
 /* Form Controls */
@@ -451,37 +472,81 @@ html[data-theme="dusk"], html[data-theme="inferno"] {
     --shadow-lg: 0 12px 28px rgba(0, 0, 0, .28);
 }
 
-/* Night: neutral low-light mode; avoid pure black and reduce visual glare. */
-html[data-theme="night"], html[data-theme="dark"], html[data-theme="oled"], html[data-theme="amoled"] {
+/* Cyber Command (Midnight / Low Light Tactical): ultra-crisp futuristic telemetry */
+html[data-theme="cyber"],
+html[data-theme="cyber-command"],
+html[data-theme="night"],
+html[data-theme="dark"] {
     color-scheme: dark;
-    --theme-bg: #171c22;
-    --theme-surface: #20272f;
-    --theme-surface-strong: #1c2229;
-    --theme-surface-muted: #2a333d;
-    --theme-text: #f0f3f6;
-    --theme-text-secondary: #d0d8e0;
-    --theme-muted: #aab6c3;
-    --theme-border: #3a4652;
-    --theme-border-strong: #536271;
-    --theme-accent: #8cc7db;
-    --theme-accent-hover: #b2deeb;
-    --theme-accent-soft: rgba(140, 199, 219, .15);
-    --theme-accent-glow: rgba(140, 199, 219, .30);
-    --theme-on-accent: #10232b;
-    --theme-selection: rgba(140, 199, 219, .24);
-    --theme-focus-ring: 0 0 0 3px rgba(140, 199, 219, .34);
-    --color-success: #6ce9a6;
-    --color-warning: #fec84b;
-    --color-danger: #fda29b;
-    --color-info: #84caff;
-    --topbar-bg: #1d232a;
-    --topbar-border: #3a4652;
-    --sidebar-bg: #1c2229;
-    --sidebar-border: #3a4652;
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .18);
-    --shadow-sm: 0 2px 6px rgba(0, 0, 0, .20);
-    --shadow-md: 0 6px 16px rgba(0, 0, 0, .24);
-    --shadow-lg: 0 12px 28px rgba(0, 0, 0, .28);
+    --theme-bg: #090e17;
+    --theme-surface: #0f1726;
+    --theme-surface-strong: #141f32;
+    --theme-surface-muted: #18253c;
+    --theme-text: #ffffff;
+    --theme-text-secondary: #e2e8f0;
+    --theme-muted: #94a3b8;
+    --theme-border: #1e2e46;
+    --theme-border-strong: #2e4466;
+    --theme-accent: #00e5ff;
+    --theme-accent-hover: #38edff;
+    --theme-accent-soft: rgba(0, 229, 255, .12);
+    --theme-accent-glow: rgba(0, 229, 255, .32);
+    --theme-on-accent: #04141e;
+    --theme-selection: rgba(0, 229, 255, .25);
+    --theme-focus-ring: 0 0 0 3px rgba(0, 229, 255, .36);
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-danger: #f43f5e;
+    --color-info: #00e5ff;
+    --topbar-bg: #0c121e;
+    --topbar-border: #1e2e46;
+    --sidebar-bg: #0a0f19;
+    --sidebar-border: #1e2e46;
+    --panel-bg: var(--theme-surface);
+    --panel-bg-soft: var(--theme-surface-muted);
+    --panel-border: var(--theme-border);
+    --input-bg: var(--theme-surface-strong);
+    --table-header-bg: var(--theme-surface-strong);
+    --row-hover-bg: var(--theme-accent-soft);
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-sm: 0 2px 6px rgba(0, 0, 0, .5);
+    --shadow-md: 0 8px 20px rgba(0, 0, 0, .6);
+    --shadow-lg: 0 14px 32px rgba(0, 0, 0, .7);
+}
+
+/* Deep Abyss (OLED Pitch Black): Zero-power true black with luminescent numbers */
+html[data-theme="abyss"],
+html[data-theme="oled"],
+html[data-theme="amoled"] {
+    color-scheme: dark;
+    --theme-bg: #030712;
+    --theme-surface: #080d1a;
+    --theme-surface-strong: #0d1527;
+    --theme-surface-muted: #111a2f;
+    --theme-text: #ffffff;
+    --theme-text-secondary: #f1f5f9;
+    --theme-muted: #94a3b8;
+    --theme-border: #1f293d;
+    --theme-border-strong: #334155;
+    --theme-accent: #38bdf8;
+    --theme-accent-hover: #7dd3fc;
+    --theme-accent-soft: rgba(56, 189, 248, .12);
+    --theme-accent-glow: rgba(56, 189, 248, .30);
+    --theme-on-accent: #020617;
+    --theme-selection: rgba(56, 189, 248, .25);
+    --theme-focus-ring: 0 0 0 3px rgba(56, 189, 248, .35);
+    --color-success: #34d399;
+    --color-warning: #fbbf24;
+    --color-danger: #fb7185;
+    --color-info: #38bdf8;
+    --topbar-bg: #030712;
+    --topbar-border: #1f293d;
+    --sidebar-bg: #02040a;
+    --sidebar-border: #1f293d;
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .5);
+    --shadow-sm: 0 2px 6px rgba(0, 0, 0, .6);
+    --shadow-md: 0 8px 20px rgba(0, 0, 0, .7);
+    --shadow-lg: 0 14px 32px rgba(0, 0, 0, .8);
 }
 
 /* Aurora: cool midnight variation for dark environments. */
@@ -550,33 +615,33 @@ html[data-theme="emerald-dark"] {
     --shadow-lg: 0 12px 28px rgba(0, 0, 0, .28);
 }
 
-/* High-contrast light palette for strong ambient glare or accessibility needs. */
-html[data-theme="high-contrast"], html[data-theme="contrast"] {
+/* High-contrast light palette / Solar Glare for outdoor bright environments. */
+html[data-theme="high-contrast"], html[data-theme="contrast"], html[data-theme="solar"] {
     color-scheme: light;
-    --theme-bg: #ffffff;
+    --theme-bg: #f8fafc;
     --theme-surface: #ffffff;
     --theme-surface-strong: #ffffff;
-    --theme-surface-muted: #f1f3f5;
-    --theme-text: #101820;
-    --theme-text-secondary: #202b36;
-    --theme-muted: #394754;
-    --theme-border: #66727e;
-    --theme-border-strong: #394754;
-    --theme-accent: #005fcc;
-    --theme-accent-hover: #004a9f;
-    --theme-accent-soft: rgba(0, 95, 204, .12);
-    --theme-accent-glow: rgba(0, 95, 204, .30);
+    --theme-surface-muted: #e2e8f0;
+    --theme-text: #000000;
+    --theme-text-secondary: #0f172a;
+    --theme-muted: #1e293b;
+    --theme-border: #0f172a;
+    --theme-border-strong: #000000;
+    --theme-accent: #0052cc;
+    --theme-accent-hover: #003d99;
+    --theme-accent-soft: rgba(0, 82, 204, .15);
+    --theme-accent-glow: rgba(0, 82, 204, .35);
     --theme-on-accent: #ffffff;
-    --theme-selection: rgba(0, 95, 204, .22);
-    --theme-focus-ring: 0 0 0 3px rgba(0, 95, 204, .4);
+    --theme-selection: rgba(0, 82, 204, .25);
+    --theme-focus-ring: 0 0 0 3px #0052cc;
     --topbar-bg: #ffffff;
-    --topbar-border: #66727e;
-    --sidebar-bg: #f8f9fa;
-    --sidebar-border: #66727e;
-    --shadow-xs: 0 1px 2px rgba(16, 24, 32, .12);
-    --shadow-sm: 0 1px 3px rgba(16, 24, 32, .14);
-    --shadow-md: 0 4px 10px rgba(16, 24, 32, .16);
-    --shadow-lg: 0 10px 22px rgba(16, 24, 32, .20);
+    --topbar-border: #000000;
+    --sidebar-bg: #f1f5f9;
+    --sidebar-border: #000000;
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .2);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, .25);
+    --shadow-md: 0 4px 10px rgba(0, 0, 0, .3);
+    --shadow-lg: 0 10px 22px rgba(0, 0, 0, .35);
 }
 
 /* Theme Flash Removal */
@@ -766,11 +831,61 @@ body:has(.qad-cockpit-viewport) .content {
    APP SHELL / COCKPIT — constrain .content flex children
 ========================================================= */
 body:has(.app-shell) .content,
+body:has(.sc-assignment-dashboard) .content,
+body:has(.weekly-schedule-dashboard) .content,
+body:has(.ops-dashboard) .content,
 body:has(.qad-cockpit-viewport) .content {
     overflow: hidden !important;
     min-height: 0;
+    padding: 0 !important;
+    margin: 0 !important;
     display: flex;
     flex-direction: column;
+    height: calc(100vh - var(--header-height, 60px)) !important;
+    max-height: calc(100vh - var(--header-height, 60px)) !important;
+    width: 100% !important;
+}
+
+body:has(.app-shell) .content-wrapper,
+body:has(.sc-assignment-dashboard) .content-wrapper,
+body:has(.weekly-schedule-dashboard) .content-wrapper,
+body:has(.ops-dashboard) .content-wrapper {
+    overflow: hidden !important;
+    min-height: 0;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: calc(100vh - var(--header-height, 60px)) !important;
+    max-height: calc(100vh - var(--header-height, 60px)) !important;
+}
+
+body:has(.app-shell) .app-shell,
+body:has(.app-shell) .app-content,
+body:has(.sc-assignment-dashboard) .app-shell,
+body:has(.sc-assignment-dashboard) .app-content,
+body:has(.weekly-schedule-dashboard) .app-shell,
+body:has(.weekly-schedule-dashboard) .app-content,
+body:has(.ops-dashboard) .app-shell,
+body:has(.ops-dashboard) .app-content {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+/* The fixed global header is outside normal flow. Keep these full-screen
+   dashboards below it while preserving their remaining viewport height. */
+body:has(.sc-assignment-dashboard) > .layout,
+body:has(.weekly-schedule-dashboard) > .layout {
+    flex: 0 0 calc(100dvh - var(--header-height, 62px));
+    height: calc(100dvh - var(--header-height, 62px));
+    min-height: 0;
+    margin-top: var(--header-height, 62px);
 }
 
 .content > .app-shell,
@@ -795,10 +910,33 @@ body:has(.qad-cockpit-viewport) .content {
 .app-content .table-responsive,
 .app-shell .table-responsive,
 .qad-cockpit-viewport .table-responsive {
-    width: 100%;
-    max-width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure dashboards and main tables fit the whole screen without blank spaces */
+.ops-dashboard,
+.dashboard-container,
+.sc-assignment-dashboard,
+.weekly-schedule-dashboard,
+.app-shell,
+.app-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+.ops-dashboard .table-responsive > table,
+.app-shell .table-responsive > table,
+.app-content .table-responsive > table,
+.table-fit-screen {
+    width: 100% !important;
+    min-height: 100% !important;
+    height: 100% !important;
 }
 /* =========================================================
    SHARED QAD COMPONENTS + CROSS-APP THEME BRIDGE
@@ -1118,4 +1256,421 @@ html.theme-light :is(.jt-workspace-root, .cl-workspace-root, .ph-workspace-root)
     background:
         radial-gradient(circle at 10% 0%, var(--theme-accent-soft), transparent 45%),
         var(--theme-bg) !important;
+}
+
+
+/* =========================================================
+   FUTURISTIC 24/7 THEME HUD & AESTHETIC ARCHITECTURE
+   ========================================================= */
+
+/* 1. Global Futuristic Aesthetic Backgrounds (Hardware Accelerated) */
+html[data-theme="cyber"] body,
+html[data-theme="cyber-command"] body,
+html[data-theme="night"] body,
+html[data-theme="dark"] body {
+    background-color: var(--theme-bg) !important;
+    background-image:
+        radial-gradient(rgba(0, 229, 255, 0.08) 1px, transparent 1px),
+        linear-gradient(180deg, #090e17 0%, #05080f 100%) !important;
+    background-size: 28px 28px, 100% 100% !important;
+    background-attachment: fixed !important;
+}
+
+html[data-theme="abyss"] body,
+html[data-theme="oled"] body {
+    background-color: #030712 !important;
+    background-image:
+        radial-gradient(rgba(56, 189, 248, 0.06) 1px, transparent 1px),
+        linear-gradient(180deg, #040814 0%, #010307 100%) !important;
+    background-size: 32px 32px, 100% 100% !important;
+    background-attachment: fixed !important;
+}
+
+html[data-theme="aurora"] body,
+html[data-theme="celestial"] body {
+    background-color: #0c1020 !important;
+    background-image:
+        radial-gradient(circle at 15% 15%, rgba(168, 85, 247, 0.12), transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(0, 229, 255, 0.10), transparent 45%),
+        radial-gradient(rgba(192, 132, 252, 0.08) 1px, transparent 1px) !important;
+    background-size: 100% 100%, 100% 100%, 30px 30px !important;
+    background-attachment: fixed !important;
+}
+
+html[data-theme="day"] body,
+html[data-theme="light"] body {
+    background-color: var(--theme-bg) !important;
+    background-image:
+        radial-gradient(rgba(15, 23, 42, 0.045) 1px, transparent 1px),
+        linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%) !important;
+    background-size: 28px 28px, 100% 100% !important;
+    background-attachment: fixed !important;
+}
+
+html[data-theme="solar"] body,
+html[data-theme="high-contrast"] body {
+    background-color: #f8fafc !important;
+    background-image: none !important;
+}
+
+/* 2. Futuristic Theme HUD Trigger Console */
+.futuristic-theme-hud {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin: 0 4px;
+}
+
+.theme-hud-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    padding: 0;
+    background: var(--theme-surface-strong) !important;
+    border: 1px solid var(--theme-border-strong) !important;
+    border-radius: 50%;
+    color: var(--theme-text) !important;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    box-shadow: 0 2px 8px var(--theme-accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.theme-hud-btn:hover {
+    border-color: var(--theme-accent) !important;
+    box-shadow: 0 0 14px var(--theme-accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    transform: translateY(-1px) scale(1.05);
+}
+
+.theme-hud-btn:active {
+    transform: translateY(0) scale(0.98);
+}
+
+.theme-hud-orb {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    color: var(--theme-accent);
+    font-size: 0.95rem;
+    box-shadow: none;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background-color 0.2s ease;
+}
+
+.theme-hud-btn:hover .theme-hud-orb {
+    transform: scale(1.15) rotate(16deg);
+}
+
+.theme-hud-badge {
+    display: none !important;
+}
+
+.theme-hud-pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 8px var(--color-success);
+    transition: background-color 0.3s ease;
+}
+
+.theme-hud-pulse.is-auto {
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: hudBeacon 2s infinite ease-in-out;
+}
+
+.theme-hud-pulse.is-manual {
+    background: var(--theme-accent);
+    box-shadow: 0 0 8px var(--theme-accent);
+}
+
+@keyframes hudBeacon {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.theme-hud-arrow {
+    font-size: 0.65rem;
+    color: var(--theme-muted);
+    transition: transform 0.2s ease;
+}
+
+.theme-hud-btn[aria-expanded="true"] .theme-hud-arrow {
+    transform: rotate(180deg);
+}
+
+/* 3. Futuristic Telemetry HUD Popover Menu */
+.theme-hud-popover {
+    position: absolute;
+    top: calc(100% + 9px);
+    right: 0;
+    z-index: 10050;
+    width: 330px;
+    max-width: calc(100vw - 20px);
+    background: var(--theme-surface-strong) !important;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--theme-border-strong) !important;
+    border-top: 2px solid var(--theme-accent) !important;
+    border-radius: 14px;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 24px var(--theme-accent-glow);
+    padding: 12px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-8px) scale(0.97);
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.theme-hud-popover.is-open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+}
+
+.hud-telemetry-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 10px;
+    margin-bottom: 9px;
+    background: var(--theme-surface-muted);
+    border: 1px solid var(--theme-border);
+    border-radius: 8px;
+}
+
+.hud-telemetry-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.hud-live-beacon {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: hudBeacon 1.5s infinite;
+}
+
+.hud-telemetry-title {
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    color: var(--theme-text);
+}
+
+.hud-telemetry-shift {
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: var(--theme-accent);
+}
+
+.hud-theme-section-label {
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--theme-muted);
+    padding: 0 4px 6px;
+}
+
+.hud-presets-grid {
+    display: grid;
+    gap: 5px;
+    max-height: 380px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.hud-presets-grid::-webkit-scrollbar {
+    width: 4px;
+}
+.hud-presets-grid::-webkit-scrollbar-thumb {
+    background: var(--theme-border);
+    border-radius: 4px;
+}
+
+.hud-preset-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 9px;
+    background: var(--theme-surface);
+    border: 1px solid var(--theme-border);
+    border-radius: 8px;
+    color: var(--theme-text);
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.hud-preset-card:hover {
+    background: var(--theme-surface-muted);
+    border-color: var(--theme-accent);
+    transform: translateX(2px);
+}
+
+.hud-preset-card.is-active {
+    background: var(--theme-accent-soft);
+    border-color: var(--theme-accent);
+    box-shadow: 0 0 12px var(--theme-accent-glow);
+}
+
+.hud-preset-swatch {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.hud-preset-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.hud-preset-name {
+    font-size: 0.74rem;
+    font-weight: 750;
+    color: var(--theme-text);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    line-height: 1.2;
+}
+
+.hud-mini-badge {
+    display: inline-block;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--theme-surface-muted);
+    border: 1px solid var(--theme-border);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    color: var(--theme-accent);
+}
+
+.hud-preset-desc {
+    font-size: 0.65rem;
+    color: var(--theme-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+}
+
+.hud-preset-radio {
+    font-size: 0.85rem;
+    color: var(--theme-muted);
+    flex-shrink: 0;
+}
+
+.hud-preset-card.is-active .hud-preset-radio {
+    color: var(--theme-accent);
+}
+
+.hud-popover-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px solid var(--theme-border);
+}
+
+.hud-shortcut-hint {
+    font-size: 0.65rem;
+    color: var(--theme-muted);
+    font-weight: 600;
+}
+
+.hud-shortcut-hint kbd {
+    display: inline-block;
+    padding: 1px 4px;
+    background: var(--theme-surface-muted);
+    border: 1px solid var(--theme-border-strong);
+    border-radius: 4px;
+    font-size: 0.6rem;
+    color: var(--theme-text);
+}
+
+.hud-auto-sync-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    background: var(--theme-accent-soft);
+    border: 1px solid var(--theme-accent);
+    border-radius: 6px;
+    color: var(--theme-accent);
+    font-size: 0.66rem;
+    font-weight: 750;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.hud-auto-sync-btn:hover {
+    background: var(--theme-accent);
+    color: var(--theme-on-accent, #ffffff);
+    box-shadow: 0 0 10px var(--theme-accent-glow);
+}
+
+/* 4. Quick Visual Toast Notification */
+.theme-toast-notification {
+    position: fixed;
+    bottom: 22px;
+    right: 22px;
+    z-index: 99999;
+    padding: 9px 18px;
+    background: var(--theme-surface-strong);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--theme-accent);
+    border-radius: 999px;
+    color: var(--theme-text);
+    font-weight: 750;
+    font-size: 0.78rem;
+    letter-spacing: 0.02em;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4), 0 0 18px var(--theme-accent-glow);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(12px) scale(0.96);
+    transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.theme-toast-notification.is-visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+/* 5. Futuristic Micro-Glow and Shift Badge Telemetry on Dashboards */
+.shift-info-pill {
+    position: relative;
+    border: 1px solid var(--theme-border) !important;
+    background: var(--theme-surface-strong) !important;
+    box-shadow: 0 2px 8px var(--theme-accent-soft) !important;
+    transition: all 0.2s ease !important;
+}
+
+.shift-info-pill:hover {
+    border-color: var(--theme-accent) !important;
+    box-shadow: 0 0 14px var(--theme-accent-glow) !important;
 }

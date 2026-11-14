@@ -36,7 +36,6 @@ AlertNotification = get_model("AlertNotification")
 AlarmAcknowledgment = get_model("AlarmAcknowledgment")
 AlertLog = get_model("AlertLog")
 UserAlertPreference = get_model("UserAlertPreference")
-VoiceOver = get_model("VoiceOver")
 VoiceAlert = get_model("VoiceAlert")
 
 
@@ -52,7 +51,6 @@ ICONS = {
     "AlarmAcknowledgment": "check-circle",
     "AlertLog": "scroll",
     "UserAlertPreference": "sliders-h",
-    "VoiceOver": "microphone",
     "VoiceAlert": "volume-high",
 }
 
@@ -69,7 +67,6 @@ GROUPS = {
     "AlarmAcknowledgment": "audit",
     "AlertLog": "audit",
     "UserAlertPreference": "users",
-    "VoiceOver": "voice",
     "VoiceAlert": "voice",
 }
 
@@ -145,15 +142,10 @@ def notification_qs(model) -> QuerySet:
     )
 
 
-def voice_over_qs(model) -> QuerySet:
-    return model.objects.select_related("user")
-
-
 def voice_alert_qs(model) -> QuerySet:
     return model.objects.select_related(
         "alert_config",
         "alert_state",
-        "voice_over",
         "speaker_user",
     )
 
@@ -309,20 +301,11 @@ safe_register(
 )
 
 safe_register(
-    VoiceOver,
-    search_fields=["name", "user__username", "user__first_name", "user__last_name"],
-    filter_fields=["is_active", "gender", "accent_profile", "slot"],
-    ordering=["slot", "name"],
-    select_related=["user"],
-    queryset_factory=voice_over_qs,
-)
-
-safe_register(
     VoiceAlert,
     search_fields=["title", "message", "speaker_user__username"],
-    filter_fields=["is_played", "voice_cloned", "repeat_due_at"],
+    filter_fields=["is_played", "repeat_due_at"],
     ordering=["-created_at"],
-    select_related=["alert_config", "alert_state", "voice_over", "speaker_user"],
+    select_related=["alert_config", "alert_state", "speaker_user"],
     queryset_factory=voice_alert_qs,
 )
 

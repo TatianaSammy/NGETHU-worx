@@ -591,3 +591,70 @@ class SystemConfigurationForm(
     class Meta:
         model = SystemConfiguration
         fields = "__all__"
+
+
+# ==========================================================
+# GROUP MANAGEMENT FORM
+# ==========================================================
+
+class GroupAdminForm(
+    BootstrapFormMixin,
+    forms.ModelForm,
+):
+    permissions = forms.ModelMultipleChoiceField(
+        queryset=Permission.objects.select_related("content_type").order_by("content_type__app_label", "name"),
+        required=False,
+        widget=forms.SelectMultiple(
+            attrs={"class": "form-select", "size": 10}
+        ),
+        help_text="Hold Ctrl (or Cmd) to select multiple permissions.",
+    )
+
+    class Meta:
+        model = Group
+        fields = ["name", "permissions"]
+
+
+# ==========================================================
+# PERMISSION MANAGEMENT FORM
+# ==========================================================
+
+class PermissionAdminForm(
+    BootstrapFormMixin,
+    forms.ModelForm,
+):
+    class Meta:
+        model = Permission
+        fields = ["name", "codename", "content_type"]
+
+
+# ==========================================================
+# TREATMENT PLANT & LAB FORMS
+# ==========================================================
+
+class TreatmentPlantAdminForm(
+    BootstrapFormMixin,
+    forms.ModelForm,
+):
+    class Meta:
+        from t.models import TreatmentPlant
+        model = TreatmentPlant
+        fields = ["code", "name", "location"]
+
+
+class LaboratoryAdminForm(
+    BootstrapFormMixin,
+    forms.ModelForm,
+):
+    class Meta:
+        from laboratory.models import Laboratory
+        model = Laboratory
+        fields = ["name", "treatment_plant"]
+
+
+class ListImportForm(forms.Form):
+    file = forms.FileField(
+        required=True,
+        widget=forms.FileInput(attrs={"class": "form-control", "accept": ".csv,.xlsx,.xls"}),
+        help_text="Select a CSV or Excel (.xlsx) file to import.",
+    )

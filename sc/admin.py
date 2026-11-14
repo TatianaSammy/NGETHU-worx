@@ -1,6 +1,8 @@
 # sc/admin.py
 from __future__ import annotations
 
+from datetime import date
+
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib import admin, messages
@@ -14,7 +16,7 @@ from django.urls import reverse
 from django.utils.safestring import mark_safe
 
 from core.models import Section
-from core.plant_section_scope import object_in_scope, scoped_queryset, user_plant_section
+from core.plant_section_scope import object_in_scope, scoped_queryset, section_scope_q, user_plant_section
 from t.models import TreatmentPlant
 from .models import (
     ShiftSectionRequirement,
@@ -434,40 +436,81 @@ class ShiftAdmin(SCScopedAdminMixin, admin.ModelAdmin):
 # =============================================================================
 
 class ShiftSupervisorAdminForm(forms.ModelForm):
+    request_user = None
+
     class Meta:
         model = ShiftSupervisor
         fields = "__all__"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        User = get_user_model()
         plant_id = None
         if self.is_bound:
-            plant_id = self.data.get("treatment_plant")
+            plant_value = self.data.get("treatment_plant")
+            plant_id = int(plant_value) if str(plant_value or "").isdecimal() else None
         elif self.instance and getattr(self.instance, "treatment_plant_id", None):
             plant_id = self.instance.treatment_plant_id
 
-        if plant_id:
-            self.fields["section"].queryset = self.fields["section"].queryset.filter(
-                treatment_plant_id=plant_id,
-                is_active=True,
-            ).order_by("name")
-        else:
-            self.fields["section"].queryset = self.fields["section"].queryset.filter(is_active=True).order_by("name")
+        actor_plant_id, actor_section_id = user_plant_section(self.request_user)
+        if self.request_user and not self.request_user.is_superuser:
+            self.fields["treatment_plant"].queryset = self.fields["treatment_plant"].queryset.filter(pk=actor_plant_id)
+            if actor_plant_id != plant_id:
+                plant_id = None
+
+        self.fields["treatment_plant"].widget.attrs["data-supervisor-options-url"] = reverse("sc:roster-supervisor-options")
+        self.fields["shift"].required = False
+        self.fields["section"].required = True
+
+        self.fields["shift"].queryset = Shift.objects.filter(
+            is_deleted=False,
+            treatment_plant_id=plant_id,
+            section_requirements__section__is_active=True,
+        ).filter(
+            section_scope_q("section_requirements__section__treatment_plant_id", plant_id)
+        ).distinct().order_by("start_time", "name") if plant_id else Shift.objects.none()
+        if self.request_user and not self.request_user.is_superuser:
+            self.fields["shift"].queryset = self.fields["shift"].queryset.filter(
+                section_requirements__section_id=actor_section_id,
+            ).distinct()
+
+        shift_id = None
+        if self.is_bound:
+            shift_value = self.data.get("shift")
+            shift_id = int(shift_value) if str(shift_value or "").isdecimal() else None
+        elif self.instance and getattr(self.instance, "shift_id", None):
+            shift_id = self.instance.shift_id
 
         section_id = None
         if self.is_bound:
-            section_id = self.data.get("section")
+            section_value = self.data.get("section")
+            section_id = int(section_value) if str(section_value or "").isdecimal() else None
         elif self.instance and getattr(self.instance, "section_id", None):
             section_id = self.instance.section_id
 
-        user_qs = self.fields["user"].queryset.filter(is_active=True)
-        if section_id:
-            user_qs = user_qs.filter(section_id=section_id)
+        section_queryset = self.fields["section"].queryset.filter(is_active=True)
         if plant_id:
-            user_qs = user_qs.filter(assigned_treatment_plant_id=plant_id)
-        if section_id:
-            user_qs = user_qs.filter(section_id=section_id)
+            section_queryset = section_queryset.filter(section_scope_q("treatment_plant_id", plant_id))
+        if shift_id:
+            section_queryset = section_queryset.filter(shift_requirements__shift_id=shift_id).distinct()
+        elif not plant_id:
+            section_queryset = section_queryset.none()
+        if self.request_user and not self.request_user.is_superuser:
+            section_queryset = section_queryset.filter(pk=actor_section_id)
+        self.fields["section"].queryset = section_queryset.order_by("name")
+
+        user_qs = self.fields["user"].queryset.filter(is_active=True)
+        if plant_id and section_id:
+            user_qs = user_qs.filter(
+                Q(is_superuser=True)
+                | Q(assigned_treatment_plant_id=plant_id, section_id=section_id)
+            )
+        else:
+            user_qs = user_qs.none()
+        if self.request_user and not self.request_user.is_superuser:
+            user_qs = user_qs.filter(
+                assigned_treatment_plant_id=actor_plant_id,
+                section_id=actor_section_id,
+            )
         self.fields["user"].queryset = user_qs.order_by("username")
 
 
@@ -475,17 +518,31 @@ class ShiftSupervisorAdminForm(forms.ModelForm):
 class ShiftSupervisorAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     form = ShiftSupervisorAdminForm
 
+    def get_form(self, request, obj=None, **kwargs):
+        base_form = super().get_form(request, obj, **kwargs)
+        return type(
+            "RequestScopedShiftSupervisorForm",
+            (base_form,),
+            {"request_user": request.user},
+        )
+
     list_display = (
         "user",
         "treatment_plant",
+        "shift",
         "section",
         "is_active",
+        "week_start",
+        "week_end",
+        "designated_by",
     )
 
     list_filter = (
         "is_active",
         "treatment_plant",
+        "shift",
         "section",
+        ("week_start", DateFieldListFilter),
     )
 
     search_fields = (
@@ -493,19 +550,38 @@ class ShiftSupervisorAdmin(SCScopedAdminMixin, admin.ModelAdmin):
         "user__first_name",
         "user__last_name",
         "treatment_plant__name",
+        "shift__name",
         "section__name",
         "section__code",
     )
 
-    list_editable = ("is_active",)
     list_select_related = (
         "user",
         "treatment_plant",
+        "shift",
         "section",
+        "designated_by",
     )
 
+    fieldsets = (
+        ("Standing Designation", {
+            "fields": (("treatment_plant", "shift", "section"), "user", "is_active"),
+            "description": "Standing (permanent) supervisor designation. Leave week fields blank.",
+        }),
+        ("Weekly Roster Override", {
+            "fields": (("week_start", "week_end"), "designated_by"),
+            "classes": ("collapse",),
+            "description": "Set week_start/week_end to create a weekly roster designation.",
+        }),
+    )
+
+    def save_model(self, request, obj, form, change):
+        if obj.week_start and (not change or not obj.designated_by_id):
+            obj.designated_by = request.user
+        super().save_model(request, obj, form, change)
+
     class Media:
-        js = ("core/js/plant_section_user_cascade.js",)
+        js = ("sc/js/shift_supervisor_admin.js",)
 
 
 class AnnualLeaveAdminForm(forms.ModelForm):
@@ -866,10 +942,23 @@ class ShiftAssignmentAdmin(SCScopedAdminMixin, admin.ModelAdmin):
 
     @admin.action(description="Soft delete assignments")
     def soft_delete_assignments(self, request, queryset):
-        queryset.update(
-            is_deleted=True,
-            deleted_at=timezone.now(),
-        )
+        deleted_count = 0
+        blocked_count = 0
+        for assignment in queryset.select_related("staff", "shift", "duty_roster").order_by("pk"):
+            try:
+                assignment.delete()
+                deleted_count += 1
+            except ValidationError as error:
+                blocked_count += 1
+                self.message_user(
+                    request,
+                    f"Assignment #{assignment.pk} was retained: {'; '.join(error.messages)}",
+                    messages.ERROR,
+                )
+        if deleted_count:
+            self.message_user(request, f"{deleted_count} shift assignment(s) deleted.", messages.SUCCESS)
+        if blocked_count:
+            self.message_user(request, f"{blocked_count} assignment(s) could not be deleted because they support weekly supervisor duties.", messages.WARNING)
 
 
 @admin.register(ShiftSectionRequirement)

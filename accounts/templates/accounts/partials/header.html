@@ -42,7 +42,7 @@
     ===================================================== -->
     {% if request.user.is_authenticated and request.path != '/' and request.resolver_match.url_name != 'home' %}
     <div class="header-shift-bar" id="headerShiftBar">
-        <div class="shift-info-pill" title="Current Treatment Plant Shift & Supervisor">
+        <a href="{% url 'sc:dashboard' %}" class="shift-info-pill" title="Shift Work Management · Click to view Duty Roster" aria-label="Navigate to Shift Work Management duty roster">
             <span class="shift-name-tag">
                 <i class="fa-solid fa-clock"></i>
                 <strong id="headerShiftName">{{ current_shift.name|default:"General Shift" }}</strong>
@@ -54,7 +54,7 @@
                 <span class="shift-sup-label">Supervisor:</span>
                 <strong id="headerShiftSupervisor">{% if current_shift_supervisor %}{{ current_shift_supervisor.get_full_name|default:current_shift_supervisor.username }}{% else %}Unassigned{% endif %}</strong>
             </span>
-        </div>
+        </a>
 
         <button type="button"
                 id="shiftHandoverBtn"
@@ -67,6 +67,21 @@
             <span class="window-pulse-indicator"></span>
             {% endif %}
         </button>
+        <script>
+            (function() {
+                function navToSC(e) {
+                    var pill = e.target && e.target.closest && e.target.closest(".shift-info-pill");
+                    if (pill) {
+                        var targetUrl = pill.getAttribute("href");
+                        if (targetUrl) {
+                            window.location.href = targetUrl;
+                        }
+                    }
+                }
+                document.addEventListener("click", navToSC);
+                document.addEventListener("dblclick", navToSC);
+            })();
+        </script>
     </div>
     {% endif %}
 
@@ -75,31 +90,26 @@
     ===================================================== -->
     <div class="user-menu" role="navigation" aria-label="User controls">
 
+        <!-- =================================================
+        FUTURISTIC THEME TOGGLE (DIRECT TOGGLE)
+        ================================================= -->
+        <button
+            id="themeToggle"
+            class="theme-hud-btn"
+            type="button"
+            aria-label="Toggle display theme [Alt+T]"
+            title="Toggle display theme [Alt+T]">
+            <span class="theme-hud-orb" id="themeHudOrb">
+                <i class="fas fa-moon" aria-hidden="true"></i>
+            </span>
+        </button>
+
         {% if request.user.is_authenticated %}
 
             <!-- =================================================
-            THEME TOGGLE
+            NOTIFICATIONS (ADVANCED LIVE 24/7 ALERT CENTER)
             ================================================= -->
-            <button
-                id="themeToggle"
-                class="theme-toggle"
-                type="button"
-                aria-label="Change display theme"
-                title="Cycle display themes">
-
-                <i class="fas fa-moon" aria-hidden="true"></i>
-            </button>
-
-
-
-
-            <!-- =================================================
-            NOTIFICATIONS
-            ================================================= -->
-            {% if request.resolver_match.namespace == "ca" or request.resolver_match.namespace == "qc" or request.resolver_match.namespace == "qc_analytics" and request.resolver_match.url_name == "dashboard" %}
             {% include "accounts/partials/notification_center.html" %}
-            {% endif %}
-
 
             <!-- =================================================
             USER DROPDOWN (ONLY TRIGGER + MENU)

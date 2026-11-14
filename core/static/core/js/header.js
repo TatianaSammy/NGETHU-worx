@@ -337,7 +337,7 @@ class HeaderController {
         if (!icon) return;
 
         const ICON_MAP = {
-            "auto": "fas fa-adjust",
+            "auto": "fas fa-satellite-dish",
             "day": "fas fa-sun",
             "daylight": "fas fa-sun",
             "dawn": "fas fa-sun",
@@ -348,16 +348,19 @@ class HeaderController {
             "autumn": "fas fa-leaf",
             "winter": "fas fa-snowflake",
             "emerald-dark": "fas fa-leaf",
-            "night": "fas fa-moon",
-            "dark": "fas fa-moon",
-            "celestial": "fas fa-moon",
-            "aurora": "fas fa-moon",
+            "cyber": "fas fa-terminal",
+            "night": "fas fa-terminal",
+            "dark": "fas fa-terminal",
+            "abyss": "fas fa-circle",
+            "celestial": "fas fa-star",
+            "aurora": "fas fa-star",
             "inferno": "fas fa-moon",
             "gold": "fas fa-moon",
-            "dusk": "fas fa-moon",
-            "oled": "fas fa-moon",
-            "amoled": "fas fa-moon",
-            "high-contrast": "fas fa-adjust"
+            "dusk": "fas fa-cloud-moon",
+            "oled": "fas fa-circle",
+            "amoled": "fas fa-circle",
+            "high-contrast": "fas fa-shield-halved",
+            "solar": "fas fa-shield-halved"
         };
 
         icon.className = mode === "auto" ? ICON_MAP.auto : (ICON_MAP[theme] || "fas fa-sun");

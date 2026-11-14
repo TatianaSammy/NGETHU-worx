@@ -27,6 +27,7 @@ from django.templatetags.static import static
 from django.utils import timezone
 
 from core.managers import Luleti
+from core.plant_section_scope import section_belongs_to_plant
 
 logger = logging.getLogger(__name__)
 
@@ -482,8 +483,7 @@ class CustomUser(
                     self.assigned_treatment_plant = section_plant
 
         if self.section_id and self.assigned_treatment_plant_id:
-            section_plant_id = getattr(self.section, "treatment_plant_id", None)
-            if section_plant_id and section_plant_id != self.assigned_treatment_plant_id:
+            if not section_belongs_to_plant(self.section, self.assigned_treatment_plant_id):
                 raise ValidationError({
                     "section": (
                         f"Section '{self.section.name}' must belong to the user's assigned treatment plant."
