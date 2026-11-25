@@ -26,6 +26,7 @@ from .models import (
     ShiftSupervisor,
     ShiftAssignment,
     MonthlyDutyRoster,
+    WeeklyShiftTeam,
     ShiftHandover,
     Apparatus,
     ApparatusCondition,
@@ -406,29 +407,45 @@ class ShiftAdmin(SCScopedAdminMixin, admin.ModelAdmin):
     def soft_delete_selected(self, request, queryset):
         if not request.user.is_superuser:
             raise PermissionDenied("Only a superuser can delete treatment plant shifts.")
-        count = queryset.update(
-            is_deleted=True,
-            deleted_at=timezone.now(),
-        )
+        count = 0
+        blocked = []
+        for shift in queryset:
+            shift.is_deleted = True
+            shift.deleted_at = timezone.now()
+            try:
+                shift.save(update_fields=("is_deleted", "deleted_at"))
+                count += 1
+            except ValidationError as error:
+                blocked.append(f"{shift.name}: {error}")
         self.message_user(
             request,
             f"{count} shifts deleted.",
             messages.SUCCESS,
         )
+        if blocked:
+            self.message_user(request, "Some shifts were kept active: " + "; ".join(blocked), messages.WARNING)
 
     @admin.action(description="Restore selected shifts")
     def restore_selected(self, request, queryset):
         if not request.user.is_superuser:
             raise PermissionDenied("Only a superuser can restore treatment plant shifts.")
-        count = queryset.update(
-            is_deleted=False,
-            deleted_at=None,
-        )
+        count = 0
+        blocked = []
+        for shift in queryset:
+            shift.is_deleted = False
+            shift.deleted_at = None
+            try:
+                shift.save(update_fields=("is_deleted", "deleted_at"))
+                count += 1
+            except ValidationError as error:
+                blocked.append(f"{shift.name}: {error}")
         self.message_user(
             request,
             f"{count} shifts restored.",
             messages.SUCCESS,
         )
+        if blocked:
+            self.message_user(request, "Some shifts were not restored: " + "; ".join(blocked), messages.WARNING)
 
 
 # =============================================================================
@@ -773,6 +790,45 @@ class MonthlyDutyRosterAdmin(SCScopedAdminMixin, admin.ModelAdmin):
         return request.user.is_superuser
 
     assignment_total.short_description = "Assignments"
+
+
+@admin.register(WeeklyShiftTeam)
+class WeeklyShiftTeamAdmin(SCScopedAdminMixin, ReadOnlyAdmin):
+    list_display = (
+        "week_start",
+        "week_end",
+        "shift",
+        "section",
+        "treatment_plant_name",
+        "member_count",
+        "is_reconciled",
+    )
+    list_filter = ("is_reconciled", "shift__treatment_plant", "section", "week_start")
+    search_fields = ("shift__name", "section__name", "duty_roster__treatment_plant__name")
+    readonly_fields = (
+        "duty_roster", "shift", "section", "week_start", "week_end",
+        "members_list", "is_reconciled", "updated_at",
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            "duty_roster__treatment_plant", "shift", "section"
+        ).prefetch_related("members")
+
+    def treatment_plant_name(self, obj):
+        return obj.duty_roster.treatment_plant.name
+
+    def member_count(self, obj):
+        return len(obj.members.all())
+
+    def members_list(self, obj):
+        return ", ".join(
+            member.get_full_name() or member.get_username()
+            for member in obj.members.all()
+        ) or "No team members"
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 # =============================================================================

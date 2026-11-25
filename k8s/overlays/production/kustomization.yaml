@@ -1,0 +1,120 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: qad
+
+resources:
+  - ../../base
+
+# Production replica counts
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 4
+    target:
+      kind: Deployment
+      name: qad-web
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: qad-daphne
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 4
+    target:
+      kind: Deployment
+      name: qad-celery
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: qad-nginx
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: pgbouncer
+
+  # Production ingress host
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: nairobiwater.co.ke
+      - op: replace
+        path: /spec/rules/0/host
+        value: nairobiwater.co.ke
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: qad-tls-prod
+    target:
+      kind: Ingress
+      name: qad-ingress
+
+  # Production configmap overrides
+  - patch: |-
+      - op: replace
+        path: /data/ALLOWED_HOSTS
+        value: "nairobiwater.co.ke,www.nairobiwater.co.ke"
+      - op: replace
+        path: /data/CSRF_TRUSTED_ORIGINS
+        value: "https://nairobiwater.co.ke,https://www.nairobiwater.co.ke"
+      - op: replace
+        path: /data/PUBLIC_ORIGIN
+        value: "https://nairobiwater.co.ke"
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: "production"
+    target:
+      kind: ConfigMap
+      name: qad-config
+
+  # Production HPA — full range
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 12
+    target:
+      kind: HorizontalPodAutoscaler
+      name: qad-web-hpa
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 8
+    target:
+      kind: HorizontalPodAutoscaler
+      name: qad-daphne-hpa
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 8
+    target:
+      kind: HorizontalPodAutoscaler
+      name: qad-celery-hpa
+
+# Production image tags — override with specific pinned digest in CI/CD
+images:
+  - name: qad-backend:stable
+    newName: qad-backend
+    newTag: stable
+  - name: qad-nginx:stable
+    newName: qad-nginx
+    newTag: stable
+

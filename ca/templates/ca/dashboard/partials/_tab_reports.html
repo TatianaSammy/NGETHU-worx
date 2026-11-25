@@ -142,8 +142,8 @@
                             <td><strong>{{ p.parameter }}</strong></td>
                             <td><code>{{ p.spec_limit }}</code></td>
                             <td>{{ p.total_tested }}</td>
-                            <td style="color:#10b981;">{{ p.passed }}</td>
-                            <td style="color:{% if p.failed %}#ef4444{% else %}#94a3b8{% endif %};">{{ p.failed }}</td>
+                            <td style="color:var(--color-success);">{{ p.passed }}</td>
+                            <td style="color:{% if p.failed %}var(--color-danger){% else %}var(--theme-muted){% endif %};">{{ p.failed }}</td>
                             <td><strong>{{ p.pass_rate }}%</strong></td>
                             <td>{{ p.average_val }}</td>
                             <td>{{ p.range_val }}</td>
@@ -183,8 +183,8 @@
                             <td><strong>{{ s.supplier_name }}</strong></td>
                             <td>{{ s.deliveries }}</td>
                             <td>{{ s.tonnage|floatformat:1 }} kg</td>
-                            <td style="color:#10b981;">{{ s.accepted }}</td>
-                            <td style="color:{% if s.rejected %}#ef4444{% else %}#94a3b8{% endif %};">{{ s.rejected }}</td>
+                            <td style="color:var(--color-success);">{{ s.accepted }}</td>
+                            <td style="color:{% if s.rejected %}var(--color-danger){% else %}var(--theme-muted){% endif %};">{{ s.rejected }}</td>
                             <td><strong>{{ s.compliance_score }}%</strong></td>
                             <td>
                                 <span class="ca-mt-pill {% if s.grade == 'A+' or s.grade == 'A' %}ca-mt-pill--emerald{% elif s.grade == 'B' %}ca-mt-pill--cyan{% else %}ca-mt-pill--rose{% endif %}">

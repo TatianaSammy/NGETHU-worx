@@ -24,6 +24,14 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   padding: 0 !important;
 }
 
+/* The platform topbar is fixed; reserve its height before the roster viewport. */
+body:has(.sc-assignment-dashboard) > .layout {
+  flex: 0 0 calc(100dvh - var(--header-height, 62px));
+  height: calc(100dvh - var(--header-height, 62px));
+  min-height: 0;
+  margin-top: var(--header-height, 62px);
+}
+
 .sc-assignment-dashboard {
   --sat-surface: var(--theme-surface, #ffffff);
   --sat-soft: var(--theme-surface-muted, #f4f7fa);
@@ -259,14 +267,14 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   z-index: 2;
   top: 0;
   height: 48px;
-  background: var(--theme-surface-strong, var(--sat-surface)) !important;
-  color: var(--sat-text) !important;
+  background: var(--table-header-bg, var(--theme-surface-strong, var(--theme-surface))) !important;
+  color: var(--theme-text) !important;
   font-size: .64rem;
   font-weight: 850;
   letter-spacing: .055em;
   text-transform: uppercase;
   white-space: nowrap;
-  border-bottom: 2px solid var(--theme-border-strong, #64748b) !important;
+  border-bottom: 2px solid var(--theme-border-strong, var(--theme-border)) !important;
 }
 .sc-assignment-table tbody tr { background: var(--sat-surface); transition: background-color .14s ease, box-shadow .14s ease; }
 .sc-assignment-table tbody tr:nth-child(even) { background: var(--sat-soft); }
@@ -285,6 +293,9 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-assignment-shift-cell.is-drop-target { background: var(--sat-accent-soft) !important; box-shadow: inset 0 0 0 2px var(--sat-accent); }
 .sc-assignment-add { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 4px 7px; border: 1px solid var(--sat-border); border-radius: 6px; background: var(--sat-surface); color: var(--sat-accent); font-size: .62rem; font-weight: 750; cursor: pointer; }
 .sc-assignment-add:hover { border-color: var(--sat-accent); background: var(--sat-accent); color: var(--theme-on-accent, #fff); }
+.sc-autopopulate-year-btn:not(:disabled) { border-color: var(--sat-accent); background: var(--sat-accent); color: var(--theme-on-accent, #fff); }
+.sc-autopopulate-year-btn:not(:disabled):hover { filter: brightness(.94); box-shadow: 0 2px 8px color-mix(in srgb, var(--sat-accent) 22%, transparent); }
+.sc-autopopulate-year-btn:disabled { opacity: .62; cursor: not-allowed; }
 .sc-assignment-tag { display: inline-flex; align-items: center; padding: 4px 7px; border: 1px solid var(--sat-border); border-radius: 999px; background: var(--sat-soft); color: var(--sat-text); font-size: .62rem; font-weight: 800; white-space: nowrap; }
 .sc-assignment-tag--present { border-color: rgba(18, 183, 106, .32); background: rgba(18, 183, 106, .1); color: var(--color-success, #067647); }
 .sc-assignment-tag--late { border-color: rgba(247, 144, 9, .35); background: rgba(247, 144, 9, .12); color: var(--color-warning, #8a4b08); }
@@ -323,39 +334,45 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   min-width: 0 !important;
   max-width: 100% !important;
   table-layout: fixed !important;
-  border-collapse: separate;
+  border-collapse: collapse;
   border-spacing: 0;
+  border: 1px solid var(--theme-border, #cbd5e1);
+  font-size: .8rem;
+  line-height: 1.35;
 }
 
 .sc-weekly-roster-table th,
 .sc-weekly-roster-table td {
   min-width: 0 !important;
   box-sizing: border-box !important;
-  overflow-wrap: break-word !important;
-  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+  word-break: normal !important;
+  white-space: normal !important;
 }
 
-/* Balanced column width proportions (Duty columns = 66% total width, sum = 100%) */
-.sc-roster-col-week { width: 8%; }
+/* Three requirement-specific columns repeat the same Monday–Sunday team. */
+.sc-roster-col-week { width: 10%; }
 .sc-roster-col-time { width: 10%; }
-.sc-roster-col-duty.sc-roster-col-holiday { width: 17%; }
-.sc-roster-col-duty.sc-roster-col-weekday { width: 31%; }
-.sc-roster-col-duty.sc-roster-col-weekend { width: 18%; }
-.sc-roster-col-supervisor { width: 8%; }
-.sc-roster-col-leave { width: 8%; }
+.sc-roster-col-duty.sc-roster-col-holiday { width: 16%; }
+.sc-roster-col-duty.sc-roster-col-weekday { width: 28%; }
+.sc-roster-col-duty.sc-roster-col-weekend { width: 16%; }
+.sc-roster-col-supervisor { width: 10%; }
+.sc-roster-col-leave { width: 10%; }
 
 /* Robust theme-aware cell borders and compact padding to fit display area */
 .sc-weekly-roster-table tbody th,
 .sc-weekly-roster-table tbody td {
-  padding: 6px 8px;
-  border-right: 1.5px solid var(--theme-border, #cbd5e1);
-  border-bottom: 1.5px solid var(--theme-border, #e2e8f0);
+  padding: 7px 9px;
+  border: 1px solid var(--theme-border, #cbd5e1);
   background: var(--sat-surface, var(--theme-surface));
   vertical-align: top;
   box-sizing: border-box;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
+.sc-weekly-roster-table tbody tr:last-child td { border-bottom: 1px solid var(--theme-border, #cbd5e1) !important; }
+.sc-weekly-roster-table th:last-child,
+.sc-weekly-roster-table td:last-child { border-right: 1px solid var(--theme-border, #cbd5e1) !important; }
 
 /* Structural pillar borders: freeze pane & duty partition */
 .sc-weekly-roster-table thead tr:first-child th:nth-child(2),
@@ -363,7 +380,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   border-right: 3px solid var(--theme-border-strong, #64748b) !important;
 }
 .sc-weekly-roster-table thead tr:nth-child(2) th:nth-child(3),
-.sc-weekly-roster-table tbody td:nth-child(5) {
+.sc-weekly-roster-table tbody .sc-roster-duty-cell[data-day-type="weekend"] {
   border-right: 3px solid var(--theme-border-strong, #64748b) !important;
 }
 
@@ -376,39 +393,45 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-weekly-roster-table thead th {
   text-align: center;
   box-sizing: border-box;
-  overflow-wrap: break-word;
-  word-break: break-word;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  hyphens: auto;
+  line-height: 1.2;
+  font-size: .7rem;
 }
 .sc-weekly-roster-table thead tr:first-child th {
   position: sticky;
   top: 0;
   z-index: 25;
-  height: 38px;
-  background: var(--theme-surface-strong, #e2e8f0) !important;
+  height: 46px;
+  padding: 5px 4px;
+  background: var(--table-header-bg, var(--theme-surface-strong, var(--theme-surface))) !important;
   opacity: 1 !important;
-  color: var(--theme-text, #0f172a) !important;
-  border-bottom: 1.5px solid var(--theme-border-strong, #94a3b8) !important;
-  border-right: 1.5px solid var(--theme-border, #cbd5e1);
+  color: var(--theme-text) !important;
+  border-bottom: 1.5px solid var(--theme-border-strong, var(--theme-border)) !important;
+  border-right: 1.5px solid var(--theme-border) !important;
   font-weight: 800;
   letter-spacing: .04em;
 }
 .sc-weekly-roster-table thead tr:nth-child(2) th {
   position: sticky;
-  top: 38px;
+  top: 46px;
   z-index: 24;
-  height: 34px;
-  background: var(--theme-surface-muted, #f1f5f9) !important;
+  height: 40px;
+  padding: 5px 4px;
+  background: var(--theme-surface-muted, var(--theme-surface)) !important;
   opacity: 1 !important;
-  color: var(--theme-text, #1e293b) !important;
-  border-bottom: 3px solid var(--theme-border-strong, #64748b) !important;
-  border-right: 1.5px solid var(--theme-border, #cbd5e1);
+  color: var(--theme-text) !important;
+  border-bottom: 3px solid var(--theme-border-strong, var(--theme-border)) !important;
+  border-right: 1.5px solid var(--theme-border) !important;
   font-weight: 750;
 }
 .sc-weekly-roster-table thead tr:nth-child(2) th small {
   display: block;
   margin-top: 2px;
-  color: var(--theme-text-secondary, #64748b);
-  font-size: .58rem;
+  color: var(--theme-text-secondary, var(--theme-muted)) !important;
+  font-size: .64rem;
   font-weight: 650;
   letter-spacing: 0;
   text-transform: none;
@@ -417,7 +440,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 /* Top-Left Corner Intersections (Sticky in X and Y, 100% solid, 0 transparency, theme-aware) */
 .sc-weekly-roster-table thead tr:first-child th:first-child {
   left: 0;
-  width: 8%;
+  width: 10%;
   min-width: 0;
   z-index: 45 !important;
   background: var(--theme-surface-strong, #cbd5e1) !important;
@@ -427,7 +450,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   border-bottom: 1.5px solid var(--theme-border-strong, #94a3b8) !important;
 }
 .sc-weekly-roster-table thead tr:first-child th:nth-child(2) {
-  left: 8%;
+  left: 10%;
   width: 10%;
   min-width: 0;
   z-index: 45 !important;
@@ -442,7 +465,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-weekly-roster-table tbody .sc-roster-week-label {
   position: sticky;
   left: 0;
-  width: 8%;
+  width: 10%;
   min-width: 0;
   z-index: 12 !important;
   background: var(--sat-soft) !important;
@@ -451,7 +474,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   vertical-align: middle;
   border-right: 2px solid var(--sat-border) !important;
   box-shadow: 3px 0 6px rgba(0, 0, 0, .08);
-  font-size: .67rem;
+  font-size: .73rem;
 }
 .sc-weekly-roster-table tbody .sc-roster-week-label strong,
 .sc-weekly-roster-table tbody .sc-roster-week-label small,
@@ -465,12 +488,12 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-weekly-roster-table tbody .sc-roster-shift-label small {
   margin-top: 3px;
   color: var(--sat-muted);
-  font-size: .59rem;
+  font-size: .64rem;
   font-weight: 600;
 }
 .sc-weekly-roster-table tbody .sc-roster-shift-label {
   position: sticky;
-  left: 8%;
+  left: 10%;
   width: 10%;
   min-width: 0;
   z-index: 11 !important;
@@ -479,7 +502,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   color: var(--sat-text);
   border-right: 3.5px solid var(--theme-border-strong, #64748b) !important;
   box-shadow: 3px 0 8px rgba(0, 0, 0, .1);
-  font-size: .67rem;
+  font-size: .73rem;
 }
 .sc-weekly-roster-table tbody tr:hover .sc-roster-week-label {
   background: var(--sat-soft) !important;
@@ -493,15 +516,12 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 /* Duty cells: spacious, fluid percentage width without horizontal overflow */
 .sc-weekly-roster-table tbody .sc-roster-duty-cell {
   min-width: 0;
-  padding: 6px 8px;
+  padding: 7px 9px;
   background: var(--sat-surface);
   vertical-align: top;
   box-sizing: border-box;
   overflow-wrap: break-word;
   word-break: break-word;
-}
-.sc-weekly-roster-table tbody .sc-roster-duty-cell:nth-of-type(2) {
-  min-width: 0;
 }
 .sc-weekly-roster-table tbody .sc-roster-duty-cell[data-roster-dropzone] {
   cursor: context-menu;
@@ -514,32 +534,71 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   box-shadow: inset 0 0 0 2px var(--sat-accent);
 }
 
+/* A single weekly team is repeated in each requirement-specific column. */
+.sc-roster-team-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 3px 8px;
+  color: var(--sat-muted);
+  font-size: .64rem;
+  line-height: 1.3;
+}
+.sc-roster-team-summary strong {
+  color: var(--sat-text);
+  font-size: .72rem;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+.sc-roster-team-summary small {
+  flex-basis: 100%;
+  color: var(--sat-muted);
+  font-size: .6rem;
+  line-height: 1.25;
+}
+.sc-roster-team-warning {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-warning, #b54708) 35%, var(--sat-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning, #b54708) 10%, var(--sat-surface));
+  color: var(--color-warning, #b54708);
+  font-size: .57rem;
+  font-weight: 750;
+}
+
 /* ====================================================================
-   Comma-Separated Inline Staff Names (Space-saving & clean)
+   Tabular Staff Name Grid
    ==================================================================== */
 .sc-roster-assignment-list.sc-roster-inline-names,
 .sc-roster-leave-list.sc-roster-inline-names {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 4px;
-  line-height: 1.55;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  align-items: stretch;
+  gap: 0 8px;
+  line-height: 1.35;
   margin-top: 6px;
 }
 .sc-roster-inline-names .sc-assignment-staff,
 .sc-roster-inline-names .sc-roster-leave-item {
-  display: inline-flex;
-  align-items: baseline;
-  width: auto;
-  padding: 1px 4px;
-  border: 1px solid transparent;
-  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--sat-border);
+  border-radius: 0;
   background: transparent;
   color: var(--sat-text, #182230);
-  font-size: 0.72rem;
+  font-size: 0.79rem;
   font-weight: 600;
   cursor: grab;
   transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+  overflow-wrap: anywhere;
 }
 .sc-roster-inline-names .sc-assignment-staff[draggable="false"] {
   cursor: default;
@@ -559,6 +618,9 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
   border-color: #3b82f6 !important;
 }
 .sc-roster-inline-names .sc-staff-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
   font-weight: 700;
   color: var(--sat-text, var(--theme-text, #f8fafc)) !important;
   text-decoration: underline dotted 1px currentColor;
@@ -610,7 +672,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-roster-no-assignment,
 .sc-roster-cell-empty {
   color: var(--theme-text-secondary, #94a3b8) !important;
-  font-size: .68rem;
+  font-size: .73rem;
   font-style: normal;
   font-weight: 550;
   opacity: 0.88;
@@ -618,38 +680,27 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-roster-no-assignment { display: block; padding: 4px 2px; }
 .sc-weekly-roster-table .sc-assignment-add { margin-top: 7px; }
 
-/* Single Shift Supervisor Pill */
-.sc-roster-supervisor-cell { vertical-align: middle !important; }
+/* Plain weekly supervisor text */
+.sc-roster-supervisor-cell { vertical-align: middle !important; font-size: .79rem; font-weight: 650; overflow-wrap: anywhere; }
 .sc-roster-supervisor-cell[data-supervisor-dropzone] { min-width: 0; cursor: copy; transition: background-color .16s ease, box-shadow .16s ease; }
 .sc-roster-supervisor-cell[data-supervisor-dropzone] > * { pointer-events: none; }
+.sc-roster-supervisor-cell[data-supervisor-dropzone] > .sc-roster-supervisor-action,
+.sc-roster-supervisor-cell[data-supervisor-dropzone] > .sc-roster-supervisor-picker,
+.sc-roster-supervisor-cell[data-supervisor-dropzone] .sc-roster-supervisor-picker * { pointer-events: auto; }
 .sc-roster-supervisor-cell[data-supervisor-dropzone]:hover { box-shadow: inset 0 0 0 1px var(--sat-accent); }
 .sc-roster-supervisor-cell[data-supervisor-dropzone].is-drop-target { background: color-mix(in srgb, var(--sat-accent-soft) 78%, var(--sat-surface)) !important; box-shadow: inset 0 0 0 2px var(--sat-accent); }
-.sc-roster-supervisor-cell[data-supervisor-dropzone] .sc-roster-cell-empty { display: inline-block; padding: 7px; border: 1px dashed var(--sat-border); border-radius: 6px; }
-.sc-roster-supervisor-cell[data-supervisor-dropzone].is-drop-target .sc-roster-cell-empty { border-color: var(--sat-accent); color: var(--sat-accent); }
-.sc-roster-supervisor-pill {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 5px 8px;
-  border: 1px solid var(--theme-border-strong, rgba(21, 83, 106, .35));
-  border-left: 3px solid var(--theme-accent, #00e5ff);
-  border-radius: 6px;
-  background: var(--theme-surface-strong, var(--sat-surface));
-  color: var(--theme-text, #f8fafc);
-  font-size: .68rem;
-  font-weight: 750;
-  white-space: normal;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  box-sizing: border-box;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .12);
-}
-.sc-roster-supervisor-pill i { color: var(--theme-accent, #00e5ff); font-size: .78rem; flex-shrink: 0; }
-.sc-roster-supervisor-pill strong { font-weight: 800; color: var(--theme-text, #ffffff); word-break: break-word; overflow-wrap: break-word; }
-.sc-roster-supervisor-pill.is-temporary { border-color: rgba(247, 144, 9, .5); border-left-color: #f79009; background: color-mix(in srgb, #f79009 12%, var(--theme-surface-strong)); color: #f59e0b; }
-.sc-roster-supervisor-pill.is-temporary i { color: #b54708; }
+.sc-roster-supervisor-action { display: inline-flex; align-items: center; justify-content: center; margin: 3px 0; padding: 5px 8px; border: 1px solid var(--sat-border); border-radius: 6px; background: var(--sat-surface); color: var(--sat-accent); font-size: .66rem; font-weight: 750; cursor: pointer; }
+.sc-roster-supervisor-action:hover { border-color: var(--sat-accent); background: var(--sat-accent); color: var(--theme-on-accent, #fff); }
+.sc-roster-supervisor-picker { display: grid; gap: 5px; min-width: 130px; margin-top: 4px; }
+.sc-roster-supervisor-picker[hidden] { display: none !important; }
+.sc-roster-supervisor-picker select { width: 100%; min-height: 32px; padding: 4px 6px; border: 1px solid var(--sat-border); border-radius: 6px; background: var(--sat-surface); color: var(--sat-text); font-size: .65rem; }
+.sc-roster-supervisor-cancel { background: transparent; }
+.sc-roster-drag-help { margin: 0 0 8px; color: var(--sat-muted); font-size: .68rem; line-height: 1.4; }
+.sc-roster-temporary-supervisor-trigger { display: inline-flex; align-items: center; justify-content: center; margin: 3px 0; padding: 4px 7px; border: 1px solid var(--sat-border); border-radius: 6px; background: var(--sat-surface); color: var(--sat-accent); font-size: .64rem; font-weight: 750; cursor: pointer; }
+.sc-roster-temporary-supervisor-trigger:hover { border-color: var(--sat-accent); background: var(--sat-accent); color: var(--theme-on-accent, #fff); }
+#sc-temporary-supervisor-status[data-state="error"],
+#sc-availability-message[data-state="error"] { color: var(--sat-danger, #dc2626); }
+.sc-roster-inline-names .sc-assignment-staff.is-roster-selected { outline: 2px solid var(--sat-accent); outline-offset: 2px; background: var(--sat-accent-soft); }
 
 .sc-roster-leave-item:not(.sc-roster-inline-names *) { display: block; margin-bottom: 5px; padding: 6px 7px; border: 1px solid var(--sat-border); border-radius: 6px; background: var(--sat-surface); color: var(--sat-text); font-size: .66rem; }
 .sc-roster-leave-cell { vertical-align: middle !important; }
@@ -661,8 +712,48 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-roster-leave-item small { display: block; }
 .sc-roster-leave-item small { margin-top: 3px; color: var(--sat-muted); font-size: .58rem; }
 .sc-weekly-roster-table .sc-roster-leave-cell .sc-roster-cell-empty { display: block; text-align: center; }
-.sc-weekly-roster-table .sc-assignment-add { padding: 4px 6px; }
+.sc-weekly-roster-table .sc-assignment-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: auto;
+  min-width: 26px;
+  height: 26px;
+  padding: 3px 8px;
+  margin-top: 5px;
+  border: 1px solid var(--sat-border);
+  border-radius: 6px;
+  background: var(--sat-surface);
+  color: var(--sat-accent);
+  font-size: .65rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s ease;
+}
+.sc-weekly-roster-table .sc-assignment-add:hover {
+  border-color: var(--sat-accent);
+  background: var(--sat-accent);
+  color: var(--theme-on-accent, #fff);
+  box-shadow: 0 1px 4px rgba(21, 83, 106, .2);
+}
+.sc-weekly-roster-table .sc-assignment-add--icon-only {
+  width: 26px;
+  min-width: 26px;
+  padding: 0;
+  margin-top: 4px;
+}
 .sc-weekly-roster-table .sc-assignment-add span { display: inline; }
+.sc-weekly-roster-table .sc-assignment-add--icon-only span { display: none; }
+.sc-weekly-roster-table .sc-roster-duty-cell .sc-roster-cell-empty {
+  display: inline-block;
+  padding: 4px 6px;
+  user-select: none;
+}
+.sc-weekly-roster-table .sc-roster-supervisor-action,
+.sc-weekly-roster-table .sc-roster-temporary-supervisor-trigger { width: 28px; height: 28px; padding: 0; justify-content: center; }
+.sc-weekly-roster-table .sc-roster-supervisor-alert { display: inline-block; margin-left: 4px; }
 .sc-roster-overview :is(button, select, input, a, .sc-assignment-staff):focus-visible { outline: 2px solid var(--sat-accent); outline-offset: 2px; }
 
 @media (max-width: 1100px) {
@@ -705,13 +796,7 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-assignment-summary-gap { border-color: color-mix(in srgb, #f79009 38%, var(--sat-border)) !important; }
 .sc-assignment-summary-gap strong { color: #b54708; }
 .sc-roster-coverage {
-  margin-bottom: 7px;
-  padding: 7px 9px;
-  border: 1px solid var(--theme-border, #cbd5e1);
-  border-radius: 8px;
-  background: var(--theme-surface-strong, var(--sat-soft));
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  transition: all 0.2s ease;
+  display: none !important;
 }
 .sc-roster-coverage-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
 .sc-roster-coverage-heading strong { color: var(--theme-text, #ffffff); font-size: .72rem; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -727,15 +812,37 @@ body.sidebar-collapsed:has(.sc-roster-overview) .content-wrapper {
 .sc-roster-coverage[data-state="overstaffed"] { border-color: color-mix(in srgb, #f43f5e 50%, var(--theme-border)); }
 .sc-roster-coverage[data-state="overstaffed"] .sc-roster-coverage-track span { background: linear-gradient(90deg, #f43f5e, #e11d48); }
 .sc-roster-coverage[data-state="unplanned"] { opacity: .78; }
-.sc-roster-supervisor-source { display: block; margin-top: 4px; color: var(--sat-muted); font-size: .55rem; }
-.sc-roster-supervisor-hint { display: block; margin-top: 5px; color: var(--sat-accent); font-size: .53rem; font-weight: 700; }
-.sc-roster-supervisor-alert { display: block; margin-top: 5px; color: var(--color-danger, #b42318); font-size: .56rem; font-weight: 800; }
+.sc-roster-supervisor-alert { display: block; margin-top: 3px; color: var(--color-danger, #b42318); font-size: .64rem; font-weight: 800; }
 .sc-roster-dialog-scope { padding: 9px 11px; border: 1px solid var(--sat-border); border-radius: 9px; background: var(--sat-soft); }
 .sc-roster-dialog-scope small,
 .sc-roster-dialog-scope strong { display: block; }
 .sc-roster-dialog-scope small { color: var(--sat-muted); font-size: .58rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .sc-roster-dialog-scope strong { margin-top: 3px; color: var(--sat-text); font-size: .76rem; }
 .sc-roster-assignment-dialog select:disabled { cursor: not-allowed; }
+.sc-roster-assignment-dialog--crew { width: min(420px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; }
+.sc-roster-assignment-dialog--crew form { gap: 9px; padding: 13px; }
+.sc-roster-assignment-dialog--crew header { align-items: center; gap: 10px; padding-bottom: 8px; }
+.sc-roster-assignment-dialog--crew h2 { margin: 0; font-size: .98rem; letter-spacing: -.02em; }
+.sc-roster-assignment-dialog--crew header p { margin-top: 3px; font-size: .66rem; }
+.sc-roster-assignment-dialog--crew .sc-roster-dialog-scope { display: flex; align-items: center; gap: 7px; min-height: 32px; padding: 5px 8px; border: 0; border-radius: 8px; background: var(--roster-soft); }
+.sc-roster-assignment-dialog--crew .sc-roster-dialog-scope i { color: var(--roster-accent); font-size: .68rem; }
+.sc-roster-assignment-dialog--crew .sc-roster-dialog-scope strong { margin: 0; font-size: .67rem; font-weight: 700; }
+.sc-roster-assignment-dialog--crew label { gap: 4px; font-size: .65rem; }
+.sc-roster-assignment-dialog--crew :is(select, input[type="date"]) { min-height: 35px; padding-inline: 9px; border-radius: 7px; font-size: .72rem; }
+.sc-roster-staff-picker { display: grid; gap: 6px; }
+.sc-roster-staff-picker-heading { color: var(--roster-text); font-size: .7rem; font-weight: 800; }
+.sc-roster-staff-picker-actions { display: flex; gap: 5px; }
+.sc-roster-staff-picker-actions button { min-height: 27px; padding: 4px 8px; border: 1px solid var(--roster-border); border-radius: 6px; color: var(--roster-text); background: var(--roster-soft); font-size: .62rem; font-weight: 700; cursor: pointer; }
+.sc-roster-staff-picker-actions button:disabled { cursor: not-allowed; opacity: .48; }
+.sc-roster-staff-options { display: grid; gap: 2px; max-height: min(230px, 34vh); overflow-y: auto; padding: 4px; border: 1px solid var(--roster-border); border-radius: 8px; background: var(--roster-panel); scrollbar-width: thin; }
+.sc-roster-staff-option { display: flex !important; align-items: center; gap: 8px !important; min-height: 30px; padding: 4px 6px; border-radius: 5px; color: var(--roster-text) !important; font-size: .68rem !important; font-weight: 550 !important; cursor: pointer; }
+.sc-roster-staff-option:hover { background: var(--roster-soft); }
+.sc-roster-staff-option input { flex: 0 0 14px; width: 14px; height: 14px; min-height: 0 !important; margin: 0; padding: 0 !important; accent-color: var(--roster-accent); }
+.sc-roster-staff-empty { padding: 10px 6px; color: var(--roster-muted); font-size: .67rem; text-align: center; }
+.sc-roster-assignment-dialog--crew .sc-roster-dialog-status { min-height: .9em; color: var(--roster-muted); font-size: .64rem; }
+.sc-roster-assignment-dialog--crew footer { gap: 6px; margin-top: 0; }
+.sc-roster-assignment-dialog--crew footer button { min-height: 33px; padding-inline: 10px; border-radius: 7px; font-size: .67rem; font-weight: 750; }
+.sc-roster-assignment-dialog--crew .sc-roster-dialog-submit { box-shadow: none; }
 
 @media (max-width: 850px) {
   .sc-assignment-table-toolbar { align-items: flex-start; flex-direction: column; }

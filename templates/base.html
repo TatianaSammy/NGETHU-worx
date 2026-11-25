@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" data-theme="day" class="app-fullscreen">
+<html lang="en" data-theme="day">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#417690">
-    <link rel="manifest" href="/manifest.json?v=20261020-enterprise-theme">
+    <link rel="manifest" href="/manifest.json?v=20261115-network-only">
     {% if company.logo %}
     <link rel="apple-touch-icon" href="{{ company.logo.url }}">
     <link rel="icon" href="{{ company.logo.url }}">
@@ -23,7 +23,7 @@
     <meta name="keywords" content="Water, Quality, Assurance, Health, Environment">
     <meta name="author" content="Water Quality Assurance Team">
     <title>{% block title %}Water Quality Assurance{% endblock %}</title>
-    <script src="{% static 'core/js/theme.js' %}?v=20261112-multitheme-v8"></script>
+    <script src="{% static 'core/js/theme.js' %}?v=20261123-cyber-executive-v1"></script>
 
     <link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}">
     <link rel="stylesheet" href="{% static 'css/flatpicker.min.css' %}">
@@ -31,16 +31,15 @@
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
     <link rel="stylesheet" href="{% static 'css/font_awesome/all.min.css' %}">
     <link rel="stylesheet" href="{% static 'core/css/base.css' %}">
-    <link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261113-fitscreen">
-    <link rel="stylesheet" href="{% static 'core/css/app-fullscreen.css' %}?v=20261018-fullscreen">
+    <link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261123-cyber-executive-v1">
     <link rel="stylesheet" href="{% static 'core/css/header.css' %}?v=20261023-standard-alert-center">
     <link rel="stylesheet" href="{% static 'core/css/dropdown.css' %}">
     {% block extra_css %}{% endblock %}
-    <link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261020-enterprise-theme">
-    <link rel="stylesheet" href="{% static 'core/css/app-shell.css' %}?v=20261030-app-shell">
+    <link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261123-cyber-executive-v1">
+    <link rel="stylesheet" href="{% static 'core/css/app-shell.css' %}?v=20261123-cyber-executive-v1">
 
 </head>
-<body class="app-fullscreen-shell">
+<body class="app-shell-host">
     {% include "accounts/partials/header.html" %}
     <main role="main" class="container">
         {% block content %}{% endblock %}
@@ -54,9 +53,7 @@
     <script src="{% static 'js/jquery.min.js' %}"></script>
     <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
     <script src="{% static 'js/flatpickr.min.js' %}"></script>
-    <script src="{% static 'core/js/fullscreen.js' %}?v=20261018-first-interaction"></script>
-    <script src="{% static 'core/js/offline-queue.js' %}?v=20261024-offline" defer></script>
-    <script src="{% static 'core/js/pwa.js' %}?v=20261105-safe-logout" defer></script>
+    <script src="{% static 'core/js/pwa.js' %}?v=20261115-network-only" defer></script>
     <script src="{% static 'core/js/header.js' %}?v=20261023-standard-alert-center" defer></script>
     <script src="{% static 'core/js/plant_section_user_cascade.js' %}?v=20261024-cascade" defer></script>
     {% block extra_js %}{% endblock %}

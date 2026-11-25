@@ -1,285 +1,33 @@
 {% extends "ca/dashboard/layout/app.html" %}
 
-{% block title %}Analysis Input{% endblock %}
+{% block title %}Method Input{% endblock %}
 
 {% block content %}
-
 <div class="ca-page">
-
     <div class="page-header">
         <div>
-            <h1>Analysis Input</h1>
-            <p>Review the calculation inputs and calculated value for this analysis result.</p>
+            <h1>Method Input</h1>
+            <p>This input definition belongs to its chemical analysis method.</p>
         </div>
-
         <div class="page-actions">
-            <a href="{% url 'ca:result-list' %}" class="btn btn-secondary">
-                Back to Results
-            </a>
+            <a href="{% url 'ca:dashboard' %}" class="btn btn-secondary">Dashboard</a>
+            <a href="{% url 'ca:result-list' %}" class="btn btn-secondary">Results</a>
         </div>
     </div>
 
     <div class="card">
-        <div class="card-header">
-            <div>
-                <h2>Input #{{ analysis_input.pk }}</h2>
-
-                {% if analysis_input.test_result %}
-                    {% if analysis_input.test_result.status == "PASS" %}
-                        <span class="badge badge-success">Pass</span>
-                    {% elif analysis_input.test_result.status == "FAIL" %}
-                        <span class="badge badge-danger">Fail</span>
-                    {% elif analysis_input.test_result.status == "NA" %}
-                        <span class="badge">N/A</span>
-                    {% endif %}
-                {% endif %}
-            </div>
-        </div>
-
+        <div class="card-header"><h2>{{ analysis_input.label|default:analysis_input.name }}</h2></div>
         <div class="card-body">
             <div class="details-grid">
-
-                <div class="detail-item">
-                    <span class="detail-label">Input ID</span>
-                    <span class="detail-value">
-                        {{ analysis_input.pk|default:"—" }}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Result</span>
-                    <span class="detail-value">
-                        {% if analysis_input.test_result %}
-                            <a href="{% url 'ca:result-detail' analysis_input.test_result.pk %}">
-                                Result #{{ analysis_input.test_result.pk }}
-                            </a>
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Batch</span>
-                    <span class="detail-value">
-                        {% if analysis_input.test_result %}
-                            {% if analysis_input.test_result.batch %}
-                                <a href="{% url 'ca:batch-detail' analysis_input.test_result.batch.pk %}">
-                                    {{ analysis_input.test_result.batch }}
-                                </a>
-                            {% else %}
-                                —
-                            {% endif %}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Sample ID</span>
-                    <span class="detail-value">
-                        {% if analysis_input.test_result %}
-                            {% if analysis_input.test_result.batch %}
-                                {{ analysis_input.test_result.batch.sample_id|default:"—" }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Parameter</span>
-                    <span class="detail-value">
-                        {% if analysis_input.test_result %}
-                            {{ analysis_input.test_result.parameter|default:"—" }}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Analyst</span>
-                    <span class="detail-value">
-                        {% if analysis_input.test_result %}
-                            {% if analysis_input.test_result.analyst %}
-                                {{ analysis_input.test_result.analyst.get_full_name|default:analysis_input.test_result.analyst.username }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Calculated Value</span>
-                    <span class="detail-value">
-                        {% if analysis_input.calculated_value != None %}
-                            {{ analysis_input.calculated_value }}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Current Result</span>
-                    <span class="detail-value">
-                        {% if analysis_input.test_result %}
-                            {% if analysis_input.test_result.value != None %}
-                                {{ analysis_input.test_result.value }}
-                            {% elif analysis_input.test_result.textual_result %}
-                                {{ analysis_input.test_result.textual_result }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
-                <div class="detail-item">
-                    <span class="detail-label">Tested At</span>
-                    <span class="detail-value">
-                        {% if analysis_input.test_result %}
-                            {% if analysis_input.test_result.tested_at %}
-                                {{ analysis_input.test_result.tested_at|date:"d M Y H:i" }}
-                            {% else %}
-                                —
-                            {% endif %}
-                        {% else %}
-                            —
-                        {% endif %}
-                    </span>
-                </div>
-
+                <div class="detail-item"><span class="detail-label">Method</span><span class="detail-value">{{ analysis_input.method }}</span></div>
+                <div class="detail-item"><span class="detail-label">Input key</span><span class="detail-value">{{ analysis_input.name }}</span></div>
+                <div class="detail-item"><span class="detail-label">Type</span><span class="detail-value">{{ analysis_input.get_input_type_display }}</span></div>
+                <div class="detail-item"><span class="detail-label">Required</span><span class="detail-value">{{ analysis_input.required|yesno:"Yes,No" }}</span></div>
+                <div class="detail-item"><span class="detail-label">Unit</span><span class="detail-value">{{ analysis_input.unit|default:"—" }}</span></div>
+                <div class="detail-item"><span class="detail-label">Range</span><span class="detail-value">{{ analysis_input.min_value|default:"—" }} – {{ analysis_input.max_value|default:"—" }}</span></div>
+                <div class="detail-item"><span class="detail-label">Help</span><span class="detail-value">{{ analysis_input.help_text|default:"—" }}</span></div>
             </div>
         </div>
     </div>
-
-    <div class="card">
-        <div class="card-header">
-            <div>
-                <h2>Calculation Inputs</h2>
-                <p>Values used by the analysis method calculation.</p>
-            </div>
-        </div>
-
-        <div class="card-body">
-
-            {% if analysis_input.inputs %}
-
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Input</th>
-                                <th>Value</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            {% for key, value in analysis_input.inputs.items %}
-                                <tr>
-                                    <td>
-                                        <strong>{{ key }}</strong>
-                                    </td>
-                                    <td>
-                                        {{ value }}
-                                    </td>
-                                </tr>
-                            {% empty %}
-                                <tr>
-                                    <td colspan="2" class="empty-state">
-                                        No calculation inputs recorded.
-                                    </td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-
-            {% else %}
-
-                <div class="empty-state">
-                    <strong>No calculation inputs</strong>
-                    <p>No input values have been recorded for this analysis.</p>
-                </div>
-
-            {% endif %}
-
-        </div>
-    </div>
-
-    {% if analysis_input.test_result %}
-        {% if analysis_input.test_result.parameter %}
-
-            <div class="card">
-                <div class="card-header">
-                    <div>
-                        <h2>Test Parameter</h2>
-                        <p>Parameter associated with this calculation.</p>
-                    </div>
-                </div>
-
-                <div class="card-body">
-                    <div class="details-grid">
-
-                        <div class="detail-item">
-                            <span class="detail-label">Parameter</span>
-                            <span class="detail-value">
-                                {{ analysis_input.test_result.parameter }}
-                            </span>
-                        </div>
-
-                        <div class="detail-item">
-                            <span class="detail-label">Unit</span>
-                            <span class="detail-value">
-                                {{ analysis_input.test_result.parameter.unit|default:"—" }}
-                            </span>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-
-        {% endif %}
-    {% endif %}
-
-    <div class="page-actions">
-
-        {% if analysis_input.test_result %}
-            <a
-                href="{% url 'ca:result-detail' analysis_input.test_result.pk %}"
-                class="btn btn-secondary"
-            >
-                View Result
-            </a>
-        {% endif %}
-
-        <a
-            href="{% url 'ca:analysis-input-recalculate' analysis_input.pk %}"
-            class="btn btn-primary"
-        >
-            Recalculate
-        </a>
-
-        <a
-            href="{% url 'ca:result-list' %}"
-            class="btn btn-secondary"
-        >
-            Back to Results
-        </a>
-
-    </div>
-
 </div>
-
 {% endblock %}

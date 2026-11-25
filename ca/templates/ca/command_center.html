@@ -9,16 +9,39 @@
 {% endblock %}
 
 {% block page_css %}
-<link rel="stylesheet" href="{% static 'ca/css/pages/batch-command-center.css' %}?v=20261022-v2">
+<link rel="stylesheet" href="{% static 'ca/css/pages/batch-command-center.css' %}?v=20261117-remove-dashboard-summary">
 {% endblock %}
 
 {% block content %}
 <main class="ca-batch-command" data-register-user="{{ request.user.pk }}" data-export-base="{% url 'ca:batch-register-export' %}">
-    {% if can_view_batches %}
-    <section class="batch-console" aria-label="Chemical batch register">
+    <nav class="ca-batch-dashboard-tabs" aria-label="Chemical batch dashboard sections">
+        {% if can_view_batches %}
+        <a id="batch-register-tab" class="ca-batch-dashboard-tab{% if active_tab == 'register' %} is-active{% endif %}"
+           href="?tab=register{% if plant_context.plant_id %}&{{ plant_context.query_param }}={{ plant_context.plant_id }}{% endif %}"
+           {% if active_tab == 'register' %}aria-current="page"{% endif %}>
+            <i class="fa-solid fa-table-list" aria-hidden="true"></i><span>Batch register</span><span class="ca-batch-dashboard-tab__count">{{ dashboard_batch_count }}</span>
+        </a>
+        {% endif %}
+        {% if can_view_receiving_tab %}
+        <a id="receiving-inspection-tab" class="ca-batch-dashboard-tab{% if active_tab == 'receiving' %} is-active{% endif %}"
+           href="?tab=receiving{% if plant_context.plant_id %}&{{ plant_context.query_param }}={{ plant_context.plant_id }}{% endif %}"
+           {% if active_tab == 'receiving' %}aria-current="page"{% endif %}>
+            <i class="fa-solid fa-clipboard-check" aria-hidden="true"></i><span>Receiving &amp; inspection</span>
+            <span class="ca-batch-dashboard-tab__count">{{ inspection_queue_count|add:supply_chain_review_count|add:supplier_collection_count }}</span>
+        </a>
+        {% endif %}
+    </nav>
+
+    {% if active_tab == 'receiving' and can_view_receiving_tab %}
+    <div id="receiving-inspection-panel" class="ca-batch-dashboard-panel">
+        {% include "ca/dashboard/partials/_receiving_inspection_tab.html" %}
+    </div>
+    {% elif can_view_batches %}
+    <section id="batch-register-panel" class="batch-console" aria-label="Chemical batch register">
 
         <form class="batch-filters" method="get" data-register-filter-form>
-            {% if request.GET.plant %}<input type="hidden" name="plant" value="{{ request.GET.plant }}">{% endif %}
+            <input type="hidden" name="tab" value="register">
+            {% if plant_context.plant_id %}<input type="hidden" name="{{ plant_context.query_param }}" value="{{ plant_context.plant_id }}">{% endif %}
             <div class="batch-filters__primary">
                 <label class="batch-search">
                     <span class="sr-only">Search batches</span>
@@ -38,7 +61,7 @@
                     </select>
                 </label>
                 <button class="batch-filter-submit" type="submit"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Apply</button>
-                <a class="batch-filter-reset" href="{% url 'ca:dashboard' %}{% if request.GET.plant %}?plant={{ request.GET.plant }}{% endif %}" title="Clear all filters"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Reset</span></a>
+                <a class="batch-filter-reset" href="{% url 'ca:dashboard' %}?tab=register{% if plant_context.plant_id %}&{{ plant_context.query_param }}={{ plant_context.plant_id }}{% endif %}" title="Clear all filters"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Reset</span></a>
             </div>
 
             <details class="batch-filters__advanced" {% if register_filters.chemical or register_filters.supplier or register_filters.location or register_filters.received_from or register_filters.received_to or register_filters.qty_min or register_filters.qty_max or register_filters.age or register_filters.coa or register_filters.hold or register_filters.stage or register_filters.analyst %}open{% endif %}>
@@ -118,7 +141,7 @@
                             {% elif key == 'location' %}{{ batch.location.name|default:'—' }}
                             {% elif key == 'received' %}{{ batch.received_date|date:'Y-m-d'|default:'—' }}
                             {% elif key == 'age' %}<span class="batch-age {% if batch.days_in_store > 90 %}is-aged{% elif batch.days_in_store > 30 %}is-warm{% endif %}">{{ batch.days_in_store|default:'—' }}{% if batch.days_in_store != None %} d{% endif %}</span>
-                            {% elif key == 'quantity' %}{{ batch.quantity_received|floatformat:2 }} {{ batch.unit }}
+                            {% elif key == 'quantity' %}{% if batch.quantity_received %}{{ batch.quantity_received|floatformat:1 }} {{ batch.unit }}{% else %}Pending inspection{% endif %}{% if batch.package_quantity_display %}<small class="batch-sub-value">{{ batch.package_quantity_display }}</small>{% endif %}
                             {% elif key == 'available' %}<strong>{{ batch.register_available_quantity|floatformat:2 }}</strong> {{ batch.unit }}
                             {% elif key == 'status' %}<span class="batch-state batch-state--{{ batch.status|lower }}"><i></i>{{ batch.get_status_display }}</span>
                             {% elif key == 'stage' %}<span class="batch-stage batch-stage--{{ batch.analysis_stage_key }}">{{ batch.analysis_stage_label }}</span>

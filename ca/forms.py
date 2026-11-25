@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any
 
 from django import forms
@@ -21,7 +22,11 @@ from .models import (
     ChemicalAnalysisProcess,
     ChemicalAnalysisRequest,
     ChemicalBatch,
+    ChemicalBatchInspection,
     ChemicalBatchHold,
+    ChemicalInspectionCommitteeMember,
+    CHEMICAL_INSPECTION_CHECKLIST,
+    CHEMICAL_INSPECTION_OPTIONAL_CHECKLIST,
     ChemicalLabComparisonResult,
     ChemicalLabReferral,
     ChemicalMethodQualityPlan,
@@ -716,12 +721,13 @@ class SupplierForm(forms.ModelForm):
 class ChemicalForm(forms.ModelForm):
     class Meta:
         model = Chemical
-        fields = ("name", "code", "description", "grade", "hydrometer_formula")
+        fields = ("name", "code", "description", "grade", "weight_tolerance", "hydrometer_formula")
         widgets = {
             "name": forms.TextInput(attrs={"autocomplete": "off"}),
             "code": forms.TextInput(attrs={"autocomplete": "off", "style": "text-transform: uppercase;"}),
             "description": forms.Textarea(attrs={"rows": 3}),
             "grade": forms.TextInput(),
+            "weight_tolerance": forms.NumberInput(attrs={"min": "0", "step": "0.001"}),
             "hydrometer_formula": forms.Textarea(attrs={"rows": 3, "placeholder": "Example: (reading * 1.05 + 2)"}),
         }
 
@@ -1328,79 +1334,107 @@ class PlantScopedLocationSelect(forms.Select):
         return option
 
 
-class ChemicalBatchForm(forms.ModelForm):
-    intake_discrepancies = forms.MultipleChoiceField(
-        required=False,
-        choices=ChemicalBatchHold.Issue.choices,
-        widget=forms.CheckboxSelectMultiple,
-        label="Intake discrepancies",
+class ChemicalBatchReceiptForm(forms.ModelForm):
+    MAX_RECEIPT_DOCUMENT_SIZE = 20 * 1024 * 1024
+    RECEIPT_DOCUMENT_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg"}
+
+    PACKAGE_WEIGHT_UNITS = (
+        ("KG", "KG"),
+        ("g", "G"),
+        ("tonnes", "T"),
+        ("L", "L"),
+        ("mL", "ML"),
+        ("m3", "M³"),
     )
-    hold_reason = forms.CharField(
-        required=False,
-        max_length=3000,
-        widget=forms.Textarea(attrs={"rows": 2}),
-        label="Hold details",
+    PACKAGE_TYPES = (
+        ("BAGS", "BAGS"),
+        ("DRUMS", "DRUMS"),
+        ("TINS", "TINS"),
     )
+
     location = forms.ModelChoiceField(
         queryset=ChemicalLocation.objects.none(),
         required=True,
         label="Chemical Storage Location",
         widget=PlantScopedLocationSelect(),
     )
-    delivery_date = forms.DateField(
-        required=True,
-        label="Date Received",
-        initial=timezone.localdate,
-        widget=forms.DateInput(
+    delivery_datetime = forms.DateTimeField(
+        required=False,
+        label="Delivery date and time",
+        initial=timezone.localtime,
+        disabled=True,
+        widget=forms.DateTimeInput(
             attrs={
-                "type": "date",
+                "type": "datetime-local",
                 "class": "ca-compact-input ca-date-picker",
             }
         ),
-        help_text="Required. Defaults to today's date.",
+    )
+    package_weight = forms.DecimalField(
+        required=True,
+        min_value=Decimal("0.1"),
+        max_digits=18,
+        decimal_places=1,
+        label="Package weight",
+        widget=forms.NumberInput(
+            attrs={"min": "0.1", "step": "0.1", "placeholder": "e.g. 50.0"}
+        ),
+    )
+    unit = forms.ChoiceField(
+        choices=PACKAGE_WEIGHT_UNITS,
+        required=True,
+        label="Unit of measure",
+        initial="KG",
+    )
+    package_type = forms.ChoiceField(
+        choices=PACKAGE_TYPES,
+        required=True,
+        label="Package type",
+        widget=forms.Select(),
+    )
+    delivery_note_attachment = forms.FileField(
+        required=False,
+        label="Delivery Note",
+        widget=forms.ClearableFileInput(attrs={"accept": ".pdf,.png,.jpg,.jpeg"}),
+    )
+    manufacturer_certificate_of_analysis = forms.FileField(
+        required=False,
+        label="Manufacturer Certificate of Analysis",
+        widget=forms.ClearableFileInput(attrs={"accept": ".pdf,.png,.jpg,.jpeg"}),
     )
 
     class Meta:
         model = ChemicalBatch
         fields = (
             "delivery_note_number",
-            "batch_number",
             "chemical",
             "supplier",
             "treatment_plant",
             "location",
-            "delivery_date",
-            "quantity_received",
-            "unit",
             "package_count",
-            "remarks",
+            "package_weight",
+            "unit",
+            "package_type",
+            "delivery_note_attachment",
+            "manufacturer_certificate_of_analysis",
         )
         widgets = {
-            "quantity_received": forms.NumberInput(
-                attrs={
-                    "min": "0.0001",
-                    "step": "any",
-                    "placeholder": "e.g. 5000",
-                }
-            ),
             "package_count": forms.NumberInput(
                 attrs={
                     "min": "1",
                     "step": "1",
-                    "placeholder": "e.g. 100 bags / 20 drums",
+                    "placeholder": "Number of packages",
                 }
             ),
-            "remarks": forms.Textarea(
+            "package_weight": forms.NumberInput(
                 attrs={
-                    "rows": 2,
-                    "placeholder": "Delivery notes, vehicle reg, seal numbers, physical condition...",
+                    "min": "0.1",
+                    "step": "0.1",
+                    "placeholder": "e.g. 50.0",
                 }
             ),
             "delivery_note_number": forms.TextInput(
                 attrs={"placeholder": "e.g. DN-2026-9842"}
-            ),
-            "batch_number": forms.TextInput(
-                attrs={"placeholder": "e.g. BATCH-ALUM-2026-04"}
             ),
         }
 
@@ -1474,13 +1508,19 @@ class ChemicalBatchForm(forms.ModelForm):
                 locations = locations.none()
         self.fields["location"].queryset = locations
 
-        if not self.initial.get("unit"):
-            self.fields["unit"].initial = "kg"
+        if not self.is_bound and self.instance and self.instance.pk and self.instance.received_at:
+            self.initial.setdefault(
+                "delivery_datetime",
+                timezone.localtime(self.instance.received_at).strftime("%Y-%m-%dT%H:%M"),
+            )
 
         apply_field_classes(self)
 
     def save(self, commit=True):
         instance = super().save(commit=False)
+        if instance._state.adding and "quantity_received" not in self.cleaned_data:
+            # Do not post stock until the committee verifies package weights.
+            instance.quantity_received = None
         if self.user and not instance.received_by_id:
             instance.received_by = self.user
 
@@ -1491,7 +1531,9 @@ class ChemicalBatchForm(forms.ModelForm):
         elif not instance.treatment_plant_id and self.treatment_plant:
             instance.treatment_plant_id = _plant_id(self.treatment_plant)
 
-        instance.received_date = self.cleaned_data["delivery_date"]
+        if instance._state.adding:
+            instance.received_at = timezone.now()
+            instance.received_date = timezone.localdate(instance.received_at)
 
         if commit:
             instance.save()
@@ -1531,46 +1573,22 @@ class ChemicalBatchForm(forms.ModelForm):
 
         return value
 
-    def clean_batch_number(self):
-        value = (
-            self.cleaned_data.get(
-                "batch_number"
-            )
-            or ""
-        ).strip()
+    def _clean_receipt_document(self, field_name):
+        upload = self.cleaned_data.get(field_name)
+        if not upload:
+            return upload
+        extension = Path(upload.name).suffix.lower()
+        if extension not in self.RECEIPT_DOCUMENT_EXTENSIONS:
+            raise ValidationError("Upload a PDF, PNG or JPEG document.")
+        if upload.size > self.MAX_RECEIPT_DOCUMENT_SIZE:
+            raise ValidationError("Each receipt document must be 20 MB or smaller.")
+        return upload
 
-        if not value:
-            raise ValidationError(
-                "Supplier/manufacturer batch number is required."
-            )
+    def clean_delivery_note_attachment(self):
+        return self._clean_receipt_document("delivery_note_attachment")
 
-        queryset = ChemicalBatch.objects.filter(
-            batch_number__iexact=value
-        )
-
-        if self.instance.pk:
-            queryset = queryset.exclude(
-                pk=self.instance.pk
-            )
-
-        if queryset.exists():
-            raise ValidationError(
-                "This batch number is already registered."
-            )
-
-        return value
-
-    def clean_quantity_received(self):
-        value = self.cleaned_data.get(
-            "quantity_received"
-        )
-
-        if value is None or value <= 0:
-            raise ValidationError(
-                "Quantity received must be greater than zero."
-            )
-
-        return value
+    def clean_manufacturer_certificate_of_analysis(self):
+        return self._clean_receipt_document("manufacturer_certificate_of_analysis")
 
     def clean_package_count(self):
         value = self.cleaned_data.get(
@@ -1586,6 +1604,14 @@ class ChemicalBatchForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
+
+        if self.instance._state.adding:
+            for field_name, label in (
+                ("delivery_note_attachment", "Delivery Note"),
+                ("manufacturer_certificate_of_analysis", "Manufacturer Certificate of Analysis"),
+            ):
+                if not cleaned.get(field_name):
+                    self.add_error(field_name, f"Attach the {label} before confirming receipt.")
 
         plant = cleaned.get(
             "treatment_plant"
@@ -1608,9 +1634,6 @@ class ChemicalBatchForm(forms.ModelForm):
             "chemical"
         )
 
-        if cleaned.get("intake_discrepancies") and not (cleaned.get("hold_reason") or "").strip():
-            self.add_error("hold_reason", "Describe the discrepancy before placing the batch on hold.")
-
         if (
             chemical
             and plant
@@ -1627,6 +1650,87 @@ class ChemicalBatchForm(forms.ModelForm):
 
         return cleaned
 
+
+class ChemicalBatchForm(ChemicalBatchReceiptForm):
+    """Full record form retained for the standalone edit and legacy workflow routes."""
+
+    delivery_date = forms.DateField(
+        required=True,
+        label="Date Received",
+        initial=timezone.localdate,
+        widget=forms.DateInput(attrs={"type": "date", "class": "ca-compact-input ca-date-picker"}),
+    )
+    quantity_received = forms.DecimalField(
+        required=True,
+        min_value=Decimal("0.0001"),
+        max_digits=18,
+        decimal_places=6,
+        label="Quantity received",
+        widget=forms.NumberInput(attrs={"min": "0.0001", "step": "any", "placeholder": "e.g. 5000"}),
+    )
+    unit = forms.ChoiceField(
+        choices=ChemicalBatchReceiptForm.PACKAGE_WEIGHT_UNITS,
+        initial="KG",
+    )
+    remarks = forms.CharField(
+        required=False,
+        label="Intake remarks",
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+
+    class Meta(ChemicalBatchReceiptForm.Meta):
+        fields = (
+            "delivery_note_number",
+            "chemical",
+            "supplier",
+            "treatment_plant",
+            "location",
+            "delivery_date",
+            "quantity_received",
+            "unit",
+            "package_count",
+            "package_weight",
+            "package_type",
+            "delivery_note_attachment",
+            "manufacturer_certificate_of_analysis",
+            "remarks",
+        )
+        widgets = {
+            **ChemicalBatchReceiptForm.Meta.widgets,
+            "unit": forms.Select(),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["delivery_datetime"].required = False
+        if self.instance.pk and self.instance.unit == "kg":
+            self.fields["unit"].choices = [
+                ("kg" if value == "KG" else value, label)
+                for value, label in self.fields["unit"].choices
+            ]
+        self.fields["unit"].initial = self.initial.get("unit") or (
+            self.instance.unit if self.instance.pk else "KG"
+        )
+        if self.instance and self.instance.pk:
+            self.initial.setdefault("delivery_date", self.instance.received_date)
+            for field_name in (
+                "delivery_note_number",
+                "chemical",
+                "supplier",
+                "treatment_plant",
+                "location",
+                "delivery_date",
+                "quantity_received",
+                "unit",
+                "package_count",
+                "package_weight",
+                "package_type",
+                "delivery_note_attachment",
+                "manufacturer_certificate_of_analysis",
+                "remarks",
+            ):
+                self.fields[field_name].disabled = True
+            self.fields["delivery_datetime"].disabled = True
 
 class ReceiveChemicalBatchForm(forms.Form):
     confirm = forms.BooleanField(
@@ -1692,7 +1796,6 @@ class ChemicalAnalysisRequestForm(forms.ModelForm):
     class Meta:
         model = ChemicalAnalysisRequest
         fields = (
-            "batch",
             "delivery_date",
         )
         widgets = {
@@ -1723,37 +1826,13 @@ class ChemicalAnalysisRequestForm(forms.ModelForm):
             **kwargs,
         )
 
-        batches = (
-            ChemicalBatch.objects
-            .select_related(
-                "chemical",
-                "supplier",
-                "treatment_plant",
-            )
-            .filter(
-                status=ChemicalBatch.Status.RECEIVED
-            )
-            .order_by(
-                "-received_date",
-                "-created_at",
-            )
-        )
-
-        if self.treatment_plant is not None:
-            batches = batches.filter(
-                treatment_plant=self.treatment_plant
-            )
-
-        if batch is not None:
-            batches = batches.filter(
-                pk=_pk(batch)
-            )
-
-        self.fields[
-            "batch"
-        ].queryset = batches
-
-        if not self.instance.pk:
+        locked_batch = batch or (self.instance.batch if self.instance.pk else None)
+        if locked_batch is not None:
+            self.selected_batch = locked_batch
+            self.instance.batch = locked_batch
+            self.fields["delivery_date"].initial = locked_batch.received_date
+            self.fields["delivery_date"].disabled = True
+        elif not self.instance.pk:
             self.fields[
                 "delivery_date"
             ].initial = timezone.localdate()
@@ -1778,11 +1857,10 @@ class ChemicalAnalysisRequestForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
 
-        batch = cleaned.get(
-            "batch"
-        )
+        batch = cleaned.get("batch") or self.selected_batch
 
         if batch is None:
+            self.add_error(None, "A confirmed chemical batch is required to create an analysis request.")
             return cleaned
 
         _validate_plant_access(
@@ -1795,7 +1873,7 @@ class ChemicalAnalysisRequestForm(forms.ModelForm):
             != ChemicalBatch.Status.RECEIVED
         ):
             self.add_error(
-                "batch",
+                None,
                 "Only received chemical batches can be submitted for analysis.",
             )
 
@@ -1804,7 +1882,7 @@ class ChemicalAnalysisRequestForm(forms.ModelForm):
             or batch.package_count < 1
         ):
             self.add_error(
-                "batch",
+                None,
                 "The batch must have a valid package count before analysis is requested.",
             )
 
@@ -1819,7 +1897,7 @@ class ChemicalAnalysisRequestForm(forms.ModelForm):
 
         if existing.exists():
             self.add_error(
-                "batch",
+                None,
                 "An analysis request already exists for this batch.",
             )
 
@@ -1844,10 +1922,17 @@ class ChemicalAnalysisRequestForm(forms.ModelForm):
 
 
 class ChecklistForm(forms.ModelForm):
+    net_weight = forms.DecimalField(
+        required=True,
+        min_value=Decimal("0.1"),
+        max_digits=12,
+        decimal_places=1,
+        widget=forms.NumberInput(attrs={"min": "0.1", "step": "0.1"}),
+    )
+
     class Meta:
         model = ChecklistForWaterTreatmentChemicalAnalysis
         fields = (
-            "chemical",
             "manufacturer_name_indicated",
             "chemical_name_on_label",
             "min_mass_indicated",
@@ -1906,6 +1991,8 @@ class ChecklistForm(forms.ModelForm):
         )
 
         self.fields["chemical_label_photo"].required = True
+        for field_name in ("manufacture_date", "expiry_date", "storage_conditions", "net_weight"):
+            self.fields[field_name].required = True
         self.fields["chemical_label_photo"].help_text = (
             "Upload a clear photo of the container label with the expiry date visible."
         )
@@ -1917,22 +2004,45 @@ class ChecklistForm(forms.ModelForm):
         # raises ValueError because the form has no such field.
         if request is not None:
             self.instance.chemical_analysis_request = request
-
-        queryset = Chemical.objects.order_by(
-            "name"
-        )
+        if self.batch is not None:
+            # The chemical identity comes from the confirmed receipt and is
+            # never re-selected during the analyst checklist.
+            self.instance.chemical = self.batch.chemical
 
         if request is not None and request.batch_id:
-            queryset = queryset.filter(
-                pk=request.batch.chemical_id
+            inspection = (
+                request.batch.inspections
+                .filter(status=ChemicalBatchInspection.Status.PASS)
+                .order_by("-attempt")
+                .first()
             )
-            self.initial[
-                "chemical"
-            ] = request.batch.chemical_id
+            if inspection is not None:
+                captured_fields = {
+                    "manufacture_date": inspection.manufacture_date,
+                    "expiry_date": inspection.expiry_date,
+                    "storage_conditions": inspection.observed_storage_conditions,
+                }
+                for field_name, captured_value in captured_fields.items():
+                    if captured_value:
+                        self.initial[field_name] = captured_value
+                        setattr(self.instance, field_name, captured_value)
+                        self.fields[field_name].disabled = True
 
-        self.fields[
-            "chemical"
-        ].queryset = queryset
+                inspected_weight = inspection.declared_package_weight
+                if inspected_weight:
+                    inspected_weight = Decimal(str(inspected_weight)).quantize(Decimal("0.1"))
+                    self.initial["net_weight"] = inspected_weight
+                    self.instance.net_weight = inspected_weight
+                    self.fields["net_weight"].disabled = True
+        if (
+            self.batch is not None
+            and self.batch.package_weight is not None
+            and not self.fields["net_weight"].disabled
+        ):
+            package_weight = Decimal(str(self.batch.package_weight)).quantize(Decimal("0.1"))
+            self.initial["net_weight"] = package_weight
+            self.instance.net_weight = package_weight
+            self.fields["net_weight"].disabled = True
 
         if not self.instance.pk:
             self.fields[
@@ -2337,28 +2447,22 @@ class BatchTestResultForm(forms.ModelForm):
         return instance
 
 
-class ChemicalAnalysisInputForm(forms.ModelForm):
-    class Meta:
-        model = ChemicalAnalysisInput
-        fields = (
-            "test_result",
-            "inputs",
-        )
-        widgets = {
-            "inputs": forms.Textarea(
-                attrs={"rows": 7}
-            )
-        }
+class ChemicalAnalysisInputForm(forms.Form):
+    test_result = forms.ModelChoiceField(queryset=BatchTestResult.objects.none())
+    inputs = forms.JSONField(widget=forms.Textarea(attrs={"rows": 7}))
 
     def __init__(
         self,
         *args,
         test_result=None,
         process=None,
+        user=None,
         **kwargs,
     ):
         self.selected_test_result = test_result
         self.process = process
+        self.user = user
+        kwargs.pop("instance", None)
 
         super().__init__(
             *args,
@@ -2388,6 +2492,29 @@ class ChemicalAnalysisInputForm(forms.ModelForm):
         ].queryset = queryset
 
         apply_field_classes(self)
+
+    def save(self, commit=True):
+        if not hasattr(self, "cleaned_data"):
+            raise ValueError("Call is_valid() before saving chemical analysis inputs.")
+        self.instance = self.cleaned_data["test_result"]
+        previous_inputs = self.instance.method_inputs or {}
+        new_inputs = self.cleaned_data["inputs"]
+        if self.instance.pk and previous_inputs != new_inputs:
+            is_retest = bool(
+                self.process
+                and self.process.status == ChemicalAnalysisProcess.WorkflowStatus.RETEST
+                and self.process.retest_parameter_id == self.instance.parameter_id
+            )
+            if (previous_inputs or self.instance.status) and not is_retest:
+                raise ValidationError("Recorded method inputs can only be changed through the retest workflow.")
+            if is_retest:
+                self.instance.revision_reason = (self.process.retest_reason or "").strip()
+            elif not self.instance.revision_reason:
+                self.instance.revision_reason = "Initial method measurements recorded."
+        self.instance.method_inputs = new_inputs
+        if commit:
+            self.instance.save(update_fields={"method_inputs", "revision_reason"})
+        return self.instance
 
     def clean_inputs(self):
         value = self.cleaned_data.get(
@@ -2454,117 +2581,18 @@ class ChemicalAnalysisInputForm(forms.ModelForm):
         if method is None:
             return cleaned
 
-        definitions = _normalise_input_definitions(
-            method.get_input_fields()
-            if hasattr(
-                method,
-                "get_input_fields",
-            )
-            else []
-        )
-
-        names = {
-            item["name"]
-            for item in definitions
-        }
-
-        missing = [
-            item["name"]
-            for item in definitions
-            if item["required"]
-            and item["name"] not in inputs
-        ]
-
-        if missing:
-            raise ValidationError(
-                "Missing required analytical inputs: "
-                + ", ".join(missing)
-            )
-
-        unexpected = (
-            set(inputs) - names
-        )
-
-        if unexpected and names:
-            raise ValidationError(
-                "Unknown analytical inputs: "
-                + ", ".join(
-                    sorted(
-                        unexpected
-                    )
-                )
-            )
-
-        for definition in definitions:
-            name = definition["name"]
-
-            if name not in inputs:
-                continue
-
-            value = inputs[name]
-            field_type = definition["type"]
-
-            if field_type in {
-                "number",
-                "decimal",
-                "float",
-                "integer",
-                "int",
-            }:
-                numeric = _decimal(
-                    value
-                )
-
-                if numeric is None:
+        try:
+            ChemicalAnalysisInput.validate_values(method, inputs)
+            if method.formula and result.value is not None:
+                calculated = method.evaluate(inputs)
+                if calculated != Decimal(str(result.value)):
                     raise ValidationError(
-                        f"{definition['label']} must be numeric."
+                        "The method inputs do not reproduce the recorded test result."
                     )
-
-                minimum = definition[
-                    "min_value"
-                ]
-                maximum = definition[
-                    "max_value"
-                ]
-
-                if (
-                    minimum is not None
-                    and numeric
-                    < Decimal(
-                        str(minimum)
-                    )
-                ):
-                    raise ValidationError(
-                        f"{definition['label']} is below the allowed minimum."
-                    )
-
-                if (
-                    maximum is not None
-                    and numeric
-                    > Decimal(
-                        str(maximum)
-                    )
-                ):
-                    raise ValidationError(
-                        f"{definition['label']} exceeds the allowed maximum."
-                    )
+        except ValidationError as exc:
+            raise ValidationError(exc.messages) from exc
 
         return cleaned
-
-    def save(self, commit=True):
-        instance = super().save(
-            commit=False
-        )
-
-        if self.selected_test_result is not None:
-            instance.test_result = (
-                self.selected_test_result
-            )
-
-        if commit:
-            instance.save()
-
-        return instance
 
 
 class DynamicChemicalAnalysisInputForm(forms.Form):
@@ -2593,7 +2621,7 @@ class DynamicChemicalAnalysisInputForm(forms.Form):
 
         if method is not None:
             definitions = _normalise_input_definitions(
-                method.inputs_structure
+                method.get_input_definitions()
             )
 
             for definition in definitions:
@@ -2716,7 +2744,7 @@ class FormulaDrivenChemicalAnalysisForm(forms.Form):
                 "No analytical method is assigned to this specification. Configure its method before recording results."
             )
         definitions = _normalise_input_definitions(
-            getattr(method, "inputs_structure", None)
+            method.get_input_definitions() if method is not None else None
         )
         self.input_names = []
 
@@ -4568,6 +4596,10 @@ class ReturnToSupplierForm(forms.Form):
         )
 
         apply_field_classes(self)
+        if batch is not None and batch.supplier_collection_due_at:
+            self.fields["confirm"].label = "Confirm the supplier collected the rejected consignment"
+            self.fields["reason"].label = "Collection details"
+            self.fields["reason"].help_text = "Record the supplier representative, handover details or collection evidence."
 
     def clean(self):
         cleaned = super().clean()
@@ -4600,6 +4632,8 @@ class ReturnToSupplierForm(forms.Form):
             raise ValidationError(
                 "This batch cannot currently be returned to the supplier."
             )
+        if self.batch.supplier_collection_due_at and self.batch.supplier_collected_at:
+            raise ValidationError("Supplier collection has already been recorded.")
 
         if not (
             cleaned.get("reason")
@@ -4994,3 +5028,287 @@ class AnalystAutoAssignmentForm(forms.Form):
             raise ValidationError("An analyst is already assigned to this request.")
         _validate_plant_access(self.user, self.process.treatment_plant)
         return cleaned
+
+
+class ChemicalBatchInspectionForm(forms.Form):
+    vehicle_registration = forms.CharField(
+        required=True,
+        max_length=40,
+        label="Truck / vehicle registration",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "placeholder": "e.g. KXX 123A"}),
+    )
+    vehicle_seal_number = forms.CharField(
+        required=False,
+        max_length=100,
+        label="Delivery seal number",
+        help_text="Enter the seal number when the delivery is sealed; otherwise select not applicable.",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "placeholder": "Optional"}),
+    )
+    manufacturer_batch_number = forms.CharField(
+        required=True,
+        max_length=100,
+        label="Manufacturer batch number",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "placeholder": "As printed on the package"}),
+    )
+    manufacture_date = forms.DateField(
+        required=True,
+        label="Manufacture date",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    expiry_date = forms.DateField(
+        required=True,
+        label="Expiry date",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    observed_storage_conditions = forms.CharField(
+        required=True,
+        max_length=255,
+        label="Storage conditions on label",
+        widget=forms.TextInput(attrs={"autocomplete": "off", "placeholder": "e.g. Keep cool and dry"}),
+    )
+    observed_package_count = forms.IntegerField(
+        required=True,
+        min_value=1,
+        max_value=2147483647,
+        label="Packages counted",
+        widget=forms.NumberInput(attrs={"min": "1", "step": "1"}),
+    )
+    expiry_label_attachment = forms.FileField(
+        required=True,
+        label="Expiry label evidence",
+        widget=forms.ClearableFileInput(attrs={"accept": ".pdf,.png,.jpg,.jpeg"}),
+    )
+    batch_number_label_attachment = forms.FileField(
+        required=True,
+        label="Batch number evidence",
+        widget=forms.ClearableFileInput(attrs={"accept": ".pdf,.png,.jpg,.jpeg"}),
+    )
+    declared_package_weight = forms.DecimalField(
+        required=True,
+        min_value=Decimal("0.1"),
+        max_digits=18,
+        decimal_places=1,
+        label="Declared net weight per package",
+        help_text="Pre-filled from the package weight captured at receipt; each sample is checked against it.",
+        widget=forms.NumberInput(attrs={"min": "0.1", "step": "0.1"}),
+    )
+    inspection_notes = forms.CharField(
+        required=False,
+        label="Inspection notes",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+    def __init__(self, *args, inspection=None, batch=None, user=None, **kwargs):
+        self.inspection = inspection
+        self.batch = batch or getattr(inspection, "batch", None)
+        self.user = user
+        super().__init__(*args, **kwargs)
+        if self.batch is None:
+            raise ValidationError("A chemical batch is required for inspection.")
+        self.samples = list(inspection.samples.order_by("package_number")) if inspection else []
+        if self.batch.package_weight is not None:
+            self.fields["declared_package_weight"].initial = Decimal(
+                str(self.batch.package_weight)
+            ).quantize(Decimal("0.1"))
+            self.fields["declared_package_weight"].disabled = True
+        if inspection is not None:
+            self.fields["vehicle_registration"].initial = inspection.vehicle_registration
+            self.fields["vehicle_seal_number"].initial = inspection.vehicle_seal_number
+            self.fields["manufacturer_batch_number"].initial = inspection.manufacturer_batch_number
+            self.fields["manufacture_date"].initial = inspection.manufacture_date
+            self.fields["expiry_date"].initial = inspection.expiry_date
+            self.fields["observed_storage_conditions"].initial = inspection.observed_storage_conditions
+            self.fields["observed_package_count"].initial = inspection.observed_package_count
+            if self.batch.package_weight is None and self.batch.quantity_received is not None:
+                self.fields["declared_package_weight"].initial = Decimal(
+                    str(inspection.declared_package_weight)
+                ).quantize(Decimal("0.1"))
+                self.fields["declared_package_weight"].disabled = True
+
+        self.checklist_field_names = []
+        for key, label in CHEMICAL_INSPECTION_CHECKLIST:
+            choices = (("", "Select result"), ("PASS", "Pass"), ("FAIL", "Fail"))
+            if key in CHEMICAL_INSPECTION_OPTIONAL_CHECKLIST:
+                choices += (("NOT_APPLICABLE", "Not applicable"),)
+            self.fields[key] = forms.ChoiceField(
+                required=True,
+                label=label,
+                choices=choices,
+                initial=(inspection.checklist_results.get(key) if inspection else None),
+            )
+            self.checklist_field_names.append(key)
+
+        self.sample_field_names = []
+        for sample in self.samples:
+            name = f"package_weight_{sample.pk}"
+            measured_weight = sample.measured_weight
+            if measured_weight is not None:
+                measured_weight = Decimal(str(measured_weight)).quantize(Decimal("0.1"))
+            self.fields[name] = forms.DecimalField(
+                required=True,
+                min_value=Decimal("0.1"),
+                max_digits=18,
+                decimal_places=1,
+                label=f"Measured weight · package {sample.package_number}",
+                help_text=f"Enter the measured net weight in {self.batch.unit}.",
+                initial=measured_weight,
+                widget=forms.NumberInput(attrs={"min": "0.1", "step": "0.1"}),
+            )
+            self.sample_field_names.append(name)
+        apply_field_classes(self)
+
+    def _clean_label_evidence(self, field_name):
+        upload = self.cleaned_data.get(field_name)
+        if not upload:
+            return upload
+        if Path(upload.name).suffix.lower() not in ChemicalBatchReceiptForm.RECEIPT_DOCUMENT_EXTENSIONS:
+            raise ValidationError("Upload a PDF, PNG or JPEG document.")
+        if upload.size > ChemicalBatchReceiptForm.MAX_RECEIPT_DOCUMENT_SIZE:
+            raise ValidationError("Each label attachment must be 20 MB or smaller.")
+        return upload
+
+    def clean_expiry_label_attachment(self):
+        return self._clean_label_evidence("expiry_label_attachment")
+
+    def clean_batch_number_label_attachment(self):
+        return self._clean_label_evidence("batch_number_label_attachment")
+
+    def clean(self):
+        cleaned = super().clean()
+        _require_active_user(self.user)
+        _validate_plant_access(self.user, self.batch.treatment_plant)
+        from ca.services.inspection_committee import (
+            committee_attendance_status,
+            is_active_committee_secretary,
+        )
+
+        if not is_active_committee_secretary(self.user, self.batch.treatment_plant_id):
+            self.add_error(None, "Only the appointed Inspection Committee secretary may submit the checklist.")
+        seal_number = (cleaned.get("vehicle_seal_number") or "").strip()
+        seal_result = cleaned.get("delivery_seal_matches")
+        if seal_result == "PASS" and not seal_number:
+            self.add_error("vehicle_seal_number", "Record the seal number before passing the seal check.")
+        elif seal_result == "NOT_APPLICABLE" and seal_number:
+            self.add_error("delivery_seal_matches", "A recorded seal number cannot be marked not applicable.")
+        attendance = committee_attendance_status(self.batch)
+        if attendance["total_members"] == 0:
+            self.add_error(None, "Appoint an Inspection Committee before inspecting this consignment.")
+        elif not attendance["network_configured"]:
+            self.add_error(None, "Configure this treatment plant's inspection LAN before inspecting a consignment.")
+        elif not attendance["quorum_met"]:
+            self.add_error(
+                None,
+                f"The inspection form unlocks after committee members acknowledge their notification "
+                f"({attendance['present_count']} of {attendance['total_members']} present; "
+                f"{attendance['required_count']} required).",
+            )
+        elif not any(
+            member.user_id == getattr(self.user, "pk", None)
+            and member.role == ChemicalInspectionCommitteeMember.Role.SECRETARY
+            for member in attendance["present_members"]
+        ):
+            self.add_error(None, "The appointed committee secretary must acknowledge the inspection notification before submitting the checklist.")
+        declared_weight = cleaned.get("declared_package_weight")
+        if (
+            declared_weight is not None
+            and self.batch.package_weight is not None
+            and declared_weight != self.batch.package_weight
+        ):
+            self.add_error(
+                "declared_package_weight",
+                "This value must match the package weight captured at receipt.",
+            )
+        if self.inspection is None or self.inspection.status != ChemicalBatchInspection.Status.PENDING:
+            raise ValidationError("There is no pending inspection attempt to complete.")
+        if len(self.samples) != self.inspection.sample_count:
+            raise ValidationError("The sampling plan is incomplete. Contact an administrator before proceeding.")
+        declared_weight = cleaned.get("declared_package_weight")
+        failed_weight_check = bool(
+            declared_weight is not None
+            and any(
+                name in cleaned
+                and abs(cleaned[name] - declared_weight) > self.inspection.weight_tolerance
+                for name in self.sample_field_names
+            )
+        )
+        checklist_failed = any(cleaned.get(key) == "FAIL" for key in self.checklist_field_names)
+        observed_count = cleaned.get("observed_package_count")
+        captured_dates_valid = bool(
+            cleaned.get("manufacture_date")
+            and cleaned.get("expiry_date")
+            and cleaned["manufacture_date"] <= cleaned["expiry_date"]
+            and cleaned["manufacture_date"] <= timezone.localdate()
+            and cleaned["expiry_date"] >= timezone.localdate()
+        )
+        captured_data_failed = bool(
+            (observed_count is not None and observed_count != self.inspection.package_count)
+            or not (cleaned.get("manufacturer_batch_number") or "").strip()
+            or not captured_dates_valid
+            or not (cleaned.get("observed_storage_conditions") or "").strip()
+        )
+        if (checklist_failed or failed_weight_check or captured_data_failed) and not (cleaned.get("inspection_notes") or "").strip():
+            self.add_error("inspection_notes", "Add a brief reason for any failed check, weight, identity, date or count.")
+        return cleaned
+
+    def save_inspection(self):
+        results = {key: self.cleaned_data[key] for key in self.checklist_field_names}
+        measurements = {
+            sample.pk: self.cleaned_data[f"package_weight_{sample.pk}"]
+            for sample in self.samples
+        }
+        return self.inspection.complete(
+            checklist_results=results,
+            measured_weights=measurements,
+            declared_package_weight=self.cleaned_data["declared_package_weight"],
+            vehicle_registration=self.cleaned_data["vehicle_registration"],
+            vehicle_seal_number=self.cleaned_data.get("vehicle_seal_number", ""),
+            manufacturer_batch_number=self.cleaned_data.get("manufacturer_batch_number", ""),
+            manufacture_date=self.cleaned_data.get("manufacture_date"),
+            expiry_date=self.cleaned_data.get("expiry_date"),
+            observed_storage_conditions=self.cleaned_data.get("observed_storage_conditions", ""),
+            observed_package_count=self.cleaned_data["observed_package_count"],
+            expiry_label_attachment=self.cleaned_data.get("expiry_label_attachment"),
+            batch_number_label_attachment=self.cleaned_data.get("batch_number_label_attachment"),
+            notes=self.cleaned_data.get("inspection_notes", ""),
+            performed_by=self.user,
+        )
+
+
+class SupplyChainInspectionReviewForm(forms.Form):
+    decision = forms.ChoiceField(
+        required=True,
+        label="Supply Chain decision",
+        choices=((ChemicalBatchInspection.SupplyChainDecision.REJECT, "Reject consignment and require supplier collection"),),
+        widget=forms.RadioSelect,
+    )
+    remarks = forms.CharField(
+        required=True,
+        min_length=5,
+        label="Decision and reason",
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
+    confirm = forms.BooleanField(required=True, label="Confirm this Supply Chain decision")
+
+    def __init__(self, *args, inspection=None, user=None, **kwargs):
+        self.inspection = inspection
+        self.user = user
+        super().__init__(*args, **kwargs)
+        apply_field_classes(self)
+
+    def clean(self):
+        cleaned = super().clean()
+        _require_active_user(self.user)
+        _require_permission(self.user, "ca.reject_chemical_batch", "You do not have permission to review failed inspections.")
+        if self.inspection is None or self.inspection.status != ChemicalBatchInspection.Status.FAIL:
+            raise ValidationError("A failed inspection is required for Supply Chain review.")
+        if self.inspection.reviewed_at:
+            raise ValidationError("Supply Chain has already reviewed this failed inspection.")
+        _validate_plant_access(self.user, self.inspection.batch.treatment_plant)
+        return cleaned
+
+    def save_review(self):
+        return self.inspection.record_supply_chain_decision(
+            decision=self.cleaned_data["decision"],
+            remarks=self.cleaned_data["remarks"],
+            reviewed_by=self.user,
+        )

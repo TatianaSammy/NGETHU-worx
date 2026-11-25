@@ -79,6 +79,75 @@ def create_workflow_alert(
 
 
 @transaction.atomic
+def notify_inspection_committee(batch):
+    """Deliver a receipt alert to every currently appointed plant committee member."""
+    from ca.services.inspection_committee import inspection_committee_setup_errors
+
+    setup_errors = inspection_committee_setup_errors(batch.treatment_plant_id)
+    if setup_errors:
+        from django.core.exceptions import ValidationError
+
+        raise ValidationError(setup_errors)
+
+    from ca.models import ChemicalInspectionCommitteeMember
+
+    members = ChemicalInspectionCommitteeMember.objects.filter(
+        treatment_plant_id=batch.treatment_plant_id,
+        is_active=True,
+        user__is_active=True,
+    ).select_related("user")
+    network = batch.treatment_plant.chemical_inspection_network
+    inspection = batch.inspections.order_by("-attempt").first()
+    sample_summary = (
+        f"A 10% systematic random sample has been generated ({inspection.sample_count} packages). "
+        if inspection else "The systematic random sample plan will be generated when inspection opens. "
+    )
+    attendance_guidance = (
+        "Acknowledge this persistent notification from the treatment plant LAN to record your attendance. "
+        if network.ip_restriction_enabled
+        else "Acknowledge this persistent notification to record your attendance. "
+    )
+    created = []
+    for appointment in members.iterator(chunk_size=100):
+        alert, was_created = ChemicalWorkflowAlert.objects.get_or_create(
+            recipient=appointment.user,
+            dedupe_key=f"inspection-committee-receipt:{batch.pk}",
+            defaults={
+                "batch": batch,
+                "alert_type": "ca_inspection_committee_receipt",
+                "title": f"Inspection required · {batch.sample_id}",
+                "message": (
+                    f"{batch.chemical.name} consignment {batch.sample_id} has been received at "
+                    f"{batch.treatment_plant}. {sample_summary}"
+                    f"{attendance_guidance}The inspection checklist unlocks when at least two-thirds "
+                    "of the appointed committee, including the secretary, have acknowledged their alerts."
+                ),
+                "url": f"/ca/batches/{batch.pk}/?stage=inspection",
+                "severity": "high",
+            },
+        )
+        if was_created:
+            created.append(alert)
+
+    if created:
+        try:
+            from ca.signals import broadcast_dashboard_event
+
+            transaction.on_commit(lambda: broadcast_dashboard_event(
+                "chemical_workflow_alert",
+                {
+                    "alert_ids": [item.pk for item in created],
+                    "batch_id": batch.pk,
+                    "alert_type": "ca_inspection_committee_receipt",
+                    "plant_id": batch.treatment_plant_id,
+                },
+            ))
+        except Exception:
+            logger.exception("Could not broadcast an Inspection Committee receipt alert")
+    return created
+
+
+@transaction.atomic
 def notify_unassigned_analysis_request(analysis_request):
     """Create or reopen assignment prompts until this request gets an analyst."""
     if (
@@ -225,7 +294,7 @@ def clear_assignment_notifications(analysis_request):
 
 def escalate_due_chemical_workflows(*, now=None):
     now = now or timezone.now()
-    counts = {"assignment_pending": 0, "assignment": 0, "analysis": 0, "holds": 0, "stalled": 0}
+    counts = {"assignment_pending": 0, "assignment": 0, "analysis": 0, "supplier_collection": 0, "holds": 0, "stalled": 0}
 
     # Backfill persistent reminders for pending requests created before this
     # notification lifecycle was installed. The helper is idempotent.
@@ -312,6 +381,31 @@ def escalate_due_chemical_workflows(*, now=None):
             counts["analysis"] += len(created)
         except Exception:
             logger.exception("CA analysis SLA escalation failed for request %s", request.pk)
+
+    overdue_collections = ChemicalBatch.objects.filter(
+        status=ChemicalBatch.Status.REJECTED,
+        supplier_collection_due_at__lt=now,
+        supplier_collected_at__isnull=True,
+    ).select_related("chemical", "supplier")
+    for batch in overdue_collections.iterator(chunk_size=100):
+        try:
+            created = create_workflow_alert(
+                batch=batch,
+                alert_type="ca_supplier_collection_overdue",
+                title="Supplier collection deadline missed",
+                message=(
+                    f"{batch.supplier.name} has not collected rejected consignment {batch.sample_id}. "
+                    f"The 24-hour collection deadline was {timezone.localtime(batch.supplier_collection_due_at):%d %b %Y %H:%M}. "
+                    "Record the handover when collection occurs."
+                ),
+                url=f"/ca/batches/{batch.pk}/?stage=disposition",
+                severity="high",
+                dedupe_key=f"supplier-collection-overdue:{batch.pk}:{now.date().isoformat()}",
+                permissions=("ca.return_chemical_batch", "ca.reject_chemical_batch"),
+            )
+            counts["supplier_collection"] += len(created)
+        except Exception:
+            logger.exception("Supplier collection SLA escalation failed for batch %s", batch.pk)
 
     open_holds = ChemicalBatchHold.objects.filter(
         status=ChemicalBatchHold.Status.OPEN,

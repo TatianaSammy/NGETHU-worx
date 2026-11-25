@@ -11,7 +11,7 @@ from dashboards import ml_models
 )
 def rejection_predictor():
 
-    qs = ChemicalBatch.objects.values(
+    qs = ChemicalBatch.objects.filter(quantity_received__isnull=False).values(
         "quantity_received",
         "status",
     )

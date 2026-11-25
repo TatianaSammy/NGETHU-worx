@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" data-theme="day" class="app-fullscreen">
+<html lang="en" data-theme="day">
 <head>
     <meta charset="utf-8">
     <title>{% block title %}QC Analytical Dashboard{% endblock %}</title>
@@ -8,7 +8,7 @@
     <meta name="description" content="Water Quality Control - Real-time Analytical Results & Telemetry Dashboard">
 
     <!-- Progressive Web Application Meta -->
-    <link rel="manifest" href="/manifest.json?app=qc&amp;v=20261020-enterprise-theme">
+    <link rel="manifest" href="/manifest.json?app=qc&amp;v=20261115-network-only">
     {% if company.logo %}
     <link rel="apple-touch-icon" href="{{ company.logo.url }}">
     <link rel="icon" href="{{ company.logo.url }}">
@@ -19,7 +19,7 @@
     <link rel="apple-touch-icon" href="{% static 'image/apple-touch-icon.png' %}">
     {% endif %}
     <meta name="theme-color" content="#417690">
-    <script src="{% static 'core/js/theme.js' %}?v=20261020-enterprise-theme"></script>
+    <script src="{% static 'core/js/theme.js' %}?v=20261123-cyber-executive-v1"></script>
     <meta name="application-name" content="NCWSCwaterLAB QC">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -31,24 +31,21 @@
 
     <!-- Base Design Systems -->
     <link rel="stylesheet" href="{% static 'core/css/base.css' %}">
-    <link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261020-enterprise-theme">
-    <link rel="stylesheet" href="{% static 'core/css/app-fullscreen.css' %}?v=20261018-fullscreen">
+    <link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261123-cyber-executive-v1">
     <link rel="stylesheet" href="{% static 'core/css/header.css' %}?v=20261023-standard-alert-center">
     <link rel="stylesheet" href="{% static 'core/css/dropdown.css' %}">
     <link rel="stylesheet" href="{% static 'accounts/css/change_password.css' %}">
     <link rel="stylesheet" href="{% static 'qc/results/css/base.css' %}">
     <link rel="stylesheet" href="{% static 'qc/results/css/excell.css' %}">
-    <link rel="stylesheet" href="{% static 'qc/results/css/dashboard_v2.css' %}?v=20261021-reports">
+    <link rel="stylesheet" href="{% static 'qc/results/css/dashboard_v2.css' %}?v=20261117-remove-wqi-topbar">
     <link rel="stylesheet" href="{% static 'qc/results/css/qca-navigation.css' %}?v=20261021-advanced-reports">
-    <link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261020-enterprise-theme">
+    <link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261123-cyber-executive-v1">
     <link rel="stylesheet" href="{% static 'ca/css/components/advanced-forms.css' %}?v=20261020-focused-form">
 
     <!-- Core Scripts -->
     <script src="{% static 'ca/js/htmx.js' %}"></script>
     <script>if (typeof window.htmx === "undefined") { document.write('<script src="https://unpkg.com/htmx.org@1.9.12"><\/script>'); }</script>
-    <script src="{% static 'core/js/fullscreen.js' %}?v=20261018-first-interaction" defer></script>
-    <script src="{% static 'core/js/offline-queue.js' %}?v=20261024-offline" defer></script>
-    <script src="{% static 'core/js/pwa.js' %}?v=20261105-safe-logout" defer></script>
+    <script src="{% static 'core/js/pwa.js' %}?v=20261115-network-only" defer></script>
     <script src="{% static 'core/js/header.js' %}?v=20261023-standard-alert-center" defer></script>
     {% if not is_qca_insights_page %}<script src="{% static 'qc/results/js/result_card.js' %}?v=20261023-durable-qc-websocket" defer></script>{% endif %}
     <script src="{% static 'qc/results/js/qca-navigation.js' %}?v=20261018" defer></script>
@@ -56,7 +53,7 @@
     {% block extra_head %}{% endblock %}
 </head>
 
-<body class="base-body dashboard-fullscreen app-fullscreen-shell"
+<body class="base-body dashboard-fullscreen"
       {% if plant %}data-plant-id="{{ plant.pk }}"{% endif %}>
 
     {% include "accounts/partials/header.html" %}

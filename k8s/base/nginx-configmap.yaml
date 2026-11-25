@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qad-nginx-config
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: nginx
+data:
+  nginx.template: |
+    # =========================================================
+    # DJANGO UPSTREAM (Kubernetes Service)
+    # =========================================================
+    upstream django_backend {
+        least_conn;
+        server qad-web:80 max_fails=2 fail_timeout=3s;
+        keepalive 64;
+    }
+
+    # =========================================================
+    # DAPHNE UPSTREAM (Kubernetes Service)
+    # =========================================================
+    upstream daphne_backend {
+        least_conn;
+        server qad-daphne:8001 max_fails=2 fail_timeout=3s;
+        keepalive 32;
+    }
+
+    # =========================================================
+    # SERVER
+    # =========================================================
+    server {
+        listen 80;
+        listen [::]:80;
+
+        server_name _;
+
+        # Health endpoint for Kubernetes probes
+        location = /health/ {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Static files
+        location /static/ {
+            alias /staticfiles/;
+            access_log off;
+            log_not_found off;
+            try_files $uri =404;
+            expires 365d;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+
+            location ~* \.(env|ini|log|sql|bak|swp)$ {
+                deny all;
+            }
+        }
+
+        # Media files
+        location /media/ {
+            alias /media/;
+            access_log off;
+            log_not_found off;
+            try_files $uri =404;
+            expires 12h;
+            add_header Cache-Control "public, max-age=43200";
+
+            location ~* \.(env|ini|log|sql|bak|swp)$ {
+                deny all;
+            }
+        }
+
+        # WebSockets
+        location /ws/ {
+            proxy_pass http://daphne_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_read_timeout 86400s;
+            proxy_send_timeout 86400s;
+            proxy_buffering off;
+        }
+
+        # Main application
+        location / {
+            proxy_pass http://django_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Port $server_port;
+
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 180s;
+            proxy_send_timeout 180s;
+        }
+
+        location ~ /\.(?!well-known).* {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        error_page 404 /404.html;
+        error_page 500 502 503 504 /50x.html;
+
+        location = /404.html {
+            internal;
+            return 404 "404 Not Found\n";
+        }
+
+        location = /50x.html {
+            internal;
+            return 500 "Server Error\n";
+        }
+    }

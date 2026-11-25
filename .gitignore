@@ -55,6 +55,9 @@ pyvenv.cfg
 nginx/certs/
 certs/
 k8s/secrets.yaml
+k8s/base/secrets.yaml
+**/secrets.yaml
+!**/secrets.example.yaml
 k8s/userlist.txt
 pgbouncer/userlist.txt
 
@@ -63,6 +66,7 @@ pgbouncer/userlist.txt
 # ==============================================================================
 *.log
 logs/
+# Preserve any legacy local database files; Django settings require PostgreSQL.
 *.sqlite3
 *.sqlite3-journal
 *.sqlite3-shm
@@ -150,6 +154,7 @@ dmypy.json
 *.sublime-project
 cookies.txt
 scratch/
+work/
 
 # ==============================================================================
 # Operating System Artifacts

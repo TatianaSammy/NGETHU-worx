@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date, timedelta
+from types import SimpleNamespace
 
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 from django.shortcuts import render
 from django.utils import timezone
 from django.views import View
@@ -13,7 +14,16 @@ from core.mixins import WanjalaMixin
 from core.models import Section
 from core.plant_section_scope import section_scope_q, user_plant_section
 from sc.exports import export_shift_assignments
-from sc.models import AnnualLeave, MonthlyDutyRoster, Shift, ShiftAssignment, ShiftSectionRequirement, ShiftSupervisor, INCHARGE_GROUPS
+from sc.models import (
+    AnnualLeave,
+    INCHARGE_GROUPS,
+    MonthlyDutyRoster,
+    Shift,
+    ShiftAssignment,
+    ShiftSectionRequirement,
+    ShiftSupervisor,
+    WeeklyShiftTeam,
+)
 from django.contrib.auth import get_user_model
 from t.models import TreatmentPlant
 
@@ -144,7 +154,23 @@ class DashboardView(WanjalaMixin, View):
         ).filter(section_scope_q(
             "shift__section_requirements__section__treatment_plant_id",
             F("shift__treatment_plant_id"),
-        )).select_related(
+        )).exclude(
+            staff__groups__name__in=INCHARGE_GROUPS,
+        ).exclude(
+            staff__annual_leave_records__status__in=AnnualLeave.EXEMPT_FROM_ROUTINE_STATUSES,
+            staff__annual_leave_records__start_date__lte=F("date"),
+            staff__annual_leave_records__end_date__gte=F("date"),
+        ).annotate(
+            _is_active_temp_supervisor=Exists(
+                ShiftAssignment.objects.filter(
+                    temp_supervisor_id=OuterRef("staff_id"),
+                    date=OuterRef("date"),
+                    is_deleted=False,
+                    temp_supervisor_start__lte=now,
+                    temp_supervisor_end__gt=now,
+                ).exclude(pk=OuterRef("pk"))
+            )
+        ).filter(_is_active_temp_supervisor=False).select_related(
             "staff",
             "staff__section",
             "shift",
@@ -156,7 +182,7 @@ class DashboardView(WanjalaMixin, View):
             "reassigned_from",
             "reassigned_from__staff",
             "reassigned_from__shift",
-        )
+        ).distinct()
 
         if is_superuser:
             if selected_plant:
@@ -213,9 +239,18 @@ class DashboardView(WanjalaMixin, View):
             assignments = assignments.none()
 
         day_type_filter = (request.GET.get("day_type") or "").strip()
-        day_type_values = {value for value, _label in ShiftAssignment.DAYTYPE_CHOICES}
-        if day_type_filter in day_type_values:
-            assignments = assignments.filter(day_type=day_type_filter)
+        if day_type_filter == ShiftAssignment.DAYTYPE_WEEKEND:
+            # Calendar date wins over stale legacy labels; Django week_day: Sun=1, Sat=7.
+            assignments = assignments.filter(date__week_day__in=(1, 7))
+        elif day_type_filter == ShiftAssignment.DAYTYPE_WEEKDAY:
+            assignments = assignments.filter(date__week_day__range=(2, 6)).exclude(
+                day_type=ShiftAssignment.DAYTYPE_HOLIDAY
+            )
+        elif day_type_filter == ShiftAssignment.DAYTYPE_HOLIDAY:
+            assignments = assignments.filter(
+                day_type=ShiftAssignment.DAYTYPE_HOLIDAY,
+                date__week_day__range=(2, 6),
+            )
         elif day_type_filter:
             assignments = assignments.none()
 
@@ -233,16 +268,29 @@ class DashboardView(WanjalaMixin, View):
             for start, end in weeks
         }
 
+        def get_assignment_week(target_date):
+            for start, end in weeks:
+                if start <= target_date <= end:
+                    return start, end
+            week_start = max(month_start, target_date - timedelta(days=target_date.weekday()))
+            week_end = min(month_end, week_start + timedelta(days=6))
+            return week_start, week_end
+
         def group_assignments(rows):
             grouped = {}
             for assignment in rows:
-                week_start = max(month_start, assignment.date - timedelta(days=assignment.date.weekday()))
-                week_end = min(month_end, week_start + timedelta(days=6))
+                week_start, week_end = get_assignment_week(assignment.date)
                 assignment.roster_week_start = week_start
                 assignment.roster_week_end = week_end
                 group_key = (week_start, assignment.shift_id, assignment.staff.section_id)
                 grouped.setdefault(group_key, {"weekday": [], "weekend": [], "holiday": []})
-                grouped[group_key].setdefault(assignment.day_type, []).append(assignment)
+                if assignment.date.weekday() >= 5:
+                    effective_day_type = ShiftAssignment.DAYTYPE_WEEKEND
+                elif assignment.day_type == ShiftAssignment.DAYTYPE_HOLIDAY:
+                    effective_day_type = ShiftAssignment.DAYTYPE_HOLIDAY
+                else:
+                    effective_day_type = ShiftAssignment.DAYTYPE_WEEKDAY
+                grouped[group_key].setdefault(effective_day_type, []).append(assignment)
             return grouped
 
         assignment_groups = group_assignments(assignment_rows)
@@ -252,7 +300,7 @@ class DashboardView(WanjalaMixin, View):
             "shift__treatment_plant__name", "section__name", "shift__start_time", "shift__name"
         ))
         leave_query = AnnualLeave.objects.filter(
-            status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+            status__in=AnnualLeave.EXEMPT_FROM_ROUTINE_STATUSES,
             start_date__lte=month_end,
             end_date__gte=month_start,
             staff__assigned_treatment_plant_id=F("treatment_plant_id"),
@@ -287,14 +335,14 @@ class DashboardView(WanjalaMixin, View):
             section_ids,
             shift_ids=shift_ids,
         ) if plant_ids and section_ids and shift_ids else {}
-        section_supervisor_user_ids = set(
-            ShiftSupervisor.objects.filter(
+        section_supervisor_user_ids_by_section = defaultdict(set)
+        for supervisor_section_id, supervisor_user_id in ShiftSupervisor.objects.filter(
                 treatment_plant_id__in=plant_ids,
                 section_id__in=section_ids,
                 is_active=True,
                 user__is_active=True,
-            ).values_list("user_id", flat=True)
-        ) if plant_ids and section_ids else set()
+            ).values_list("section_id", "user_id"):
+            section_supervisor_user_ids_by_section[supervisor_section_id].add(supervisor_user_id)
         weekly_supervisors = ShiftSupervisor.objects.filter(
             treatment_plant_id__in=plant_ids,
             shift_id__in=shift_ids,
@@ -306,6 +354,21 @@ class DashboardView(WanjalaMixin, View):
             (item.shift_id, item.section_id, item.week_start): item
             for item in weekly_supervisors
         }
+        weekly_team_query = WeeklyShiftTeam.objects.filter(
+            duty_roster__month=month,
+            duty_roster__year=year,
+            shift_id__in=shift_ids,
+            section_id__in=section_ids,
+            week_start__range=(month_start, month_end),
+        ).select_related("duty_roster", "shift", "section").prefetch_related("members", "members__groups")
+        if plant_ids:
+            weekly_team_query = weekly_team_query.filter(duty_roster__treatment_plant_id__in=plant_ids)
+        else:
+            weekly_team_query = weekly_team_query.none()
+        weekly_team_map = {
+            (item.week_start, item.shift_id, item.section_id): item
+            for item in weekly_team_query
+        }
 
         for week_start, week_end in weeks:
             week = week_lookup[week_start]
@@ -315,68 +378,228 @@ class DashboardView(WanjalaMixin, View):
                 group_key = (week_start, requirement.shift_id, section_id)
                 category_assignments = assignment_groups.get(group_key, {"weekday": [], "weekend": [], "holiday": []})
                 category_roster_assignments = roster_assignment_groups.get(group_key, {"weekday": [], "weekend": [], "holiday": []})
+                all_week_assignments = [
+                    assignment
+                    for category_rows in category_roster_assignments.values()
+                    for assignment in category_rows
+                ]
+                all_week_assignments.sort(key=lambda assignment: (
+                    assignment.date,
+                    assignment.staff.last_name.casefold(),
+                    assignment.staff.first_name.casefold(),
+                    assignment.staff_id,
+                    assignment.pk,
+                ))
+                all_week_dates = []
+                current_week_date = week_start
+                while current_week_date <= week_end:
+                    all_week_dates.append(current_week_date)
+                    current_week_date += timedelta(days=1)
+                weekly_teams_by_date = {
+                    roster_date: frozenset(
+                        assignment.staff_id
+                        for assignment in all_week_assignments
+                        if assignment.date == roster_date
+                    )
+                    for roster_date in all_week_dates
+                }
+                stored_weekly_team = weekly_team_map.get((week_start, requirement.shift_id, section_id))
+                canonical_weekly_staff_ids = (
+                    {staff.pk for staff in stored_weekly_team.members.all()}
+                    if stored_weekly_team else set().union(*weekly_teams_by_date.values())
+                )
+                stored_weekly_staff_count = len(canonical_weekly_staff_ids)
+                holiday_dates = set(ShiftAssignment.objects.filter(
+                    shift__treatment_plant_id=plant_id,
+                    date__range=(week_start, week_end),
+                    day_type=ShiftAssignment.DAYTYPE_HOLIDAY,
+                    is_deleted=False,
+                ).values_list("date", flat=True))
+                category_dates_by_type = {
+                    ShiftAssignment.DAYTYPE_HOLIDAY: sorted(holiday_dates),
+                    ShiftAssignment.DAYTYPE_WEEKDAY: [
+                        roster_date for roster_date in all_week_dates
+                        if roster_date.weekday() < 5 and roster_date not in holiday_dates
+                    ],
+                    ShiftAssignment.DAYTYPE_WEEKEND: [
+                        roster_date for roster_date in all_week_dates if roster_date.weekday() >= 5
+                    ],
+                }
+                category_crews = {}
+                category_stable = True
+                for category, category_dates in category_dates_by_type.items():
+                    crews = {
+                        frozenset(
+                            assignment.staff_id
+                            for assignment in all_week_assignments
+                            if assignment.date == roster_date
+                        )
+                        for roster_date in category_dates
+                    }
+                    if len(crews) > 1:
+                        category_stable = False
+                    category_crews[category] = set(next(iter(crews))) if crews else set()
+                category_union = set().union(*category_crews.values()) if category_crews else set()
+                category_requirements_met = all(
+                    (
+                        len(category_crews[category]) == requirement.get_required_staff(category)
+                        if category in {
+                            ShiftAssignment.DAYTYPE_WEEKEND,
+                            ShiftAssignment.DAYTYPE_HOLIDAY,
+                        }
+                        else requirement.get_required_staff(category)
+                        <= len(category_crews[category])
+                        <= requirement.maximum_allowed
+                    )
+                    for category, category_dates in category_dates_by_type.items()
+                    if category_dates
+                )
+                weekly_team_consistent = bool(all_week_dates) and (
+                    category_stable
+                    and category_union == canonical_weekly_staff_ids
+                    and category_requirements_met
+                    and (stored_weekly_team is None or stored_weekly_team.is_reconciled)
+                )
+                if not stored_weekly_team and not stored_weekly_staff_count:
+                    weekly_team_consistent = not any(weekly_teams_by_date.values())
+
+                common_weekly_staff_ids = canonical_weekly_staff_ids
                 category_slots = []
                 for value, label in (
                     (ShiftAssignment.DAYTYPE_HOLIDAY, "Public holiday"),
                     (ShiftAssignment.DAYTYPE_WEEKDAY, "Weekdays"),
                     (ShiftAssignment.DAYTYPE_WEEKEND, "Saturday and Sunday"),
                 ):
-                    slot_assignments = category_assignments.get(value, [])
                     staffing_assignments = category_roster_assignments.get(value, [])
                     daily_counts = Counter(item.date for item in staffing_assignments)
-                    if value == ShiftAssignment.DAYTYPE_HOLIDAY:
-                        category_dates = sorted(daily_counts)
-                    else:
-                        category_dates = []
-                        current_date = week_start
-                        while current_date <= week_end:
-                            if value == ShiftAssignment.DAYTYPE_WEEKDAY and current_date.weekday() < 5:
-                                category_dates.append(current_date)
-                            elif value == ShiftAssignment.DAYTYPE_WEEKEND and current_date.weekday() >= 5:
-                                category_dates.append(current_date)
-                            current_date += timedelta(days=1)
+                    category_assignment_by_staff = {}
+                    for item in staffing_assignments:
+                        category_assignment_by_staff.setdefault(item.staff_id, item)
+                    category_dates = category_dates_by_type[value]
                     required_per_day = requirement.get_required_staff(value)
                     daily_statuses = [
                         requirement.get_staffing_status(daily_counts.get(day, 0), value)
                         for day in category_dates
                     ]
+                    team_consistent = weekly_team_consistent
+                    distinct_staff_count = len(category_assignment_by_staff)
+                    distinct_assignments = []
+                    daily_limit = requirement.maximum_allowed
+                    category_staff_assignments = sorted(
+                        category_assignment_by_staff.values(),
+                        key=lambda assignment: (
+                            assignment.staff.last_name.casefold(),
+                            assignment.staff.first_name.casefold(),
+                            assignment.staff_id,
+                        ),
+                    )
+                    for existing_assignment in category_staff_assignments[:daily_limit]:
+                        staff = existing_assignment.staff
+                        distinct_assignments.append(SimpleNamespace(
+                            pk=existing_assignment.pk,
+                            staff=staff,
+                            staff_id=staff.pk,
+                            date=existing_assignment.date,
+                            shift_id=requirement.shift_id,
+                            attendance_status=existing_assignment.attendance_status,
+                            remarks=existing_assignment.remarks,
+                            has_assignment=True,
+                        ))
+                    can_add = bool(category_dates) and (
+                        distinct_staff_count < requirement.maximum_allowed
+                        or any(
+                            daily_counts.get(roster_date, 0) < requirement.maximum_allowed
+                            for roster_date in category_dates
+                        )
+                    )
                     covered_days = sum(status == "optimal" for status in daily_statuses)
                     if not category_dates:
                         staffing_state = "unplanned"
                     elif "overstaffed" in daily_statuses:
                         staffing_state = "overstaffed"
+                    elif not team_consistent:
+                        staffing_state = "inconsistent"
                     elif not any(daily_counts.values()):
                         staffing_state = "empty"
                     elif covered_days < len(category_dates):
                         staffing_state = "understaffed"
                     else:
                         staffing_state = "optimal"
+                    staffing_label = (
+                        {
+                            ShiftAssignment.DAYTYPE_HOLIDAY: "No public holiday dates are recorded in this week",
+                            ShiftAssignment.DAYTYPE_WEEKDAY: "No weekdays are included in this roster week",
+                            ShiftAssignment.DAYTYPE_WEEKEND: "No Saturday or Sunday dates are included in this roster week",
+                        }[value]
+                        if staffing_state == "unplanned"
+                        else {
+                            "empty": "No staff assigned",
+                            "understaffed": "Below daily requirement",
+                            "optimal": "Daily requirement met",
+                            "overstaffed": (
+                                "Minimum exceeded"
+                                if value in {
+                                    ShiftAssignment.DAYTYPE_WEEKEND,
+                                    ShiftAssignment.DAYTYPE_HOLIDAY,
+                                }
+                                else "Maximum exceeded"
+                            ),
+                            "inconsistent": "Staff team differs across roster days",
+                        }[staffing_state]
+                    )
                     category_slots.append({
                         "value": value,
                         "label": label,
-                        "assignments": slot_assignments,
-                        "assigned_count": len(staffing_assignments),
+                        "assignments": distinct_assignments,
+                        "assigned_count": distinct_staff_count,
                         "required_per_day": required_per_day,
                         "required_total": required_per_day * len(category_dates),
                         "minimum_required": requirement.minimum_required,
                         "preferred_required": requirement.preferred_required,
                         "maximum_allowed": requirement.maximum_allowed,
+                        "daily_limit": daily_limit,
+                        "can_add": can_add,
+                        "team_consistent": team_consistent,
+                        "stored_weekly_staff_count": stored_weekly_staff_count,
+                        "display_limit_exceeded": distinct_staff_count > daily_limit,
+                        "drop_label": (
+                            "No public holiday dates are recorded in this week."
+                            if value == ShiftAssignment.DAYTYPE_HOLIDAY and not category_dates
+                            else "No Saturday or Sunday dates are included in this week."
+                            if value == ShiftAssignment.DAYTYPE_WEEKEND and not category_dates
+                            else "No weekdays are included in this week."
+                            if not category_dates
+                            else "The assigned team differs between dates. Regenerate the roster to restore the weekly group."
+                            if not team_consistent
+                            else "This category is at its shift-section staffing limit."
+                        ),
                         "scheduled_days": len(category_dates),
+                        "date_values": [day.isoformat() for day in category_dates],
                         "covered_days": covered_days,
                         "coverage_percent": round(covered_days * 100 / len(category_dates)) if category_dates else 0,
                         "staffing_state": staffing_state,
-                        "staffing_label": {
-                            "unplanned": "No holiday dates recorded",
-                            "empty": "No staff assigned",
-                            "understaffed": "Below daily requirement",
-                            "optimal": "Daily requirement met",
-                            "overstaffed": "Maximum exceeded",
-                        }[staffing_state],
+                        "staffing_label": staffing_label,
                     })
 
                 weekly_assignments = []
                 for category_rows in category_roster_assignments.values():
                     weekly_assignments.extend(category_rows)
+                eligible_supervisor_ids = section_supervisor_user_ids_by_section.get(section_id, set())
+                supervisor_candidate_by_user = {}
+                for assignment in weekly_assignments:
+                    if (
+                        assignment.staff_id in eligible_supervisor_ids
+                        and assignment.staff_id in common_weekly_staff_ids
+                    ):
+                        supervisor_candidate_by_user.setdefault(assignment.staff_id, assignment)
+                supervisor_candidates = sorted(
+                    supervisor_candidate_by_user.values(),
+                    key=lambda assignment: (
+                        assignment.staff.last_name.casefold(),
+                        assignment.staff.first_name.casefold(),
+                        assignment.staff_id,
+                    ),
+                )
 
                 active_temporary_supervisors = {}
                 for assignment in weekly_assignments:
@@ -405,6 +628,12 @@ class DashboardView(WanjalaMixin, View):
                     key=lambda item: item["start"].timestamp() if item["start"] else 0,
                     default=None,
                 )
+                temporary_supervisor_assignment = next((
+                    assignment
+                    for assignment in weekly_assignments
+                    if assignment.date == today
+                    and assignment.attendance_status == ShiftAssignment.ATTENDANCE_PRESENT
+                ), None)
                 slot_supervisor = designated_supervisors.get((requirement.shift_id, section_id))
                 weekly_designation = weekly_supervisor_map.get((requirement.shift_id, section_id, week_start))
                 supervisor_is_rostered = bool(
@@ -415,7 +644,7 @@ class DashboardView(WanjalaMixin, View):
                     weekly_designation
                     and (
                         (slot_supervisor and weekly_designation.user_id == slot_supervisor.pk)
-                        or (weekly_designation.user_id in section_supervisor_user_ids)
+                        or (weekly_designation.user_id in eligible_supervisor_ids)
                     )
                     and any(assignment.staff_id == weekly_designation.user_id for assignment in weekly_assignments)
                 )
@@ -424,15 +653,29 @@ class DashboardView(WanjalaMixin, View):
                     if weekly_designation_is_valid
                     else slot_supervisor if not weekly_designation and supervisor_is_rostered else None
                 )
+                rebuild_needed = (
+                    not weekly_team_consistent
+                    or stored_weekly_staff_count > requirement.maximum_allowed
+                    or any(
+                        slot["scheduled_days"]
+                        and slot["required_per_day"] > 0
+                        and slot["staffing_state"] in {"empty", "understaffed", "overstaffed"}
+                        for slot in category_slots
+                    )
+                )
                 week["rows"].append({
                     "shift": requirement.shift,
                     "section": requirement.section,
                     "plant_id": plant_id,
                     "slots": category_assignments,
                     "category_slots": category_slots,
+                    "weekly_team_consistent": weekly_team_consistent,
+                    "weekly_team_rebuild_needed": rebuild_needed,
                     "shift_supervisor_id": slot_supervisor.pk if slot_supervisor else None,
                     "shift_supervisor": slot_supervisor,
-                    "eligible_supervisor_ids": section_supervisor_user_ids,
+                    "eligible_supervisor_ids": eligible_supervisor_ids,
+                    "supervisor_candidates": supervisor_candidates,
+                    "temporary_supervisor_assignment": temporary_supervisor_assignment,
                     "supervisor": temporary_supervisor["user"] if temporary_supervisor else designated_user,
                     "supervisor_is_temporary": bool(temporary_supervisor),
                     "supervisor_is_weekly": weekly_designation_is_valid,
@@ -511,12 +754,22 @@ class DashboardView(WanjalaMixin, View):
             "weeks": list(week_lookup.values()),
             "total_assignments": total_assignments,
             "search_query": query,
-            "can_add_roster": is_superuser or request.user.has_perm("sc.add_shiftassignment"),
+            "can_add_roster": is_superuser or request.user.has_perm("sc.add_shiftassignment") or request.user.has_perm("sc.change_shiftassignment"),
             "can_edit_roster": is_superuser or request.user.has_perm("sc.change_shiftassignment"),
+            "can_autopopulate_year": (
+                (is_superuser or request.user.has_perm("sc.change_shiftassignment"))
+                and not scope_issue
+                and (is_superuser or bool(assigned_plant_id and assigned_section_id))
+            ),
+            "can_manage_availability": is_superuser or request.user.has_perm("sc.change_shiftassignment") or request.user.has_perm("sc.add_annualleave") or request.user.has_perm("sc.manage_staff_availability"),
             "can_manage_supervisors": is_superuser or any(request.user.has_perm(permission) for permission in (
                 "sc.add_shiftsupervisor",
                 "sc.change_shiftsupervisor",
             )),
+            "can_manage_temporary_supervisors": is_superuser or request.user.has_perm("sc.change_shiftassignment") or any(
+                request.user.has_perm(permission)
+                for permission in ("sc.add_shiftsupervisor", "sc.change_shiftsupervisor")
+            ),
             "scope_description": scope_description,
             "overall_coverage": round(covered_days * 100 / scheduled_days) if scheduled_days else 0,
             "understaffed_cells": sum(slot["staffing_state"] in {"empty", "understaffed"} for slot in scheduled_slots),

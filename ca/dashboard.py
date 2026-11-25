@@ -36,7 +36,7 @@ from .models import (
 )
 
 
-DASHBOARD_SCHEMA_VERSION = "7.5"
+DASHBOARD_SCHEMA_VERSION = "7.6"
 
 
 CHEMICAL_PERMISSIONS = {
@@ -160,8 +160,26 @@ FLOW_NODE_DEFINITIONS = OrderedDict(
             {
                 "label": "Receive",
                 "status": "RECEIVED",
-                "queue": "request",
+                "queue": "received",
                 "permission": CHEMICAL_PERMISSIONS["receive"],
+            },
+        ),
+        (
+            "inspection_committee",
+            {
+                "label": "Inspection Committee",
+                "status": "RECEIVED",
+                "queue": "inspection",
+                "permission": CHEMICAL_PERMISSIONS["receive"],
+            },
+        ),
+        (
+            "supply_chain_review",
+            {
+                "label": "Supply Chain Inspection Review",
+                "status": "RECEIVED",
+                "queue": "inspection",
+                "permission": CHEMICAL_PERMISSIONS["reject_batch"],
             },
         ),
         (
@@ -449,8 +467,11 @@ FLOW_NODE_DEFINITIONS = OrderedDict(
 
 FLOW_EDGES = [
     ("register", "receive"),
-    ("receive", "create_request"),
-    ("receive", "assign_analysts"),
+    ("receive", "inspection_committee"),
+    ("inspection_committee", "create_request"),
+    ("inspection_committee", "supply_chain_review"),
+    ("supply_chain_review", "inspection_committee"),
+    ("supply_chain_review", "return_rejected"),
     ("create_request", "assign_analysts"),
     ("assign_analysts", "checklist"),
     ("checklist", "start_analysis"),
@@ -1274,10 +1295,10 @@ class DashboardView(CaWanjalaMixin, TemplateView):
         }
 
         palette = [
-            {"name": "Alum / Coagulants", "gradient": "linear-gradient(135deg, #00f2fe 0%, #4facfe 100%)", "color": "#00f2fe", "hex": "#0284c7"},
-            {"name": "Chlorine / Disinfection", "gradient": "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", "color": "#10b981", "hex": "#10b981"},
-            {"name": "Soda Ash / Hydrated Lime", "gradient": "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", "color": "#f59e0b", "hex": "#f59e0b"},
-            {"name": "Polyelectrolyte & Aids", "gradient": "linear-gradient(135deg, #b176f2 0%, #e0c3fc 100%)", "color": "#8b5cf6", "hex": "#8b5cf6"},
+            {"name": "Alum / Coagulants", "gradient": "linear-gradient(135deg, var(--ca-series-1) 0%, color-mix(in srgb, var(--ca-series-1) 65%, var(--theme-surface)) 100%)", "color": "var(--ca-series-1)", "hex": "var(--ca-series-1)"},
+            {"name": "Chlorine / Disinfection", "gradient": "linear-gradient(135deg, var(--ca-series-2) 0%, color-mix(in srgb, var(--ca-series-2) 65%, var(--theme-surface)) 100%)", "color": "var(--ca-series-2)", "hex": "var(--ca-series-2)"},
+            {"name": "Soda Ash / Hydrated Lime", "gradient": "linear-gradient(135deg, var(--ca-series-3) 0%, color-mix(in srgb, var(--ca-series-3) 65%, var(--theme-surface)) 100%)", "color": "var(--ca-series-3)", "hex": "var(--ca-series-3)"},
+            {"name": "Polyelectrolyte & Aids", "gradient": "linear-gradient(135deg, var(--ca-series-4) 0%, color-mix(in srgb, var(--ca-series-4) 65%, var(--theme-surface)) 100%)", "color": "var(--ca-series-4)", "hex": "var(--ca-series-4)"},
         ]
 
         plant_sources = plant_volume_breakdown[:5]
@@ -1375,7 +1396,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
 
         chem_total = sum(c.get("total_kg", 0) for c in chemical_volume_breakdown) or 1.0
         donut_segments = []
-        cyber_colors = ["#00f2fe", "#10b981", "#8b5cf6", "#f59e0b", "#ec4899", "#3b82f6"]
+        cyber_colors = ["var(--ca-series-1)", "var(--ca-series-2)", "var(--ca-series-4)", "var(--ca-series-3)", "var(--ca-series-5)", "var(--ca-series-6)"]
         accum_pct = 0.0
         for i, c in enumerate(chemical_volume_breakdown[:5]):
             pct = round((c.get("total_kg", 0) / chem_total) * 100.0, 1) if chem_total > 0 else 20.0
@@ -1771,9 +1792,18 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             "schema_version": DASHBOARD_SCHEMA_VERSION,
             "engine": "django-viewflow",
             "flow": "ChemicalAnalysisFlow",
-            "sampling": False,
-            "random_sampling": False,
-            "systematic_sampling": False,
+            "sampling": True,
+            "random_sampling": True,
+            "systematic_sampling": True,
+            "inspection": {
+                "committee_minimum_members": 2,
+                "sample_fraction": 0.10,
+                "sample_count_rounding": "ceil",
+                "method": "systematic_random",
+                "measure_every_selected_package": True,
+                "weight_tolerance_source": "chemical.weight_tolerance",
+                "failed_outcomes": ["supply_chain_reinspection", "reject_and_return"],
+            },
             "manual_analyst_assignment": True,
             "automatic_analyst_assignment": True,
             "automatic_assignment_delay_minutes": 0,
@@ -1781,6 +1811,8 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             "stages": [
                 "REGISTER",
                 "RECEIVE",
+                "INSPECTION_COMMITTEE",
+                "SUPPLY_CHAIN_REVIEW",
                 "CREATE_REQUEST",
                 "CHECKLIST",
                 "COMPLETE_CHECKLIST",
@@ -1805,6 +1837,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             ],
             "queues": [
                 "received",
+                "inspection",
                 "request",
                 "checklist",
                 "assignment_pending",
@@ -1852,6 +1885,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             )
             .prefetch_related(
                 "analysis_request__assigned_analysts",
+                "batch__inspections",
                 "batch__test_results",
                 "task_set",
             )
@@ -2028,13 +2062,8 @@ class DashboardView(CaWanjalaMixin, TemplateView):
     def _inputs(self):
         queryset = (
             ChemicalAnalysisInput.objects
-            .select_related(
-                "test_result",
-                "test_result__batch",
-                "test_result__batch__treatment_plant",
-                "test_result__parameter",
-            )
-            .order_by("-pk")
+            .select_related("method")
+            .order_by("method__method", "position", "pk")
         )
 
         if not (
@@ -2044,19 +2073,17 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             if not self.user_has_ca_permission("ca.record_chemical_result"):
                 return ChemicalAnalysisInput.objects.none()
             user = self.request.user
-            queryset = queryset.filter(
-                Q(
-                    test_result__batch_id__in=self._assigned_task_batch_ids(
-                        RESULT_TASK_NODES
-                    )
-                )
-                | Q(test_result__analyst=user)
+            result_scope = self._results().filter(
+                Q(batch_id__in=self._assigned_task_batch_ids(RESULT_TASK_NODES))
+                | Q(analyst=user)
             )
+        else:
+            result_scope = self._results()
 
-        return self._scope_queryset(
-            queryset,
-            "test_result__batch__treatment_plant_id",
-        )
+        method_ids = result_scope.exclude(
+            parameter__method__isnull=True
+        ).values_list("parameter__method_id", flat=True)
+        return queryset.filter(method_id__in=method_ids).distinct()
 
     def _specifications(self):
         from .models import ChemicalSpecification
@@ -2232,6 +2259,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
     ):
         queues = {
             "received": 0,
+            "inspection": 0,
             "request": 0,
             "checklist": 0,
             "assignment_pending": 0,
@@ -2291,6 +2319,13 @@ class DashboardView(CaWanjalaMixin, TemplateView):
                 and process.updated_at < stalled_before
             ):
                 queues["stalled"] += 1
+
+            if status in {"RECEIVED", "REQUESTED", "ASSIGNED", "CHECKLIST"} and process.batch_id:
+                inspections = list(process.batch.inspections.all())
+                latest_inspection = inspections[-1] if inspections else None
+                if latest_inspection is None or latest_inspection.status != "PASS":
+                    queues["inspection"] += 1
+                    continue
 
             if status == "CREATED":
                 queues["received"] += 1
@@ -2389,6 +2424,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
             queues[key]
             for key in (
                 "received",
+                "inspection",
                 "request",
                 "checklist",
                 "assignment_pending",
@@ -3334,6 +3370,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
     ):
         stages = [
             "received",
+            "inspection",
             "request",
             "checklist",
             "assignment_pending",
@@ -3353,6 +3390,7 @@ class DashboardView(CaWanjalaMixin, TemplateView):
 
         active_keys = {
             "received",
+            "inspection",
             "request",
             "checklist",
             "assignment_pending",
@@ -5398,73 +5436,20 @@ class DashboardView(CaWanjalaMixin, TemplateView):
         self.ensure_user_has_plant()
 
     def _serialize_inputs(self, inputs):
-        output = []
-
-        for item in inputs:
-            result = getattr(
-                item,
-                "test_result",
-                None,
-            )
-
-            parameter = getattr(
-                result,
-                "parameter",
-                None,
-            ) if result else None
-
-            output.append(
-                {
-                    "id": getattr(
-                        item,
-                        "pk",
-                        None,
-                    ),
-                    "test_result_id": getattr(
-                        item,
-                        "test_result_id",
-                        None,
-                    ),
-                    "batch_id": getattr(
-                        result,
-                        "batch_id",
-                        None,
-                    ),
-                    "parameter_id": getattr(
-                        result,
-                        "parameter_id",
-                        None,
-                    ) if result else None,
-                    "parameter": (
-                        getattr(
-                            parameter,
-                            "name",
-                            None,
-                        )
-                        if parameter
-                        else None
-                    ),
-                    "value": getattr(
-                        item,
-                        "value",
-                        None,
-                    ),
-                    "unit": getattr(
-                        item,
-                        "unit",
-                        None,
-                    ),
-                    "created_at": self._iso(
-                        getattr(
-                            item,
-                            "created_at",
-                            None,
-                        )
-                    ),
-                }
-            )
-
-        return output[:500]
+        return [
+            {
+                "id": item.pk,
+                "method_id": str(item.method_id),
+                "method": str(item.method),
+                "name": item.name,
+                "label": item.label or item.name,
+                "input_type": item.input_type,
+                "required": item.required,
+                "unit": item.unit,
+                "position": item.position,
+            }
+            for item in inputs[:500]
+        ]
 
     def _normalize_status(
         self,

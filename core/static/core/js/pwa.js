@@ -1,51 +1,32 @@
-/* NCWSCwaterLAB — High Performance PWA shell */
+/* Network-required PWA registration and connection status. */
 (function () {
     "use strict";
 
-    // 1. Inject PWA stylesheet if missing
     if (document.head && !document.querySelector('link[data-pwa-styles]')) {
-        var pwaStyles = document.createElement("link");
-        pwaStyles.rel = "stylesheet";
-        pwaStyles.href = "/static/core/css/pwa.css";
-        pwaStyles.dataset.pwaStyles = "true";
-        document.head.appendChild(pwaStyles);
+        const stylesheet = document.createElement("link");
+        stylesheet.rel = "stylesheet";
+        stylesheet.href = "/static/core/css/pwa.css?v=20261115-network-only";
+        stylesheet.dataset.pwaStyles = "true";
+        document.head.appendChild(stylesheet);
     }
 
-    // 1b. Inject Offline Queue engine if missing
-    if (document.head && !document.querySelector('script[data-offline-queue]') && typeof window.QADOfflineQueue === "undefined") {
-        var queueScript = document.createElement("script");
-        queueScript.src = "/static/core/js/offline-queue.js";
-        queueScript.dataset.offlineQueue = "true";
-        document.head.appendChild(queueScript);
-    }
-
-    // 2. Service Worker Registration
-    if ("serviceWorker" in navigator && (window.isSecureContext || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
-        window.addEventListener("load", function () {
-            navigator.serviceWorker.register("/sw.js", {
-                scope: "/",
-                updateViaCache: "none"
-            }).then(function (reg) {
-                if (reg && typeof reg.update === "function") {
-                    reg.update().catch(function () {});
+    let networkNotice;
+    function clearLegacyOfflineData() {
+        function clearStorage(storageName, prefix) {
+            try {
+                const storage = window[storageName];
+                if (!storage) return;
+                for (let cursor = storage.length - 1; cursor >= 0; cursor -= 1) {
+                    const key = storage.key(cursor);
+                    if (key && key.startsWith(prefix)) storage.removeItem(key);
                 }
-            }).catch(function (error) {
-                console.warn("[QAD PWA] Service worker registration:", error);
-            });
-        }, { once: true });
-    }
-
-    // 3. Safe Session Navigation
-    window.addEventListener("keydown", function (e) {
-        if (e.key === "Escape" || e.keyCode === 27) {
-            if (document.fullscreenElement) {
-                document.exitFullscreen().catch(function () {});
+            } catch (error) {
+                console.warn("[QAD PWA] Could not remove a legacy offline storage entry:", error);
             }
         }
-    });
-
-    // 4. Offline / Online Network Indicator
-    var networkNotice = null;
+        clearStorage("localStorage", "qad-notifications:");
+        clearStorage("sessionStorage", "maintenance-incident-queue-v1:");
+    }
 
     function updateNetworkNotice() {
         if (!document.body) return;
@@ -53,45 +34,55 @@
             networkNotice = document.createElement("div");
             networkNotice.className = "pwa-network-notice";
             networkNotice.setAttribute("role", "status");
-            networkNotice.setAttribute("aria-live", "polite");
+            networkNotice.setAttribute("aria-live", "assertive");
             networkNotice.hidden = true;
             document.body.appendChild(networkNotice);
         }
+        networkNotice.hidden = navigator.onLine;
         if (!navigator.onLine) {
-            networkNotice.textContent = "⚡ You are offline. Changes are saved locally on this device and will sync automatically when reconnected.";
-            networkNotice.hidden = false;
-        } else if (!networkNotice.hidden) {
-            networkNotice.textContent = "✓ Connection restored. Syncing offline data to server…";
-            window.setTimeout(function () {
-                if (navigator.onLine && networkNotice) networkNotice.hidden = true;
-            }, 3500);
+            networkNotice.textContent = "Connection unavailable. This application requires a live network connection; unsent changes are not saved.";
         }
     }
 
     window.addEventListener("offline", updateNetworkNotice);
     window.addEventListener("online", updateNetworkNotice);
 
-    // 5. Modern PWA Install Affordance
-    var installPrompt = null;
-    var installButton = null;
+    if ("serviceWorker" in navigator && (
+        window.isSecureContext
+        || window.location.hostname === "localhost"
+        || window.location.hostname === "127.0.0.1"
+    )) {
+        window.addEventListener("load", function () {
+            navigator.serviceWorker.register("/sw.js", {
+                scope: "/",
+                updateViaCache: "none"
+            }).then(function (registration) {
+                return registration.update();
+            }).catch(function (error) {
+                console.warn("[QAD PWA] Network-only service worker registration failed:", error);
+            });
+        }, { once: true });
+    }
+
+    let installPrompt = null;
+    let installButton = null;
 
     function isAppleMobile() {
-        return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        return /iPhone|iPad|iPod/.test(navigator.userAgent)
+            || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     }
 
     function isAlreadyInstalled() {
-        return window.matchMedia("(display-mode: fullscreen)").matches ||
-            window.matchMedia("(display-mode: standalone)").matches ||
-            window.matchMedia("(display-mode: window-controls-overlay)").matches ||
-            window.navigator.standalone === true;
+        return window.matchMedia("(display-mode: standalone)").matches
+            || window.matchMedia("(display-mode: minimal-ui)").matches
+            || window.matchMedia("(display-mode: window-controls-overlay)").matches
+            || window.navigator.standalone === true;
     }
 
     function removeInstallButton() {
-        if (installButton) {
-            installButton.remove();
-            installButton = null;
-        }
+        if (!installButton) return;
+        installButton.remove();
+        installButton = null;
     }
 
     function renderInstallButton() {
@@ -115,8 +106,8 @@
             try {
                 await installPrompt.prompt();
                 await installPrompt.userChoice;
-            } catch (err) {
-                console.warn("[QAD PWA] Install prompt failed:", err);
+            } catch (error) {
+                console.warn("[QAD PWA] Install prompt failed:", error);
             } finally {
                 installPrompt = null;
                 removeInstallButton();
@@ -137,32 +128,10 @@
         removeInstallButton();
     });
 
-    function cleanupLegacyRouteMasking() {
-        if (window.location.hash && window.location.hash.startsWith("#/")) {
-            try {
-                var cleanUrl = window.location.pathname + window.location.search;
-                window.history.replaceState(null, document.title, cleanUrl);
-            } catch (e) {}
-        }
-        try {
-            if (typeof sessionStorage !== "undefined") {
-                for (var i = sessionStorage.length - 1; i >= 0; i--) {
-                    var key = sessionStorage.key(i);
-                    if (key && key.startsWith("qad_route_")) {
-                        sessionStorage.removeItem(key);
-                    }
-                }
-            }
-        } catch (e) {}
-    }
-
-    // Run route cleanup immediately
-    cleanupLegacyRouteMasking();
-
     function initializePwaShell() {
-        cleanupLegacyRouteMasking();
-        renderInstallButton();
+        clearLegacyOfflineData();
         updateNetworkNotice();
+        renderInstallButton();
     }
 
     if (document.readyState === "loading") {

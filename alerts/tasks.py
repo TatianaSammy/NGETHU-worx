@@ -89,7 +89,7 @@ async def _dispatch_alerts_async(subject, body, filtered_recipients, context=Non
             tasks.append(SlackNotifier.send_message(user.slack_channel, body))
 
         # Push/WebSocket — use native async group_send
-        if channel_layer and (not preference or preference.receive_push):
+        if channel_layer and ((not preference or preference.receive_push) or voice_url):
             tasks.append(channel_layer.group_send(
                 f"user_{user.pk}_alerts",
                 {
@@ -311,11 +311,7 @@ def deliver_alert_notification(notification_id):
                             "instance_ref": state.instance_ref,
                             "voice_url": voice_url,
                             "voice_profile": voice_profile,
-                            "auto_voice": bool(
-                                state.alert_config.active
-                                and state.alert_config.template.active
-                                and state.alert_config.template.auto_voice_enabled
-                            ),
+                            "auto_voice": True,
                             "timestamp": notification.created_at.isoformat(),
                         },
                     )
@@ -665,11 +661,6 @@ def generate_voice_notification(
                 cfg = AlertConfig.objects.select_related("template").filter(
                     alert_type=ca_alert.alert_type
                 ).first()
-        if cfg and (
-            not cfg.active
-            or (cfg.template_id and (not cfg.template.active or not cfg.template.auto_voice_enabled))
-        ):
-            return None
         resolved_title = title or (state.title if state and state.title else (cfg.alert_type if cfg else "Alert Notification"))
         resolved_message = message or (state.message if state else "")
         if not source_key and state:
@@ -714,14 +705,6 @@ def generate_voice_notification(
         channel_layer = get_channel_layer()
         if channel_layer and voice_url:
             for user_id in set(recipient_ids or []):
-                preference = None
-                try:
-                    from alerts.models import UserAlertPreference
-                    preference = UserAlertPreference.objects.filter(user_id=user_id).first()
-                except Exception:
-                    pass
-                if preference and not preference.receive_push:
-                    continue
                 if ca_alert:
                     async_to_sync(channel_layer.group_send)(
                         f"user_{user_id}_alerts",
@@ -774,7 +757,7 @@ def generate_voice_notification(
 @shared_task
 def repeat_workflow_voice_alert(voice_alert_id):
     """Repeat a CA workflow voice reminder until acknowledgment or assignment."""
-    from alerts.models import AlertConfig, UserAlertPreference, VoiceAlert
+    from alerts.models import AlertConfig, VoiceAlert
     from accounts.models import CustomUser
     from ca.models import ChemicalWorkflowAlert
 
@@ -818,13 +801,7 @@ def repeat_workflow_voice_alert(voice_alert_id):
                 else AlertConfig.VoicePersistenceMode.UNTIL_ACKNOWLEDGED
             )
         )
-        if (
-            mode == AlertConfig.VoicePersistenceMode.ONCE
-            or (config and (
-                not config.active
-                or (config.template_id and (not config.template.active or not config.template.auto_voice_enabled))
-            ))
-        ):
+        if mode == AlertConfig.VoicePersistenceMode.ONCE or (config and not config.active):
             voice_alert.repeat_due_at = None
             voice_alert.save(update_fields=["repeat_due_at"])
             return "voice_repeats_disabled"
@@ -845,9 +822,8 @@ def repeat_workflow_voice_alert(voice_alert_id):
             ))
             return "profile_voice_refresh_queued"
 
-        preference = UserAlertPreference.objects.filter(user_id=ca_alert.recipient_id).first()
         user = CustomUser.objects.filter(pk=ca_alert.recipient_id, is_active=True, is_locked=False).first()
-        if not user or (preference and not preference.receive_push):
+        if not user:
             voice_alert.repeat_due_at = None
             voice_alert.save(update_fields=["repeat_due_at"])
             return "recipient_unavailable"
@@ -891,11 +867,8 @@ def trigger_alarm(user_id, message, alarm_sound_path=None, alert_state_id=None):
             return
         from accounts.models import CustomUser
         from alerts.models import VoiceAlert
-        user = CustomUser.objects.filter(pk=user_id, is_active=True, is_locked=False).select_related("alert_preferences").first()
+        user = CustomUser.objects.filter(pk=user_id, is_active=True, is_locked=False).first()
         if not user:
-            return
-        preference = getattr(user, "alert_preferences", None)
-        if preference and not preference.receive_push:
             return
         voice_alert = VoiceAlert.objects.filter(alert_state_id=alert_state_id).order_by("-created_at").first() if alert_state_id else None
         voice_url = voice_alert.audio_file.url if voice_alert and voice_alert.profile_audio_ready else None
@@ -979,13 +952,7 @@ def repeat_alarm_until_acknowledged(self, alert_state_id, interval_sec=30, max_r
         config = state.alert_config
         if not state.repeat_due_at or state.repeat_due_at > now:
             return
-        if (
-            not config.active
-            or config.voice_persistence_mode == config.VoicePersistenceMode.ONCE
-            or not config.template_id
-            or not config.template.active
-            or not config.template.auto_voice_enabled
-        ):
+        if not config.active or config.voice_persistence_mode == config.VoicePersistenceMode.ONCE:
             state.repeat_due_at = None
             state.save(update_fields=["repeat_due_at", "updated_at"])
             return
@@ -1000,11 +967,8 @@ def repeat_alarm_until_acknowledged(self, alert_state_id, interval_sec=30, max_r
             acknowledged_at__isnull=True,
             recipient__is_active=True,
             recipient__is_locked=False,
-        ).select_related("recipient", "recipient__alert_preferences")
-        for notification in notifications:
-            preference = getattr(notification.recipient, "alert_preferences", None)
-            if "push" in (notification.channels or []) and (not preference or preference.receive_push):
-                recipient_ids.append(notification.recipient_id)
+        ).select_related("recipient")
+        recipient_ids = list(notifications.values_list("recipient_id", flat=True))
         recipient_ids = sorted(set(recipient_ids))
         if not recipient_ids:
             state.repeat_due_at = None

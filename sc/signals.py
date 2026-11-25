@@ -1,5 +1,4 @@
 import logging
-from datetime import timedelta
 from django.db.models.signals import pre_save, post_save, pre_delete, post_delete
 from django.dispatch import receiver
 from django.utils import timezone
@@ -125,14 +124,13 @@ def refresh_status_cache(sender, instance, **kwargs):
 @receiver(post_save, sender=ShiftAssignment)
 def auto_revert_temp_supervisor(sender, instance, **kwargs):
     """
-    Automatically clears temp_supervisor if more than 3 hours have elapsed
-    since temp_supervisor_start. Logs changes for audit.
+    Clears an expired temporary supervisor when the assignment is saved.
+    Effective-supervisor reads also enforce the stored end time.
     """
     try:
-        if instance.temp_supervisor and instance.temp_supervisor_start:
+        if instance.temp_supervisor and instance.temp_supervisor_end:
             now = timezone.now()
-            elapsed = now - instance.temp_supervisor_start
-            if elapsed >= timedelta(hours=3):
+            if now >= instance.temp_supervisor_end:
                 old_temp = instance.temp_supervisor
                 instance.temp_supervisor = None
                 instance.temp_supervisor_end = now

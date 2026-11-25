@@ -3,7 +3,8 @@ from __future__ import annotations
 from calendar import monthrange
 from datetime import date, timedelta
 
-from django.db.models import Count, Q
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.shortcuts import render
 from django.utils import timezone
 from django.views import View
@@ -11,6 +12,7 @@ from django.views import View
 from core.mixins import WanjalaMixin
 from core.models import Section
 from core.plant_section_scope import section_scope_q, user_plant_section
+from sc.models import AnnualLeave, INCHARGE_GROUPS, Shift, ShiftAssignment
 from t.models import TreatmentPlant
 from .exports import export_weekly_tasks
 from .models import (
@@ -46,22 +48,69 @@ class DashboardView(WanjalaMixin, View):
 
         plant_options = TreatmentPlant.objects.order_by("name") if is_superuser else TreatmentPlant.objects.filter(pk=user_plant_id) if user_plant_id else TreatmentPlant.objects.none()
         selected_plant = None
+        invalid_plant = False
         if is_superuser:
-            requested_plant = request.GET.get("plant")
-            if requested_plant and requested_plant.isdigit():
+            requested_plant = (request.GET.get("plant") or "").strip()
+            if requested_plant and requested_plant.isdecimal():
                 selected_plant = TreatmentPlant.objects.filter(pk=int(requested_plant)).first()
+                invalid_plant = selected_plant is None
+            elif requested_plant:
+                invalid_plant = True
         else:
             selected_plant = TreatmentPlant.objects.filter(pk=user_plant_id).first() if user_plant_id else None
 
+        sections = Section.objects.filter(
+            is_active=True,
+            shift_requirements__shift__is_deleted=False,
+            shift_requirements__section__is_active=True,
+        ).filter(section_scope_q(
+            "treatment_plant_id",
+            F("shift_requirements__shift__treatment_plant_id"),
+        )).distinct().order_by("name")
+        if selected_plant:
+            sections = sections.filter(
+                section_scope_q("treatment_plant_id", selected_plant.pk),
+                shift_requirements__shift__treatment_plant_id=selected_plant.pk,
+            )
+        elif not is_superuser or invalid_plant:
+            sections = sections.none()
+
+        section_filter = (request.GET.get("filter_section") or "").strip()
+        selected_filter_section = None
+        invalid_section = False
         if is_superuser:
+            if section_filter and section_filter.isdecimal():
+                selected_filter_section = sections.filter(pk=int(section_filter)).first()
+                invalid_section = selected_filter_section is None
+            elif section_filter:
+                invalid_section = True
+        elif user_section_id:
+            selected_filter_section = sections.filter(pk=user_section_id).first()
+
+        scope_issue = ""
+        if not is_superuser and not user_plant_id:
+            scope_issue = "plant"
+        elif not is_superuser and user_plant_id and not selected_plant:
+            scope_issue = "plant"
+        elif not is_superuser and not user_section_id:
+            scope_issue = "section"
+        elif invalid_plant:
+            scope_issue = "invalid_plant"
+        elif invalid_section:
+            scope_issue = "invalid_section"
+        elif not is_superuser and user_section_id and not selected_filter_section:
+            scope_issue = "section"
+
+        if is_superuser and not (invalid_plant or invalid_section):
             from weeklytasks.services.duty_week_sync import sync_period_from_shift_control
 
             sync_period_from_shift_control(
                 month,
                 year,
                 plant_id=selected_plant.pk if selected_plant else None,
+                section_id=selected_filter_section.pk if selected_filter_section else None,
             )
-        elif user_plant_id and user_section_id:
+        elif not is_superuser and user_plant_id and user_section_id and not scope_issue:
             from weeklytasks.services.duty_week_sync import sync_period_from_shift_control
 
             sync_period_from_shift_control(
@@ -79,28 +128,77 @@ class DashboardView(WanjalaMixin, View):
         assignments = DailyTaskAssignment.objects.select_related(
             "task", "task__week", "task__week__schedule", "task__task_template", "user", "user__section", "shift",
         )
-        if selected_plant:
-            if is_superuser:
+        now = timezone.now()
+        assignments = assignments.exclude(
+            user__groups__name__in=INCHARGE_GROUPS,
+        ).exclude(
+            user__annual_leave_records__status__in=AnnualLeave.EXEMPT_FROM_ROUTINE_STATUSES,
+            user__annual_leave_records__start_date__lte=F("date"),
+            user__annual_leave_records__end_date__gte=F("date"),
+        ).annotate(
+            _is_active_temp_supervisor=Exists(
+                ShiftAssignment.objects.filter(
+                    temp_supervisor_id=OuterRef("user_id"),
+                    date=OuterRef("date"),
+                    is_deleted=False,
+                    temp_supervisor_start__lte=now,
+                    temp_supervisor_end__gt=now,
+                )
+            )
+        ).filter(_is_active_temp_supervisor=False).distinct()
+        if invalid_plant or invalid_section or scope_issue:
+            schedules = schedules.none()
+            weekly_tasks = weekly_tasks.none()
+            assignments = assignments.none()
+        else:
+            if selected_plant:
                 schedules = schedules.filter(treatment_plant=selected_plant)
                 weekly_tasks = weekly_tasks.filter(treatment_plant=selected_plant)
                 assignments = assignments.filter(task__treatment_plant=selected_plant)
-            elif user_section_id:
-                schedules = schedules.filter(treatment_plant=selected_plant, section_id=user_section_id)
-                weekly_tasks = weekly_tasks.filter(treatment_plant=selected_plant, section_id=user_section_id)
+            elif not is_superuser:
+                schedules = schedules.none()
+                weekly_tasks = weekly_tasks.none()
+                assignments = assignments.none()
+
+            if selected_filter_section:
+                schedules = schedules.filter(section=selected_filter_section)
+                weekly_tasks = weekly_tasks.filter(section=selected_filter_section)
+                assignments = assignments.filter(task__section=selected_filter_section)
+            elif not is_superuser and user_section_id:
+                schedules = schedules.filter(section_id=user_section_id)
+                weekly_tasks = weekly_tasks.filter(section_id=user_section_id)
                 assignments = assignments.filter(
-                    task__treatment_plant=selected_plant,
                     task__section_id=user_section_id,
                     user__assigned_treatment_plant_id=user_plant_id,
                     user__section_id=user_section_id,
                 )
-            else:
-                schedules = schedules.none()
-                weekly_tasks = weekly_tasks.none()
-                assignments = assignments.none()
+
+        shift_options = Shift.objects.filter(
+            is_deleted=False,
+            section_requirements__section__is_active=True,
+        ).filter(section_scope_q(
+            "section_requirements__section__treatment_plant_id",
+            F("treatment_plant_id"),
+        )).select_related("treatment_plant").distinct().order_by(
+            "treatment_plant__name", "start_time", "name"
+        )
+        if selected_plant:
+            shift_options = shift_options.filter(treatment_plant_id=selected_plant.pk)
         elif not is_superuser:
-            schedules = schedules.none()
-            weekly_tasks = weekly_tasks.none()
-            assignments = assignments.none()
+            shift_options = shift_options.none()
+        if selected_filter_section:
+            shift_options = shift_options.filter(section_requirements__section=selected_filter_section).distinct()
+        elif not is_superuser and user_section_id:
+            shift_options = shift_options.filter(section_requirements__section_id=user_section_id).distinct()
+
+        selected_shift = (request.GET.get("shift") or "").strip()
+        if selected_shift == "none":
+            assignments = assignments.filter(shift__isnull=True)
+        elif selected_shift:
+            if selected_shift.isdecimal() and shift_options.filter(pk=selected_shift).exists():
+                assignments = assignments.filter(shift_id=selected_shift)
+            else:
+                assignments = assignments.none()
 
         month_schedules = schedules.filter(month=month, year=year)
         month_tasks_qs = weekly_tasks.filter(week__schedule__in=month_schedules)
@@ -335,13 +433,19 @@ class DashboardView(WanjalaMixin, View):
         )[:30]
         daily_assignment_rows = month_assignments[:100]
 
-        sections = Section.objects.order_by("name")
-        if selected_plant:
-            sections = sections.filter(pk=user_section_id) if not is_superuser else sections.filter(
-                section_scope_q("treatment_plant_id", selected_plant.pk)
-            )
-        elif not is_superuser:
-            sections = sections.none()
+        User = get_user_model()
+        incharge_user = None
+        if selected_filter_section:
+            incharge_user = User.objects.filter(
+                section_id=selected_filter_section.pk,
+                is_active=True,
+                groups__name__in=INCHARGE_GROUPS,
+            ).order_by("last_name", "first_name", "username").first()
+
+        search_query = (request.GET.get("q") or "").strip()
+        task_status_filter = (request.GET.get("task_status") or "all").strip()
+        if task_status_filter not in {"all", "staffed", "partial", "open"}:
+            task_status_filter = "all"
 
         nav_items = [
             {"id": "overview", "label": "Monthly overview", "icon": "gauge-high"},
@@ -369,7 +473,14 @@ class DashboardView(WanjalaMixin, View):
             "plant_options": plant_options,
             "selected_plant": selected_plant,
             "show_plant_selector": is_superuser,
-            "scope_issue": "plant" if not is_superuser and not user_plant_id else "section" if not is_superuser and not user_section_id else "",
+            "sections": sections,
+            "selected_filter_section": selected_filter_section,
+            "incharge_user": incharge_user,
+            "shift_options": shift_options,
+            "selected_shift": selected_shift,
+            "scope_issue": scope_issue,
+            "search_query": search_query,
+            "task_status_filter": task_status_filter,
             "selected_section": request.GET.get("section", "overview"),
             "can_add_task_assignments": request.user.is_superuser or request.user.has_perm("weeklytasks.add_dailytaskassignment"),
             "can_edit_task_assignments": request.user.is_superuser or request.user.has_perm("weeklytasks.change_dailytaskassignment"),
@@ -381,8 +492,8 @@ class DashboardView(WanjalaMixin, View):
             "month_label": period_start.strftime("%B %Y"),
             "month_choices": [(value, date(year, value, 1).strftime("%B")) for value in range(1, 13)],
             "year_choices": range(max(2000, year - 3), min(2100, year + 3) + 1),
-            "previous_period_url": self._period_url(previous_period, selected_plant),
-            "next_period_url": self._period_url(next_period, selected_plant),
+            "previous_period_url": query_url(month=previous_period.month, year=previous_period.year),
+            "next_period_url": query_url(month=next_period.month, year=next_period.year),
             "export_urls": export_urls,
             "week_label": f"{period_start:%d %b} – {period_end:%d %b %Y}",
             "nav_items": nav_items,

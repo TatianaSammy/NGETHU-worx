@@ -4,51 +4,38 @@
    ========================================================================== */
 
 :root {
-    --ca-modal-bg: linear-gradient(165deg, #0d1e38 0%, #071225 100%);
-    --ca-modal-border: rgba(56, 189, 248, 0.35);
-    --ca-modal-glow: 0 25px 65px -10px rgba(0, 0, 0, 0.8), 0 0 30px 2px rgba(14, 165, 233, 0.2);
-    --ca-neon-cyan: #00f0ff;
-    --ca-neon-blue: #38bdf8;
-    --ca-neon-indigo: #818cf8;
-    --ca-input-bg: rgba(15, 23, 42, 0.72);
-    --ca-input-border: rgba(148, 163, 184, 0.25);
-    --ca-input-focus: #38bdf8;
-    --ca-input-glow: 0 0 0 3px rgba(56, 189, 248, 0.22), 0 0 16px rgba(56, 189, 248, 0.28);
-    --ca-text-light: #f8fafc;
-    --ca-text-muted: #94a3b8;
-    --ca-label-cyan: #7dd3fc;
+    --ca-modal-bg: var(--theme-surface-strong, var(--theme-surface, #ffffff));
+    --ca-modal-border: var(--theme-border-strong, var(--theme-border, #cbd5e1));
+    --ca-modal-glow: 0 25px 65px -10px rgba(0, 0, 0, 0.35), 0 0 24px var(--theme-accent-soft, rgba(14, 165, 233, 0.15));
+    --ca-neon-cyan: var(--theme-accent, #00f0ff);
+    --ca-neon-blue: var(--theme-accent, #38bdf8);
+    --ca-neon-indigo: color-mix(in srgb, var(--theme-accent, #0284c7) 60%, var(--color-danger, #dc2626));
+    --ca-input-bg: var(--input-bg, var(--theme-surface-strong, #ffffff));
+    --ca-input-border: var(--theme-border-strong, var(--theme-border, #cbd5e1));
+    --ca-input-focus: var(--theme-accent, #0284c7);
+    --ca-input-glow: 0 0 0 3px var(--theme-accent-soft, rgba(56, 189, 248, 0.22));
+    --ca-text-light: var(--theme-text, #0f172a);
+    --ca-text-muted: var(--theme-text-secondary, var(--theme-muted, #64748b));
+    --ca-label-cyan: var(--theme-accent, #0284c7);
 }
 
-html[data-theme="light"],
-html[data-theme="day"],
-html[data-theme="default"],
-html[data-theme="enterprise"] {
-    --ca-modal-bg: linear-gradient(165deg, #ffffff 0%, #f8fafc 100%);
-    --ca-modal-border: rgba(14, 165, 233, 0.3);
-    --ca-modal-glow: 0 20px 50px -10px rgba(15, 23, 42, 0.15), 0 0 20px rgba(14, 165, 233, 0.1);
-    --ca-input-bg: #ffffff;
-    --ca-input-border: #cbd5e1;
-    --ca-input-focus: #0284c7;
-    --ca-input-glow: 0 0 0 3px rgba(2, 132, 199, 0.18);
-    --ca-text-light: #0f172a;
-    --ca-text-muted: #64748b;
-    --ca-label-cyan: #0284c7;
+.ca-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--theme-surface-muted, var(--theme-surface-strong, #f8fafc)) !important;
+    border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+    color: var(--theme-text) !important;
+    position: relative;
+    z-index: 5;
+    flex-shrink: 0;
 }
 
-html[data-theme="light"] .ca-modal-header,
-html[data-theme="day"] .ca-modal-header,
-html[data-theme="default"] .ca-modal-header,
-html[data-theme="enterprise"] .ca-modal-header {
-    background: #f8fafc;
-    border-bottom: 1px solid #e2e8f0;
-}
-
-html[data-theme="light"] .ca-form-card,
-html[data-theme="day"] .ca-form-card,
-html[data-theme="default"] .ca-form-card,
-html[data-theme="enterprise"] .ca-form-card {
-    background: #ffffff;
-    border-color: #e2e8f0;
+.ca-form-card {
+    background: var(--theme-surface, #ffffff) !important;
+    border: 1px solid var(--theme-border, #e2e8f0) !important;
+    color: var(--theme-text) !important;
 }
 
 /* ── Modal Overlay Backdrop ──────────────────────────────────── */
@@ -110,7 +97,7 @@ html[data-theme="enterprise"] .ca-form-card {
     left: 0;
     right: 0;
     height: 3px;
-    background: linear-gradient(90deg, #00f0ff, #38bdf8, #818cf8, #00f0ff);
+    background: linear-gradient(90deg, var(--theme-accent), color-mix(in srgb, var(--theme-accent) 72%, var(--color-success)), var(--ca-neon-indigo), var(--theme-accent));
     background-size: 200% 100%;
     animation: caNeonEdgeSweep 6s linear infinite;
     z-index: 10;
@@ -380,6 +367,189 @@ html[data-theme="enterprise"] .ca-form-card {
     }
 }
 
+/* Lightweight receipt entry: keep this high-frequency form compact and calm. */
+#ca-receive-batch-modal {
+    background: rgba(15, 23, 42, 0.28);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+}
+
+#ca-receive-batch-modal .ca-modal-dialog {
+    width: min(calc(100vw - 28px), 680px);
+    border-radius: 14px;
+    box-shadow: 0 18px 56px rgba(15, 23, 42, 0.2);
+}
+
+#ca-receive-batch-modal .ca-modal-dialog::before {
+    height: 2px;
+    background: var(--theme-accent, #0284c7);
+    animation: none;
+}
+
+#ca-receive-batch-modal .ca-modal-header {
+    padding: 13px 18px;
+    background: var(--theme-surface-muted, #f8fafc) !important;
+    border-bottom: 1px solid var(--theme-border, #e2e8f0) !important;
+}
+
+#ca-receive-batch-modal .ca-modal-title,
+#ca-receive-batch-modal .ca-plc-name {
+    color: var(--theme-text, #0f172a);
+}
+
+#ca-receive-batch-modal .ca-modal-tagline {
+    color: var(--theme-accent, #0284c7);
+}
+
+#ca-receive-batch-modal .ca-modal-tagline__dot {
+    box-shadow: none;
+    animation: none;
+}
+
+#ca-receive-batch-modal .ca-modal-icon-badge {
+    background: color-mix(in srgb, var(--theme-accent, #0284c7) 10%, var(--theme-surface, #fff));
+    border-color: color-mix(in srgb, var(--theme-accent, #0284c7) 20%, var(--theme-border, #cbd5e1));
+    box-shadow: none;
+}
+
+#ca-receive-batch-modal .ca-modal-close-btn {
+    background: var(--theme-surface, #fff);
+    border-color: var(--theme-border, #cbd5e1);
+    color: var(--theme-text-secondary, #64748b);
+}
+
+#ca-receive-batch-modal .ca-modal-body {
+    padding: 16px 18px 18px;
+    max-height: calc(100dvh - 160px);
+}
+
+#ca-receive-batch-modal .ca-compact-form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px 12px;
+}
+
+#ca-receive-batch-modal .ca-col-half {
+    grid-column: span 1;
+}
+
+#ca-receive-batch-modal .ca-receipt-quantity {
+    grid-column: span 2;
+}
+
+#ca-receive-batch-modal .ca-receipt-quantity-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+    padding: 8px;
+    border: 1px solid var(--theme-border, #dbe4ec);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--theme-accent, #0284c7) 3%, var(--theme-surface, #fff));
+}
+
+#ca-receive-batch-modal .ca-receipt-quantity-grid .ca-field-label {
+    margin-bottom: 3px;
+    font-size: .56rem;
+    letter-spacing: 0;
+    white-space: nowrap;
+}
+
+#ca-receive-batch-modal .ca-receipt-quantity-grid .ca-compact-input,
+#ca-receive-batch-modal .ca-receipt-quantity-grid .ca-compact-select {
+    height: 36px;
+    min-width: 0;
+    padding-inline: 8px;
+    font-size: .72rem;
+}
+
+#ca-receive-batch-modal .ca-package-type-select {
+    text-transform: uppercase;
+}
+
+#ca-receive-batch-modal .ca-field-label {
+    margin-bottom: 5px;
+    color: var(--theme-text-secondary, var(--theme-muted, #475569));
+    font-size: 0.68rem;
+    letter-spacing: 0.035em;
+}
+
+#ca-receive-batch-modal .ca-receipt-hint {
+    margin-top: 4px;
+    color: var(--theme-text-secondary, var(--theme-muted, #64748b));
+    font-size: 0.69rem;
+}
+
+#ca-receive-batch-modal .ca-receipt-hint--inline {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+#ca-receive-batch-modal .ca-compact-input,
+#ca-receive-batch-modal .ca-compact-select {
+    height: 40px;
+    border-radius: 8px;
+    font-weight: 500;
+}
+
+#ca-receive-batch-modal .ca-compact-select option {
+    background: var(--theme-surface, #fff);
+    color: var(--theme-text, #0f172a);
+}
+
+#ca-receive-batch-modal .ca-plant-locked-card {
+    background: color-mix(in srgb, var(--theme-accent, #0284c7) 6%, var(--theme-surface, #fff));
+    border-color: color-mix(in srgb, var(--theme-accent, #0284c7) 18%, var(--theme-border, #cbd5e1));
+    box-shadow: none;
+}
+
+#ca-receive-batch-modal .ca-plc-sub {
+    color: var(--theme-text-secondary, #64748b);
+}
+
+#ca-receive-batch-modal .ca-modal-footer {
+    padding: 11px 18px 14px;
+    border-top: 1px solid var(--theme-border, #e2e8f0);
+}
+
+@media (max-width: 520px) {
+    #ca-receive-batch-modal .ca-compact-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #ca-receive-batch-modal .ca-col-half {
+        grid-column: span 1;
+    }
+
+    #ca-receive-batch-modal .ca-receipt-quantity {
+        grid-column: span 1;
+    }
+
+    #ca-receive-batch-modal .ca-receipt-quantity-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 9px;
+    }
+}
+
+@media (min-width: 521px) and (max-width: 640px) {
+    #ca-receive-batch-modal .ca-compact-form-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    #ca-receive-batch-modal .ca-receipt-quantity {
+        grid-column: span 2;
+    }
+}
+
+@media (max-width: 360px) {
+    #ca-receive-batch-modal .ca-receipt-quantity-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ── Field Wrappers & Labels ─────────────────────────────────── */
 .ca-field-wrap {
     display: flex;
@@ -532,9 +702,9 @@ html[data-theme="enterprise"] .ca-form-card {
 .ca-compact-select:focus,
 .ca-compact-textarea:focus {
     border-color: var(--ca-input-focus);
-    background: rgba(15, 23, 42, 0.95);
+    background: var(--input-bg, var(--theme-surface-strong));
     box-shadow: var(--ca-input-glow);
-    color: #ffffff;
+    color: var(--theme-text);
 }
 
 /* ── Date Picker Enhancements ────────────────────────────────── */
@@ -663,15 +833,15 @@ html[data-theme="enterprise"] .ca-form-card {
     justify-content: flex-end;
     gap: 12px;
     padding: 14px 22px;
-    background: rgba(10, 22, 44, 0.85);
-    border-top: 1px solid rgba(56, 189, 248, 0.18);
+    background: var(--theme-surface-muted, var(--theme-surface-strong, #f8fafc)) !important;
+    border-top: 1px solid var(--theme-border, rgba(56, 189, 248, 0.18)) !important;
     box-sizing: border-box;
 }
 
 .ca-btn-ghost {
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: #cbd5e1;
+    background: var(--theme-surface, rgba(255, 255, 255, 0.06));
+    border: 1px solid var(--theme-border-strong, var(--theme-border));
+    color: var(--theme-text) !important;
     font-size: 0.78rem;
     font-weight: 700;
     padding: 8px 16px;
@@ -685,20 +855,21 @@ html[data-theme="enterprise"] .ca-form-card {
 }
 
 .ca-btn-ghost:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    background: var(--row-hover-bg, var(--theme-accent-soft));
+    color: var(--theme-accent) !important;
+    border-color: var(--theme-accent);
 }
 
 .ca-btn-futuristic {
-    background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
-    border: 1px solid rgba(56, 189, 248, 0.5);
-    color: #ffffff;
+    background: var(--theme-accent, #0284c7) !important;
+    border: 1px solid var(--theme-accent) !important;
+    color: var(--theme-on-accent, #ffffff) !important;
     font-size: 0.82rem;
     font-weight: 800;
     padding: 9px 22px;
     border-radius: 8px;
     cursor: pointer;
-    box-shadow: 0 4px 18px rgba(2, 132, 199, 0.45);
+    box-shadow: 0 4px 18px var(--theme-accent-soft);
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     display: inline-flex;
     align-items: center;
@@ -709,8 +880,8 @@ html[data-theme="enterprise"] .ca-form-card {
 
 .ca-btn-futuristic:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 24px rgba(2, 132, 199, 0.6), 0 0 15px rgba(0, 240, 255, 0.4);
-    border-color: #38bdf8;
+    box-shadow: 0 6px 24px var(--theme-accent-soft);
+    background: var(--theme-accent-hover, #0369a1) !important;
 }
 
 .ca-btn-futuristic:active {

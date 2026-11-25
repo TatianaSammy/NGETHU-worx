@@ -7,36 +7,26 @@
     const badge = document.getElementById("notificationBadge");
     if (!container || !btn || !dropdown || !badge) return;
 
+    // The shared header is included by several dashboard shells. Avoid binding
+    // duplicate click handlers if the asset is included more than once.
+    if (window.GlobalNotificationsInitialized) return;
+    window.GlobalNotificationsInitialized = true;
+
     const api = {
         alerts: [],
         refreshTimer: null,
         initialized: false,
         autoVoicePlayed: new Set(),
         pendingVoice: [],
-        voiceSources: new Map(),
         voiceQueue: Promise.resolve(),
-        voiceEnabled: false,
-        offlineMode: !navigator.onLine,
-        offlineRepeatTimer: null,
+        acknowledgementsInFlight: new Set(),
+        feedLoaded: false,
         userId: String(container.dataset.userId || "anonymous"),
         fetchUrl: container.dataset.feedUrl || "/accounts/notifications/",
         ackUrlTemplate: container.dataset.ackUrl || "/ca/notifications/__ID__/ack/",
 
-        voicePreferenceKey() {
-            return `qad-voice-enabled:${this.userId}`;
-        },
-
-        alertStorageKey() {
-            return `qad-notifications:${this.userId}:${this.plantId() || "all"}`;
-        },
-
         voiceRequestUrl(value) {
-            const safe = this.safeUrl(value);
-            if (!safe) return "";
-            const url = new URL(safe);
-            url.searchParams.set("qad_voice_user", this.userId);
-            url.searchParams.set("qad_voice_plant", this.plantId() || "all");
-            return url.href;
+            return this.safeUrl(value);
         },
 
         scopedUrl() {
@@ -82,143 +72,50 @@
                 if (!response.ok) throw new Error("Notification feed returned HTTP " + response.status);
                 const data = await response.json();
                 if (!data || !Array.isArray(data.alerts)) return;
+                const knownAlerts = new Map(this.alerts.map(alert => [String(alert.id), alert]));
                 this.alerts = data.alerts;
                 this.renderDropdown(data.alerts, Number(data.unread_count || 0));
                 this.updateBadge(Number(data.unread_count || 0));
-                this.persistAlerts(data.alerts);
                 data.alerts.forEach(alert => {
-                    if (alert.voice_url) this.cacheVoiceClip(alert.voice_url);
+                    if (
+                        alert.auto_voice
+                        && (alert.voice_url || alert.message)
+                        && !alert.acknowledged
+                        && (
+                            !this.feedLoaded
+                            ||
+                            !knownAlerts.has(String(alert.id))
+                            || !knownAlerts.get(String(alert.id)).voice_url
+                            || !knownAlerts.get(String(alert.id)).auto_voice
+                        )
+                    ) this.requestAutoVoice(alert.id, alert.voice_url, false, alert.message);
                 });
-                this.pruneVoiceCache(data.alerts);
+                this.feedLoaded = true;
                 const status = dropdown.querySelector(".notification-status");
                 if (status) status.hidden = true;
             } catch (error) {
                 console.warn("[Dashboard notifications] Could not refresh alerts:", error);
-                const restored = this.restoreAlerts();
                 const status = dropdown.querySelector(".notification-status");
                 if (status) {
-                    status.textContent = restored
-                        ? "Offline · showing saved notifications and cached voice alerts."
-                        : "Notifications are unavailable. Connect once to save alerts for offline use.";
+                    status.textContent = "Live notifications are unavailable. Reconnect to refresh the alert feed.";
                     status.hidden = false;
                 }
-                if (restored) this.prepareOfflineVoiceAlerts();
             }
         },
 
-        persistAlerts(alerts) {
-            try {
-                localStorage.setItem(this.alertStorageKey(), JSON.stringify({
-                    savedAt: Date.now(),
-                    alerts: (alerts || []).slice(0, 25)
-                }));
-            } catch (_) {}
-        },
-
-        restoreAlerts() {
-            try {
-                const saved = JSON.parse(localStorage.getItem(this.alertStorageKey()) || "null");
-                if (!saved || !Array.isArray(saved.alerts)) return false;
-                this.alerts = saved.alerts.filter(alert => alert && alert.id);
-                const unread = this.alerts.filter(alert => !alert.acknowledged).length;
-                this.renderDropdown(this.alerts, unread);
-                this.updateBadge(unread);
-                return true;
-            } catch (_) {
-                return false;
-            }
-        },
-
-        async cacheVoiceClip(value) {
-            const requestUrl = this.voiceRequestUrl(value);
-            if (!requestUrl || !window.caches) return;
-            try {
-                const cache = await caches.open("qad-voice-alerts-v1");
-                let response = await cache.match(requestUrl);
-                if (!response && navigator.onLine) {
-                    response = await fetch(requestUrl, { credentials: "same-origin", cache: "no-store" });
-                    if (response.ok) await cache.put(requestUrl, response.clone());
-                }
-                if (response && response.ok && !this.voiceSources.has(requestUrl)) {
-                    this.voiceSources.set(requestUrl, URL.createObjectURL(await response.blob()));
-                }
-            } catch (error) {
-                console.info("[VoiceAlert] Could not cache this audio clip:", error);
-            }
-        },
-
-        async pruneVoiceCache(alerts) {
-            if (!window.caches) return;
-            try {
-                const keep = new Set((alerts || []).slice(0, 25)
-                    .filter(alert => alert.voice_url)
-                    .map(alert => this.voiceRequestUrl(alert.voice_url)));
-                const cache = await caches.open("qad-voice-alerts-v1");
-                const requests = await cache.keys();
-                for (const request of requests) {
-                    const cachedUrl = new URL(request.url);
-                    if (
-                        cachedUrl.searchParams.get("qad_voice_user") === this.userId
-                        && cachedUrl.searchParams.get("qad_voice_plant") === (this.plantId() || "all")
-                        && !keep.has(cachedUrl.href)
-                    ) {
-                        await cache.delete(request);
-                        const source = this.voiceSources.get(cachedUrl.href);
-                        if (source) URL.revokeObjectURL(source);
-                        this.voiceSources.delete(cachedUrl.href);
-                    }
-                }
-            } catch (error) {
-                console.info("[VoiceAlert] Could not prune old cached clips:", error);
-            }
-        },
-
-        async prepareOfflineVoiceAlerts() {
-            const pending = this.alerts.filter(alert =>
-                !alert.acknowledged && alert.auto_voice && alert.voice_url
-            );
-            await Promise.all(pending.map(alert => this.cacheVoiceClip(alert.voice_url)));
-            if (this.voiceEnabled) this.playOfflinePendingAlerts();
-            this.scheduleOfflineVoiceRepeats();
-        },
-
-        async playOfflinePendingAlerts() {
-            if (!this.voiceEnabled || !this.offlineMode) return;
-            for (const alert of this.alerts) {
-                if (alert.acknowledged || !alert.auto_voice || !alert.voice_url) continue;
-                if (this.autoVoicePlayed.has(String(alert.id))) continue;
-                this.autoVoicePlayed.add(String(alert.id));
-                await this.queueVoice(alert.voice_url, alert.id);
-            }
-        },
-
-        scheduleOfflineVoiceRepeats() {
-            if (this.offlineRepeatTimer) return;
-            this.offlineRepeatTimer = window.setInterval(() => {
-                if (!this.offlineMode || !this.voiceEnabled) return;
-                this.autoVoicePlayed.clear();
-                this.playOfflinePendingAlerts();
-            }, 60000);
-        },
-
-        enableVoiceAlerts() {
-            this.voiceEnabled = true;
-            try { localStorage.setItem(this.voicePreferenceKey(), "true"); } catch (_) {}
+        unlockVoicePlayback() {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
             if (AudioContext) {
                 try {
                     this.audioContext = this.audioContext || new AudioContext();
-                    this.audioContext.resume();
+                    if (this.audioContext.state === "suspended") this.audioContext.resume();
                 } catch (_) {}
             }
-            this.playChime();
-            this.renderDropdown(this.alerts, this.alerts.filter(alert => !alert.acknowledged).length);
-            const queued = this.pendingVoice.splice(0);
-            queued.forEach(item => this.queueVoice(item.url, item.id));
-            if (this.offlineMode) {
-                this.autoVoicePlayed.clear();
-                this.prepareOfflineVoiceAlerts();
+            if (window.speechSynthesis && window.speechSynthesis.paused) {
+                try { window.speechSynthesis.resume(); } catch (_) {}
             }
+            const queued = this.pendingVoice.splice(0);
+            queued.forEach(item => this.queueVoice(item.url, item.id, item.text));
         },
 
         updateBadge(count) {
@@ -237,16 +134,17 @@
                 const url = this.safeUrl(alert.url);
                 const canAck = Boolean(alert.can_acknowledge) && !alert.acknowledged;
                 const ack = canAck
-                    ? `<button type="button" class="notification-ack" data-notification-ack="${this.escape(alert.id)}">Acknowledge</button>`
+                    ? `<button type="button" class="notification-ack" data-notification-ack="${this.escape(alert.id)}" data-notification-open="${this.escape(url)}">Acknowledge</button>`
                     : "";
-                const open = url
+                const open = url && !canAck
                     ? `<a class="notification-open" href="${this.escape(url)}">${alert.type === "ca_assignment_pending" ? "Assign analyst" : "Open"}</a>`
                     : "";
                 const voiceUrl = alert.voice_url || "";
                 const profile = alert.voice_profile
                     ? `<span class="notification-voice-profile">VoiceOver · ${this.escape(alert.voice_profile)}</span>`
                     : "";
-                const voiceBtn = `<button type="button" class="notification-voice-btn" data-notification-voice="${this.escape(voiceUrl)}" title="Replay configured VoiceOver audio" ${voiceUrl ? "" : "disabled"} style="display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:4px;background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:600;border:1px solid #c7d2fe;cursor:pointer;"><i class="fa-solid fa-volume-high" aria-hidden="true"></i> ${voiceUrl ? "Voice" : "Audio pending"}</button>${profile}`;
+                const voiceAvailable = Boolean(voiceUrl || alert.message);
+                const voiceBtn = `<button type="button" class="notification-voice-btn" data-notification-voice="${this.escape(voiceUrl)}" data-notification-voice-text="${this.escape(alert.message || "")}" title="Replay voice notification" ${voiceAvailable ? "" : "disabled"} style="display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:4px;background:#eef2ff;color:#4f46e5;font-size:11px;font-weight:600;border:1px solid #c7d2fe;cursor:pointer;"><i class="fa-solid fa-volume-high" aria-hidden="true"></i> ${voiceAvailable ? "Voice" : "Audio unavailable"}</button>${profile}`;
                 return `<li class="notification-item notification-item--${urgency}" role="none">
                     <div class="notification-item-top"><span class="notification-urgency">${urgency.replace("-", " ")}</span><time>${this.escape(alert.time_ago || "")}</time></div>
                     <strong class="notification-item-title">${this.escape(alert.title || "Notification")}</strong>
@@ -254,11 +152,18 @@
                     <div class="notification-item-actions">${voiceBtn}${open}${ack}</div>
                 </li>`;
             }).join("");
-            const voiceLabel = this.voiceEnabled ? "Unlock / replay voice" : "Enable voice alerts";
-            dropdown.innerHTML = `<li class="notification-header" role="presentation"><span><i class="fa-solid fa-bell" aria-hidden="true"></i> Notifications</span><span class="notification-unread-count">${unreadCount} unread</span><button type="button" data-enable-voice class="notification-voice-toggle" style="border:1px solid #8eb8d8;border-radius:999px;padding:5px 9px;background:#eaf6ff;color:#075985;font-size:11px;font-weight:700;cursor:pointer">${voiceLabel}</button></li>${rows || '<li class="notification-empty" role="presentation">You are all caught up.</li>'}<li class="notification-status" role="status" aria-live="polite" hidden></li>`;
+            dropdown.innerHTML = `<li class="notification-header" role="presentation"><span><i class="fa-solid fa-bell" aria-hidden="true"></i> Notifications</span><span class="notification-unread-count">${unreadCount} unread</span><span aria-label="Voice notifications enabled" style="font-size:11px;font-weight:700;color:#075985">Voice on</span></li>${rows || '<li class="notification-empty" role="presentation">You are all caught up.</li>'}<li class="notification-status" role="status" aria-live="polite" hidden></li>`;
         },
 
-        async ack(alertId) {
+        async ack(alertId, button, destination = "") {
+            const key = String(alertId);
+            if (this.acknowledgementsInFlight.has(key)) return;
+            this.acknowledgementsInFlight.add(key);
+            if (button) {
+                button.disabled = true;
+                button.setAttribute("aria-busy", "true");
+                button.textContent = "Acknowledging…";
+            }
             const url = new URL(
                 this.ackUrlTemplate.replace("__ID__", encodeURIComponent(alertId)),
                 window.location.origin
@@ -278,27 +183,33 @@
                 });
                 const data = await response.json();
                 if (!response.ok || !data.success) throw new Error(data.error || "Could not acknowledge notification.");
-                const redirectUrl = this.safeUrl(data.redirect_url);
-                if (redirectUrl) {
-                    window.location.assign(redirectUrl);
+                const destinationUrl = this.safeUrl(data.redirect_url) || this.safeUrl(destination);
+                if (window.speechSynthesis) window.speechSynthesis.cancel();
+                if (destinationUrl) {
+                    window.location.assign(destinationUrl);
                     return;
                 }
                 this.alerts = this.alerts.filter(alert => String(alert.id) !== String(alertId));
                 const unread = this.alerts.filter(alert => !alert.acknowledged).length;
                 this.renderDropdown(this.alerts, unread);
                 this.updateBadge(unread);
-                this.persistAlerts(this.alerts);
-                this.pruneVoiceCache(this.alerts);
                 const streamItem = document.getElementById("alarm-item-" + String(alertId).replace(/[^A-Za-z0-9_-]/g, ""));
                 if (streamItem) streamItem.remove();
             } catch (error) {
                 console.error("[Dashboard notifications] Acknowledge failed:", error);
                 const status = dropdown.querySelector(".notification-status");
                 if (status) {
-                    status.textContent = "Could not acknowledge this notification. Please try again.";
+                    status.textContent = error.message || "Could not acknowledge this notification. Please try again.";
                     status.hidden = false;
                 }
+                if (button && button.isConnected) {
+                    button.disabled = false;
+                    button.removeAttribute("aria-busy");
+                    button.textContent = "Acknowledge";
+                }
                 this.scheduleRefresh();
+            } finally {
+                this.acknowledgementsInFlight.delete(key);
             }
         },
 
@@ -309,33 +220,34 @@
             const unread = this.alerts.filter(item => !item.acknowledged).length;
             this.renderDropdown(this.alerts, unread);
             this.updateBadge(unread);
-            this.persistAlerts(this.alerts);
-            if (next.voice_url) this.cacheVoiceClip(next.voice_url);
         },
 
-        requestAutoVoice(alertId, url, repeat) {
-            if (!url) return;
+        requestAutoVoice(alertId, url, repeat, text) {
+            if (!url && !text) return;
             const id = String(alertId);
-            this.cacheVoiceClip(url);
-            if (!this.voiceEnabled) {
-                this.pendingVoice = this.pendingVoice.filter(item => item.id !== id);
-                this.pendingVoice.push({ id, url });
-                return;
-            }
-            if (repeat || !this.autoVoicePlayed.has(id)) {
+            const alreadyPending = this.pendingVoice.some(item => item.id === id);
+            if (repeat || (!this.autoVoicePlayed.has(id) && !alreadyPending)) {
                 if (!repeat) this.autoVoicePlayed.add(id);
-                this.queueVoice(url, id);
+                this.queueVoice(url, id, text);
             }
         },
 
-        queueVoice(url, alertId) {
+        queueVoice(url, alertId, text) {
             this.voiceQueue = this.voiceQueue
                 .catch(() => false)
                 .then(() => {
                     if (alertId && !this.alerts.some(alert => String(alert.id) === String(alertId) && !alert.acknowledged)) {
                         return false;
                     }
-                    return this._playVoice(url);
+                    return this._playVoice(url, text).then(played => {
+                        if (!played && alertId && this.alerts.some(alert => String(alert.id) === String(alertId) && !alert.acknowledged)) {
+                            this.autoVoicePlayed.delete(String(alertId));
+                            if (!this.pendingVoice.some(item => item.id === String(alertId))) {
+                                this.pendingVoice.push({ id: String(alertId), url, text });
+                            }
+                        }
+                        return played;
+                    });
                 });
             return this.voiceQueue;
         },
@@ -408,7 +320,7 @@
                             auto_voice: data.auto_voice !== false,
                         });
                         if (!alreadyVisible && !acknowledged) self.playChime();
-                        if (data.auto_voice !== false && !acknowledged) self.requestAutoVoice(alertId, data.voice_url, data.repeat_voice);
+                        if (data.auto_voice !== false && !acknowledged) self.requestAutoVoice(alertId, data.voice_url, data.repeat_voice, msg);
                         // Also schedule a feed refresh to sync DB state
                         self.scheduleRefresh();
                         return;
@@ -432,7 +344,7 @@
                             auto_voice: data.auto_voice !== false,
                         });
                         if (!alreadyVisible) self.playChime();
-                        if (data.auto_voice !== false) self.requestAutoVoice(voiceId, audioUrl, data.repeat_voice);
+                        if (data.auto_voice !== false) self.requestAutoVoice(voiceId, audioUrl, data.repeat_voice, data.message || title);
                         self.scheduleRefresh();
                         return;
                     }
@@ -443,13 +355,13 @@
                             const unread = self.alerts.filter(item => !item.acknowledged).length;
                             self.renderDropdown(self.alerts, unread);
                             self.updateBadge(unread);
-                            self.persistAlerts(self.alerts);
                             const streamItem = document.getElementById("alarm-item-" + targetId.replace(/[^A-Za-z0-9_-]/g, ""));
                             if (streamItem) streamItem.remove();
                         }
                         if (self._currentVoiceAudio) {
                             try { self._currentVoiceAudio.pause(); } catch (_) {}
                         }
+                        if (window.speechSynthesis) window.speechSynthesis.cancel();
                         return;
                     }
                 };
@@ -482,58 +394,76 @@
             connect();
         },
 
-        _playVoice(value) {
+        async _playVoice(value, fallbackText = "") {
             const requestUrl = this.voiceRequestUrl(value);
-            if (!requestUrl) return Promise.resolve(false);
-            const source = this.voiceSources.get(requestUrl) || requestUrl;
-            const start = audioSource => new Promise((resolve, reject) => {
-                const audio = new Audio(audioSource);
-                audio.preload = "auto";
-                this._currentVoiceAudio = audio;
-                const timeout = window.setTimeout(() => resolve(true), 90000);
-                const finish = value => {
-                    clearTimeout(timeout);
-                    resolve(value);
-                };
-                audio.addEventListener("ended", () => finish(true), { once: true });
-                audio.addEventListener("pause", () => {
-                    if (!audio.ended) finish(false);
-                }, { once: true });
-                audio.addEventListener("error", () => {
-                    clearTimeout(timeout);
-                    reject(new Error("VoiceOver audio could not be decoded."));
-                }, { once: true });
+            let objectUrl = "";
+            if (requestUrl) {
                 try {
-                    const playback = audio.play();
-                    if (playback && playback.catch) playback.catch(reject);
+                    const response = await fetch(requestUrl, {
+                        credentials: "same-origin",
+                        cache: "no-store",
+                        headers: { "Cache-Control": "no-cache" }
+                    });
+                    if (!response.ok) throw new Error("Voice audio returned HTTP " + response.status);
+                    objectUrl = URL.createObjectURL(await response.blob());
+                    const played = await new Promise((resolve, reject) => {
+                        const audio = new Audio();
+                        audio.preload = "auto";
+                        audio.src = objectUrl;
+                        this._currentVoiceAudio = audio;
+                        const timeout = window.setTimeout(() => resolve(false), 90000);
+                        const finish = (result, error) => {
+                            clearTimeout(timeout);
+                            if (error) reject(error);
+                            else resolve(result);
+                        };
+                        audio.addEventListener("ended", () => finish(true), { once: true });
+                        audio.addEventListener("pause", () => {
+                            if (!audio.ended) finish(false);
+                        }, { once: true });
+                        audio.addEventListener("error", () => finish(false, new Error("Voice audio could not be decoded.")), { once: true });
+                        audio.play().catch(error => finish(false, error));
+                    });
+                    if (played) return true;
                 } catch (error) {
-                    clearTimeout(timeout);
-                    reject(error);
+                    console.info("[VoiceAlert] Audio playback failed; trying browser speech:", error);
                 }
-            });
-            return start(source).then(played => played).catch(async error => {
+            }
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+            const spoken = await this._speakText(fallbackText);
+            const status = dropdown.querySelector(".notification-status");
+            if (status && spoken) status.hidden = true;
+            if (!spoken && status) {
+                status.textContent = "Voice playback is unavailable in this browser. Use a browser with speech synthesis enabled.";
+                status.hidden = false;
+            }
+            return spoken;
+        },
+
+        _speakText(value) {
+            const text = String(value || "").trim();
+            if (!text || !window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+                return Promise.resolve(false);
+            }
+            return new Promise(resolve => {
                 try {
-                    if (window.caches) {
-                        const cache = await caches.open("qad-voice-alerts-v1");
-                        const response = await cache.match(requestUrl);
-                        if (response) {
-                            const objectUrl = URL.createObjectURL(await response.blob());
-                            this.voiceSources.set(requestUrl, objectUrl);
-                            return await start(objectUrl);
-                        }
-                    }
-                } catch (cachedError) {
-                    console.warn("[VoiceAlert] Cached VoiceOver clip could not play:", cachedError);
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    const synth = window.speechSynthesis;
+                    let finished = false;
+                    const timeout = window.setTimeout(() => finish(false), 45000);
+                    const finish = result => {
+                        if (finished) return;
+                        finished = true;
+                        window.clearTimeout(timeout);
+                        resolve(result);
+                    };
+                    utterance.onend = () => finish(true);
+                    utterance.onerror = () => finish(false);
+                    this._currentSpeech = utterance;
+                    synth.speak(utterance);
+                } catch (_) {
+                    resolve(false);
                 }
-                console.info("[VoiceAlert] Voice playback was blocked or the clip is not cached:", error);
-                const status = dropdown.querySelector(".notification-status");
-                if (status) {
-                    status.textContent = error && error.name === "NotAllowedError"
-                        ? "The browser blocked automatic audio. Select Unlock / replay voice, then replay the saved VoiceOver clip."
-                        : "Voice audio is unavailable offline because this clip has not been saved on this device yet.";
-                    status.hidden = false;
-                }
-                return false;
             });
         },
 
@@ -545,7 +475,7 @@
         init() {
             if (this.initialized) return;
             this.initialized = true;
-            try { this.voiceEnabled = localStorage.getItem(this.voicePreferenceKey()) === "true"; } catch (_) {}
+            try { localStorage.removeItem(`qad-voice-enabled:${this.userId}`); } catch (_) {}
             // The feed may refresh in the background, but it never opens the
             // drawer or restores an old open state from browser storage.
             dropdown.hidden = true;
@@ -553,39 +483,30 @@
             btn.setAttribute("aria-expanded", "false");
             this.fetchNotifications();
             this.connectWebSocket();
-            window.addEventListener("offline", () => {
-                this.offlineMode = true;
-                if (!this.alerts.length) this.restoreAlerts();
-                this.prepareOfflineVoiceAlerts();
-            });
+            const unlockOnInteraction = () => this.unlockVoicePlayback();
+            document.addEventListener("pointerdown", unlockOnInteraction, { capture: true });
+            document.addEventListener("keydown", unlockOnInteraction, { capture: true });
             window.addEventListener("online", () => {
-                this.offlineMode = false;
-                if (this.offlineRepeatTimer) {
-                    clearInterval(this.offlineRepeatTimer);
-                    this.offlineRepeatTimer = null;
-                }
                 this.scheduleRefresh();
             });
+            window.setInterval(() => {
+                if (!document.hidden) this.fetchNotifications();
+            }, 30000);
             btn.addEventListener("click", () => this.fetchNotifications());
             dropdown.addEventListener("click", event => {
-                const voiceToggle = event.target.closest("[data-enable-voice]");
-                if (voiceToggle) {
-                    event.stopPropagation();
-                    this.enableVoiceAlerts();
-                    return;
-                }
                 const voiceBtn = event.target.closest("[data-notification-voice]");
                 if (voiceBtn) {
                     event.stopPropagation();
                     const src = voiceBtn.dataset.notificationVoice;
-                    if (!src) return;
+                    const text = voiceBtn.dataset.notificationVoiceText || "";
+                    if (!src && !text) return;
                     const icon = voiceBtn.querySelector("i");
                     if (icon) icon.className = "fa-solid fa-spinner fa-spin";
                     const resetIcon = () => {
                         if (icon) icon.className = "fa-solid fa-volume-high";
                     };
 
-                    const playback = this._playVoice(src);
+                    const playback = this._playVoice(src, text);
                     if (this._currentVoiceAudio) {
                         this._currentVoiceAudio.addEventListener("ended", resetIcon, { once: true });
                         this._currentVoiceAudio.addEventListener("pause", resetIcon, { once: true });
@@ -594,7 +515,11 @@
                     return;
                 }
                 const button = event.target.closest("[data-notification-ack]");
-                if (button) this.ack(button.dataset.notificationAck);
+                if (button) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    this.ack(button.dataset.notificationAck, button, button.dataset.notificationOpen || "");
+                }
             });
             window.addEventListener("focus", () => {
                 if (!document.hidden) this.fetchNotifications();

@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 from datetime import date, datetime, time, timedelta
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
@@ -449,6 +450,7 @@ class ChemicalAlertsService:
                 )
             ).select_related("batch", "analysis_request")
             interlab_alert_keys = []
+            is_committee_member = False
             if plant is not None:
                 from ca.models import ChemicalLabReferral
 
@@ -459,6 +461,14 @@ class ChemicalAlertsService:
                         status=ChemicalLabReferral.Status.PENDING,
                     ).values_list("pk", flat=True)
                 ]
+                if user.is_active:
+                    from ca.models import ChemicalInspectionCommitteeMember
+
+                    is_committee_member = ChemicalInspectionCommitteeMember.objects.filter(
+                        treatment_plant_id=plant.pk,
+                        user=user,
+                        is_active=True,
+                    ).exists()
             if not is_superuser:
                 if plant is None:
                     workflow_qs = workflow_qs.none()
@@ -489,6 +499,10 @@ class ChemicalAlertsService:
                         and item.analysis_request.is_assigned_analyst(user)
                     )
                 )
+                can_acknowledge = assigned_analyst_ack or bool(
+                    item.alert_type == "ca_inspection_committee_receipt"
+                    and is_committee_member
+                )
                 alerts_list.append({
                     "id": f"ca_workflow_alert_{item.pk}",
                     "db_id": item.pk,
@@ -501,7 +515,7 @@ class ChemicalAlertsService:
                     "timestamp": item.created_at,
                     "time_ago": ChemicalAlertsService._time_ago(item.created_at, now),
                     "acknowledged": False,
-                    "can_acknowledge": assigned_analyst_ack,
+                    "can_acknowledge": can_acknowledge,
                     "source": "ca_workflow",
                     "url": item.url,
                 })
@@ -575,7 +589,7 @@ class ChemicalAlertsService:
         return user.has_perm("alerts.view_alertstate") or user.alert_configs.filter(alert_type=alert_type).exists()
 
     @staticmethod
-    def acknowledge(user, alert_id: str, is_superuser=False) -> dict[str, Any]:
+    def acknowledge(user, alert_id: str, is_superuser=False, request=None) -> dict[str, Any]:
         """
         Marks an alert as acknowledged in the alerts app.
         Supports both AlertState and CA alert IDs.
@@ -743,9 +757,12 @@ class ChemicalAlertsService:
                         "message": "Assignment acknowledged.",
                         "redirect_url": item.url,
                     }
-                item.acknowledge(actor=user)
+                item.acknowledge(actor=user, request=request)
                 return {"success": True, "message": "Workflow notification acknowledged."}
+            except (PermissionDenied, ValidationError) as exc:
+                return {"success": False, "error": str(exc)}
             except Exception:
+                logger.exception("Could not acknowledge CA workflow alert %s for user %s", alert_id, user.pk)
                 return {"success": False, "error": "Notification not found."}
 
         return {"success": False, "error": "Unsupported notification."}

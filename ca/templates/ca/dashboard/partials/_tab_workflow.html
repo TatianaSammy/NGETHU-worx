@@ -7,17 +7,17 @@
 <div class="ca-workflow-orchestrator" id="ca-workflow-container">
 
     <!-- 1. HERO PIPELINE DAG HEADER -->
-    <div class="ca-mt-panel ca-pipeline-panel" style="background: linear-gradient(165deg, #0a1b36 0%, #061124 100%); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 16px; padding: 18px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);">
-        <div class="ca-mt-panel__head" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid rgba(56, 189, 248, 0.15); padding-bottom: 12px;">
+    <div class="ca-mt-panel ca-pipeline-panel" style="background: var(--theme-surface-strong, var(--theme-surface)); border: 1px solid var(--theme-border); border-radius: 16px; padding: 18px; box-shadow: var(--shadow-sm);">
+        <div class="ca-mt-panel__head" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--theme-border); padding-bottom: 12px;">
             <div class="ca-panel-title-group" style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 42px; height: 42px; border-radius: 10px; background: rgba(14, 165, 233, 0.2); border: 1px solid rgba(56, 189, 248, 0.4); display: flex; align-items: center; justify-content: center; color: #38bdf8; font-size: 1.25rem;">
+                <div style="width: 42px; height: 42px; border-radius: 10px; background: var(--theme-accent-soft); border: 1px solid var(--theme-border); display: flex; align-items: center; justify-content: center; color: var(--theme-accent); font-size: 1.25rem;">
                     <i class="fa fa-diagram-project"></i>
                 </div>
                 <div>
-                    <h2 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #ffffff; letter-spacing: -0.01em;">
+                    <h2 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--theme-text); letter-spacing: -0.01em;">
                         Chemical Analysis Flow Orchestrator
                     </h2>
-                    <span style="font-size: 0.72rem; color: #7dd3fc; text-transform: uppercase; letter-spacing: 0.05em;">
+                    <span style="font-size: 0.72rem; color: var(--theme-accent); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;">
                         Viewflow 2.2 Core Engine &bull; chemical_flow.py &bull; ISO 17025 Compliance
                     </span>
                 </div>
@@ -68,7 +68,7 @@
                 </div>
             </div>
 
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
+            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: var(--theme-accent);"></i></div>
 
             <!-- Stage 2: Confirm Receipt -->
             <div class="ca-pipe-step {% if queue_counts.received %}is-hot{% endif %}" onclick="caFilterWorkflowStage('RECEIVED')" style="cursor: pointer;" title="Confirm delivery note and quantity">
@@ -81,7 +81,7 @@
                 </div>
             </div>
 
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
+            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: var(--theme-accent);"></i></div>
 
             <!-- Stage 3: Analysis Request -->
             <div class="ca-pipe-step {% if queue_counts.requested %}is-active{% endif %}" onclick="caFilterWorkflowStage('REQUESTED')" style="cursor: pointer;" title="Create analytical testing request">
@@ -94,7 +94,7 @@
                 </div>
             </div>
 
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
+            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: var(--theme-accent);"></i></div>
 
             <!-- Stage 4: Receiving Checklist -->
             <div class="ca-pipe-step {% if queue_counts.checklist %}is-active{% endif %}" onclick="caFilterWorkflowStage('CHECKLIST')" style="cursor: pointer;" title="Audit packaging and hazard flags">
@@ -107,7 +107,7 @@
                 </div>
             </div>
 
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
+            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: var(--theme-accent);"></i></div>
 
             <!-- Stage 5: Start & Record Test Results -->
             <div class="ca-pipe-step {% if queue_counts.analysis %}is-hot{% endif %}" onclick="caFilterWorkflowStage('ANALYSIS')" style="cursor: pointer;" title="Bench testing, titration & analytical inputs">
@@ -120,7 +120,7 @@
                 </div>
             </div>
 
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
+            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: var(--theme-accent);"></i></div>
 
             <!-- Stage 6: Chemist Review & Decision Gate -->
             <div class="ca-pipe-step {% if queue_counts.qa %}is-hot{% endif %}" onclick="caFilterWorkflowStage('QA')" style="cursor: pointer;" title="Chemist validation, retest or CAPA decision">
@@ -133,7 +133,7 @@
                 </div>
             </div>
 
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
+            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: var(--theme-accent);"></i></div>
 
             <!-- Stage 7: CoA Sign-off -->
             <div class="ca-pipe-step {% if queue_counts.coa %}is-active{% endif %}" onclick="caFilterWorkflowStage('COA')" style="cursor: pointer;" title="Digital signature and CoA stamp">
@@ -146,7 +146,7 @@
                 </div>
             </div>
 
-            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: #38bdf8;"></i></div>
+            <div class="ca-pipe-connector"><i class="fa fa-chevron-right" style="font-size: 0.65rem; color: var(--theme-accent);"></i></div>
 
             <!-- Stage 9: Release / Disposition -->
             <div class="ca-pipe-step {% if queue_counts.disposition %}is-active{% endif %}" onclick="caFilterWorkflowStage('DISPOSITION')" style="cursor: pointer;" title="Utilization in treatment works or return to supplier">
@@ -162,7 +162,7 @@
         </div>
 
         <!-- STAGE QUICK FILTER BUTTONS -->
-        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--theme-border);">
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('ALL')" style="font-size: 0.68rem; padding: 4px 8px;">Show All Processes</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('INTAKE')">Intake ({{ queue_counts.received|default:0 }})</button>
             <button type="button" class="ca-date-chip" onclick="caFilterWorkflowStage('TESTING')">Testing ({{ queue_counts.analysis|default:0 }})</button>
@@ -183,10 +183,10 @@
     <div class="pbi-table-card" style="margin-top: 1rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #0c2340;">
-                    <i class="fa fa-microchip" style="color: #0b4584;"></i> Chemical Batch Workflow & Viewflow Tasks
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--theme-text);">
+                    <i class="fa fa-microchip" style="color: var(--theme-accent);"></i> Chemical Batch Workflow & Viewflow Tasks
                 </h3>
-                <span style="font-size: 0.72rem; color: #64748b;">
+                <span style="font-size: 0.72rem; color: var(--theme-text-secondary, var(--theme-muted));">
                     Current authorized action for every batch, through CoA release, utilization or supplier return, scoped to {{ plant_context.plant_name }}
                 </span>
             </div>
@@ -214,19 +214,19 @@
                     <tr class="ca-proc-row" data-stage="{{ p.workflow_queue_stage|default:p.status }}" data-status="{{ p.status }}">
                         <td>
                             <code>#PR-{{ p.pk }}</code>
-                            <div style="font-size: 0.65rem; color: #64748b;">Flow: ChemicalAnalysisFlow</div>
+                            <div style="font-size: 0.65rem; color: var(--theme-text-secondary,var(--theme-muted));">Flow: ChemicalAnalysisFlow</div>
                         </td>
                         <td>
                             <strong>{{ p.batch.chemical.name|default:"Water Treatment Chemical" }}</strong>
-                            <div style="font-size: 0.68rem; color: #0284c7;">
+                            <div style="font-size: 0.68rem; color: var(--theme-accent);">
                                 Batch: <strong>{{ p.batch.batch_number|default:"—" }}</strong>
                             </div>
-                            <div style="font-size: 0.62rem; color: #64748b;">
+                            <div style="font-size: 0.62rem; color: var(--theme-text-secondary,var(--theme-muted));">
                                 Sample: {{ p.batch.sample_id|default:"Pending" }}
                             </div>
                         </td>
                         <td>
-                            <span style="font-size: 0.78rem; font-weight: 600; color: #334155;">
+                            <span style="font-size: 0.78rem; font-weight: 600; color: var(--theme-text);">
                                 {{ p.batch.treatment_plant.name|default:plant_context.plant_name }}
                             </span>
                         </td>
@@ -256,22 +256,22 @@
                         <td>
                             <div style="font-size: 0.74rem;">
                                 {% if p.workflow_task_title %}
-                                    <i class="fa fa-list-check" style="color: #0284c7;"></i> {{ p.workflow_task_title }}
+                                    <i class="fa fa-list-check" style="color: var(--theme-accent);"></i> {{ p.workflow_task_title }}
                                 {% elif p.status == 'ANALYSIS' %}
-                                    <i class="fa fa-user-flask" style="color: #0284c7;"></i> Bench Analyst
+                                    <i class="fa fa-user-flask" style="color: var(--theme-accent);"></i> Bench Analyst
                                 {% elif p.status == 'QA' %}
-                                    <i class="fa fa-user-shield" style="color: #6366f1;"></i> QA Lead Officer
+                                    <i class="fa fa-user-shield" style="color: var(--ca-series-4);"></i> QA Lead Officer
                                 {% elif p.status == 'APPROVED' %}
-                                    <i class="fa fa-user-check" style="color: #10b981;"></i> Technical Approver
+                                    <i class="fa fa-user-check" style="color: var(--color-success);"></i> Technical Approver
                                 {% elif p.status == 'CREATED' or p.status == 'RECEIVED' %}
-                                    <i class="fa fa-user-gear" style="color: #f59e0b;"></i> Receiving Storekeeper
+                                    <i class="fa fa-user-gear" style="color: var(--color-warning);"></i> Receiving Storekeeper
                                 {% else %}
                                     <i class="fa fa-user"></i> {{ p.initiated_by.get_full_name|default:p.initiated_by.username|default:"Workflow Engine" }}
                                 {% endif %}
                             </div>
                         </td>
                         <td>
-                            <span style="font-size: 0.72rem; color: #64748b;">
+                            <span style="font-size: 0.72rem; color: var(--theme-text-secondary,var(--theme-muted));">
                                 {{ p.created_at|date:"Y-m-d H:i"|default:"—" }}
                             </span>
                         </td>
@@ -292,8 +292,8 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 2rem; color: #64748b;">
-                            <i class="fa fa-circle-check" style="font-size: 2.2rem; color: #10b981; display: block; margin-bottom: 0.5rem;"></i>
+                        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--theme-text-secondary,var(--theme-muted));">
+                            <i class="fa fa-circle-check" style="font-size: 2.2rem; color: var(--color-success); display: block; margin-bottom: 0.5rem;"></i>
                             <strong>No active processes waiting in queue.</strong>
                             <p style="font-size: 0.78rem; margin-top: 0.25rem;">Click "Receive Batch" above to initiate a new chemical analysis process.</p>
                         </td>
@@ -307,7 +307,7 @@
 </div>
 
 <style>
-.ca-workflow-exceptions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.65rem;margin:0 0 .8rem}.ca-exception-card{display:flex;align-items:center;gap:.7rem;padding:.7rem .85rem;border:1px solid rgba(148,163,184,.25);border-radius:.8rem;text-decoration:none;color:inherit;background:rgba(15,23,42,.38)}.ca-exception-card>i{font-size:1.1rem}.ca-exception-card span{display:grid;gap:.15rem}.ca-exception-card small{opacity:.75}.ca-exception-card--hold{border-color:rgba(245,158,11,.5);color:#fbbf24}.ca-exception-card--quality{border-color:rgba(239,68,68,.5);color:#fca5a5}.ca-exception-card--stalled{border-color:rgba(56,189,248,.5);color:#7dd3fc}.ca-exception-card--clear{border-color:rgba(34,197,94,.4);color:#86efac}.ca-stage-aging{margin:.3rem 0 1rem;border:1px solid rgba(56,189,248,.22);border-radius:.8rem;background:rgba(8,20,40,.45);color:inherit}.ca-stage-aging summary{cursor:pointer;padding:.65rem .8rem;font-size:.82rem;font-weight:700}.ca-stage-aging__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:.55rem;padding:0 .8rem .8rem}.ca-stage-aging__item{display:grid;gap:.2rem;padding:.6rem;border-radius:.6rem;background:rgba(148,163,184,.08)}.ca-stage-aging__item span{color:#7dd3fc;font-size:.8rem}.ca-stage-aging__item small{opacity:.7}
+.ca-workflow-exceptions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.65rem;margin:0 0 .8rem}.ca-exception-card{display:flex;align-items:center;gap:.7rem;padding:.7rem .85rem;border:1px solid var(--theme-border);border-radius:.8rem;text-decoration:none;color:var(--theme-text);background:var(--theme-surface)}.ca-exception-card>i{font-size:1.1rem}.ca-exception-card span{display:grid;gap:.15rem}.ca-exception-card small{color:var(--theme-text-secondary,var(--theme-muted))}.ca-exception-card--hold{border-color:color-mix(in srgb,var(--color-warning) 45%,var(--theme-border));color:var(--color-warning)}.ca-exception-card--quality{border-color:color-mix(in srgb,var(--color-danger) 45%,var(--theme-border));color:var(--color-danger)}.ca-exception-card--stalled{border-color:color-mix(in srgb,var(--theme-accent) 45%,var(--theme-border));color:var(--theme-accent)}.ca-exception-card--clear{border-color:color-mix(in srgb,var(--color-success) 45%,var(--theme-border));color:var(--color-success)}.ca-stage-aging{margin:.3rem 0 1rem;border:1px solid var(--theme-border);border-radius:.8rem;background:var(--theme-surface);color:var(--theme-text)}.ca-stage-aging summary{cursor:pointer;padding:.65rem .8rem;font-size:.82rem;font-weight:700}.ca-stage-aging__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:.55rem;padding:0 .8rem .8rem}.ca-stage-aging__item{display:grid;gap:.2rem;padding:.6rem;border-radius:.6rem;background:var(--theme-surface-muted)}.ca-stage-aging__item span{color:var(--theme-accent);font-size:.8rem}.ca-stage-aging__item small{color:var(--theme-text-secondary,var(--theme-muted))}
 </style>
 
 <script>

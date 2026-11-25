@@ -70,6 +70,7 @@ LAUNCHER_APPS = [
     ("QCA", "/qca/results/cards/"),
     ("Treatment", "/t/"),
     ("Inventory", "/inventory/"),
+    ("Standardization", "/standardization/"),
     ("SC", "/sc/"),
     ("QC", "/qc/"),
     ("WC", "/wc/"),

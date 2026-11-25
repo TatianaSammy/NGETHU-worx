@@ -44,13 +44,19 @@ class AlertTemplate(models.Model):
     version = models.IntegerField(default=1)
     active = models.BooleanField(default=True)
     metadata = JSONField(default=dict)
-    auto_voice_enabled = models.BooleanField(default=True)
+    auto_voice_enabled = models.BooleanField(default=True, editable=False)
 
     class Meta:
         unique_together = ('name', 'version')
 
     def __str__(self):
         return f"{self.name} v{self.version}"
+
+    def save(self, *args, **kwargs):
+        self.auto_voice_enabled = True
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"auto_voice_enabled"}
+        return super().save(*args, **kwargs)
 
 
 # ============================================================
@@ -130,7 +136,7 @@ class AlertConfig(models.Model):
         max_length=32,
         choices=VoicePersistenceMode.choices,
         default=VoicePersistenceMode.UNTIL_ACKNOWLEDGED,
-        help_text="Controls how long voiced notifications repeat. The template must also allow auto voice.",
+        help_text="Controls how long voiced notifications repeat until their configured completion condition.",
     )
     voice_repeat_interval_seconds = models.PositiveIntegerField(
         default=60,
@@ -354,21 +360,9 @@ def alert_state_change_observer(sender, instance, created=False, **kwargs):
     try:
         recipient_ids = set()
         for notification in instance.notifications.select_related("recipient"):
-            if "push" not in (notification.channels or []):
-                continue
-            preference = getattr(notification.recipient, "alert_preferences", None)
-            if preference and not preference.receive_push:
-                continue
             recipient_ids.add(notification.recipient_id)
         if not recipient_ids:
             return
-        auto_voice = bool(
-            instance.alert_config_id
-            and instance.alert_config.active
-            and instance.alert_config.template_id
-            and instance.alert_config.template.active
-            and instance.alert_config.template.auto_voice_enabled
-        )
         message = {
             "type": "alert_state",
             "id": f"state_{instance.pk}",
@@ -378,7 +372,7 @@ def alert_state_change_observer(sender, instance, created=False, **kwargs):
             "alert_type": instance.alert_config.alert_type,
             "instance_ref": instance.instance_ref,
             "state": instance.state,
-            "auto_voice": auto_voice,
+            "auto_voice": True,
             "timestamp": timezone.now().isoformat(),
         }
         for user_id in recipient_ids:
@@ -429,7 +423,7 @@ def synthesize_simple_tts(message: str, lang: str = "en") -> tuple[bytes, str]:
     except Exception as gtts_err:
         logger.debug("[TTS] gTTS skipped or unavailable: %s", gtts_err)
 
-    # 2. Local offline fallback: pyttsx3
+    # 2. Local speech-engine fallback for connected application workers
     try:
         import pyttsx3
         engine = pyttsx3.init()
@@ -446,7 +440,7 @@ def synthesize_simple_tts(message: str, lang: str = "en") -> tuple[bytes, str]:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
     except Exception as pyttsx_err:
-        logger.debug("[TTS] pyttsx3 offline fallback skipped or unavailable: %s", pyttsx_err)
+        logger.debug("[TTS] Local speech-engine fallback skipped or unavailable: %s", pyttsx_err)
 
     return b"", "mp3"
 

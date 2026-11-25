@@ -252,11 +252,8 @@ class AlertEngine:
                             ))
                         AlertNotification.objects.bulk_create(notifications)
                         if (
-                            config.template_id
-                            and config.template.active
-                            and config.template.auto_voice_enabled
-                            and config.voice_persistence_mode != AlertConfig.VoicePersistenceMode.ONCE
-                            and any("push" in (notification.channels or []) for notification in notifications)
+                            config.voice_persistence_mode != AlertConfig.VoicePersistenceMode.ONCE
+                            and notifications
                         ):
                             state.repeat_due_at = now + timedelta(
                                 seconds=max(5, int(config.voice_repeat_interval_seconds or 60))

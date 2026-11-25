@@ -10,8 +10,8 @@
     min-height: var(--ca-topbar-height);
     padding: 0 18px;
     border-bottom: 1px solid var(--ca-border);
-    background: rgb(255 255 255 / .94);
-    box-shadow: 0 1px 8px rgb(15 23 42 / .035);
+    background: var(--topbar-bg, var(--theme-surface-strong, var(--ca-surface)));
+    box-shadow: 0 1px 8px rgb(0 0 0 / .06);
     backdrop-filter: blur(12px);
 }
 

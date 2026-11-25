@@ -1,19 +1,19 @@
-body.app-fullscreen-shell {
+body.app-shell-host {
     min-height: 100dvh;
 }
 
-body.app-fullscreen-shell main.container {
+body.app-shell-host main.container {
     padding-top: calc(var(--header-height, 62px) + 20px);
 }
 
-body.app-fullscreen-shell .container {
+body.app-shell-host .container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
 }
 
 @media (max-width: 768px) {
-    body.app-fullscreen-shell .container {
+    body.app-shell-host .container {
         width: 95%;
         padding: 10px;
     }

@@ -1,6 +1,6 @@
 {% extends "xmicalconcentration/base.html" %}
 {% load static %}
 {% block title %}Chemical Concentration Control{% endblock %}
-{% block extra_styles %}{{ block.super }}<link rel="stylesheet" href="{% static 'core/css/domain-dashboard.css' %}?v=20261031">{% endblock %}
-{% block page_content %}{% include "core/components/domain_dashboard.html" %}{% endblock %}
+{% block extra_styles %}{{ block.super }}<link rel="stylesheet" href="{% static 'core/css/domain-dashboard.css' %}?v=20261031"><link rel="stylesheet" href="{% static 'xmicalconcentration/css/hydrometer-calculator.css' %}?v=20261124">{% endblock %}
+{% block page_content %}{% include "xmicalconcentration/partials/hydrometer_calculator.html" %}{% include "core/components/domain_dashboard.html" %}{% endblock %}
 {% block extra_scripts %}{{ block.super }}<script src="{% static 'js/Chart.min.js' %}"></script><script src="{% static 'core/js/cockpit.js' %}?v=20261031"></script><script src="{% static 'core/js/domain-dashboard.js' %}?v=20261031"></script>{% endblock %}

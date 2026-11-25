@@ -1,0 +1,330 @@
+# ============================================================
+# Default-deny all ingress within the namespace,
+# then selectively allow only the required traffic paths.
+# ============================================================
+
+# 1. Default deny all ingress in the qad namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: qad
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2. Default deny all egress (we'll open only what's needed)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: qad
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+---
+# 3. Allow DNS egress for all pods (required for service discovery)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: qad
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# 4. Allow Ingress Controller → web (port 8000) & daphne (port 8001)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-web
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8000
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-daphne
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: daphne
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8001
+          protocol: TCP
+---
+# 5. Allow web + daphne + celery + beat → pgbouncer (port 6432)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apps-to-pgbouncer
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: database-pooler
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - web
+                  - daphne
+                  - celery
+                  - beat
+                  - migrate
+      ports:
+        - port: 6432
+          protocol: TCP
+---
+# 6. Allow pgbouncer → postgres (port 5432)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pgbouncer-to-postgres
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: database
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: database-pooler
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# 7. Allow web + daphne + celery + beat → redis (port 6379)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apps-to-redis
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: cache
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - web
+                  - daphne
+                  - celery
+                  - beat
+                  - migrate
+      ports:
+        - port: 6379
+          protocol: TCP
+---
+# 8. Allow nginx → web & daphne (for static/media reverse proxy)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-to-web
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: nginx
+      ports:
+        - port: 8000
+          protocol: TCP
+---
+# 9. Egress: allow apps to reach pgbouncer
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apps-egress-pgbouncer
+  namespace: qad
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - web
+          - daphne
+          - celery
+          - beat
+          - migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: database-pooler
+      ports:
+        - port: 6432
+          protocol: TCP
+---
+# 10. Egress: allow apps to reach redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apps-egress-redis
+  namespace: qad
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - web
+          - daphne
+          - celery
+          - beat
+          - migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: cache
+      ports:
+        - port: 6379
+          protocol: TCP
+---
+# 11. Egress: allow pgbouncer to reach postgres
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-pgbouncer-egress-postgres
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: database-pooler
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: database
+      ports:
+        - port: 5432
+          protocol: TCP
+---
+# 12. Allow Nginx to reach the HTTP and WebSocket upstreams
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-nginx-egress-to-apps
+  namespace: qad
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: nginx
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - web
+                  - daphne
+      ports:
+        - port: 8000
+          protocol: TCP
+        - port: 8001
+          protocol: TCP
+---
+# 13. Allow ingress health checks from the ingress controller namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-healthcheck-ingress
+  namespace: qad
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - nginx
+          - web
+          - daphne
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+---
+# 14. Allow Django app pods to call the Exchange EWS endpoint over HTTPS.
+# Keep this /32 aligned with the current A record for mail.nairobiwater.co.ke.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apps-egress-exchange-ews
+  namespace: qad
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+          - web
+          - daphne
+          - celery
+          - beat
+          - migrate
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 41.215.4.70/32
+      ports:
+        - port: 443
+          protocol: TCP
+

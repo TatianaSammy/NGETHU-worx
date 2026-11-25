@@ -246,13 +246,6 @@ class MaintenanceIncident(AuditModel):
         related_name="reported_incidents",
     )
 
-    offline_submission_key = models.UUIDField(
-        null=True,
-        blank=True,
-        unique=True,
-        editable=False,
-    )
-
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

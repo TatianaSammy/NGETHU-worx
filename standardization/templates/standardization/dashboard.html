@@ -1,0 +1,102 @@
+{% extends "standardization/base.html" %}
+{% load static humanize %}
+
+{% block title %}Standardization dashboard · QAD{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{% static 'standardization/css/dashboard.css' %}?v=20261121-standardization-v2">
+{% endblock %}
+
+{% block content %}
+<div class="app-shell standardization-app-shell">
+    <div class="standardization-dashboard">
+        <header class="std-hero">
+            <div class="std-hero-copy">
+                <div class="std-eyebrow"><span class="std-eyebrow-mark"></span> LABORATORY QUALITY · REAGENT CONTROL</div>
+                <h1>Standardization <span>dashboard</span></h1>
+                <p>Standardize titrants from a known aliquot (titrand) and keep every run traceable.</p>
+            </div>
+            <div class="std-hero-actions">
+                <a class="std-button std-button-quiet" href="{% url 'standardization:dashboard' %}?period={{ selected_period }}&amp;titrant={{ selected_titrant|urlencode }}&amp;q={{ search_query|urlencode }}&amp;export=csv">
+                    <i class="fa-solid fa-arrow-down-to-bracket" aria-hidden="true"></i> Export CSV
+                </a>
+                <a class="std-button std-button-primary" href="{% url 'standardization:dashboard' %}?entry=1#new-standardization">
+                    <i class="fa-solid fa-plus" aria-hidden="true"></i> Record run
+                </a>
+            </div>
+        </header>
+
+        {% if messages %}
+        <section class="std-messages" aria-live="polite">
+            {% for message in messages %}<div class="std-message std-message-{{ message.tags|default:'info' }}"><i class="fa-solid fa-circle-check" aria-hidden="true"></i>{{ message }}</div>{% endfor %}
+        </section>
+        {% endif %}
+
+        <section class="std-metrics" aria-label="Standardization summary">
+            <article class="std-metric std-metric-primary">
+                <div class="std-metric-top"><span>Runs in view</span><span class="std-metric-icon"><i class="fa-solid fa-vials" aria-hidden="true"></i></span></div>
+                <strong>{{ record_count|intcomma }}</strong>
+                <small>Recorded titration runs</small>
+            </article>
+            <article class="std-metric">
+                <div class="std-metric-top"><span>Reagents standardized</span><span class="std-metric-icon"><i class="fa-solid fa-flask" aria-hidden="true"></i></span></div>
+                <strong>{{ reagent_count|default:0|intcomma }}</strong>
+                <small>Distinct titrants in this view</small>
+            </article>
+            <article class="std-metric">
+                <div class="std-metric-top"><span>Mean actual titrant normality</span><span class="std-metric-icon"><i class="fa-solid fa-chart-line" aria-hidden="true"></i></span></div>
+                <strong>{% if average_normality != None %}{{ average_normality|floatformat:4 }}{% else %}—{% endif %}</strong>
+                <small>Calculated titrant normality from the average titre</small>
+            </article>
+        </section>
+
+        <section class="std-analysis-grid">
+            <article class="std-panel std-definition-panel">
+                <div class="std-panel-heading"><div><span class="std-kicker">CALCULATION MODEL</span><h2>Titrant normality</h2><p>Calculated from the known titrand and three titre readings</p></div></div>
+                <div class="std-formula-card"><span>AVERAGE TITRE</span><strong>(T₁ + T₂ + T₃) ÷ 3</strong><small>mL · rounded to 2 decimal places</small></div>
+                <div class="std-formula-card"><span>ACTUAL TITRANT NORMALITY</span><strong>(N<sub>titrand</sub> × V<sub>aliquot</sub>) ÷ V<sub>titre avg</sub></strong><small>Calculated from the known titrand normality and recorded titre readings</small></div>
+                <div class="std-quality-note"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i><span>Each run retains its reagents, preparer, date and raw titre readings.</span></div>
+            </article>
+        </section>
+
+        <details class="std-entry-panel" id="new-standardization" {% if show_entry %}open{% endif %}>
+            <summary><span class="std-entry-icon"><i class="fa-solid fa-flask-vial" aria-hidden="true"></i></span><span><strong>Standardize a titrant</strong><small>Select the titrand and titrant, then enter the run readings</small></span><i class="fa-solid fa-chevron-down std-entry-chevron" aria-hidden="true"></i></summary>
+            <form method="post" class="std-entry-form" novalidate>
+                {% csrf_token %}
+                {% if form.non_field_errors %}<div class="std-form-errors">{{ form.non_field_errors }}</div>{% endif %}
+                <div class="std-form-grid">
+                    {% for field in form %}
+                    <div class="std-field {% if field.name == 'remarks' %}std-field-wide{% endif %}">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span aria-hidden="true"> *</span>{% endif %}</label>
+                        {{ field }}
+                        {% if field.help_text %}<small class="std-help">{{ field.help_text }}</small>{% endif %}
+                        {% for error in field.errors %}<small class="std-error">{{ error }}</small>{% endfor %}
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="std-entry-footer"><span><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Average titre and actual titrant normality are calculated automatically.</span><button class="std-button std-button-primary" type="submit"><i class="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save standardization</button></div>
+            </form>
+        </details>
+
+        <section class="std-panel std-history-panel" id="standardization-records">
+            <div class="std-history-heading">
+                <div><span class="std-kicker">AUDITABLE RUN HISTORY</span><h2>Standardization records</h2><p>Filtered results · {{ record_count|intcomma }} run{{ record_count|pluralize }}</p></div>
+                <a class="std-link-export" href="{% url 'standardization:dashboard' %}?period={{ selected_period }}&amp;titrant={{ selected_titrant|urlencode }}&amp;q={{ search_query|urlencode }}&amp;export=csv"><i class="fa-solid fa-file-csv" aria-hidden="true"></i> Download data</a>
+            </div>
+            <form method="get" class="std-filters">
+                <label><span>Period</span><select name="period" class="std-input"><option value="30" {% if selected_period == "30" %}selected{% endif %}>Last 30 days</option><option value="90" {% if selected_period == "90" %}selected{% endif %}>Last 90 days</option><option value="365" {% if selected_period == "365" %}selected{% endif %}>Last 12 months</option><option value="all" {% if selected_period == "all" %}selected{% endif %}>All records</option></select></label>
+                <label><span>Titrant</span><select name="titrant" class="std-input"><option value="">All titrants</option>{% for reagent in reagents %}<option value="{{ reagent.pk }}" {% if selected_titrant == reagent.pk|stringformat:"s" %}selected{% endif %}>{{ reagent.rname }}</option>{% endfor %}</select></label>
+                <label class="std-filter-search"><span>Search</span><div class="std-search-box"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><input class="std-input" type="search" name="q" value="{{ search_query }}" placeholder="Reagent, preparer or notes"></div></label>
+                <div class="std-filter-actions"><button class="std-button std-button-primary" type="submit"><i class="fa-solid fa-sliders" aria-hidden="true"></i> Apply</button><a class="std-button std-button-quiet" href="{% url 'standardization:dashboard' %}">Reset</a></div>
+            </form>
+            {% if records %}
+            <div class="std-table-wrap"><table class="std-table"><thead><tr><th>Run date</th><th>Titrant</th><th>Aliquot (titrand)</th><th>Known titrand normality</th><th>Aliquot volume</th><th>Avg titre</th><th>Actual titrant normality</th><th>Prepared by</th></tr></thead><tbody>
+            {% for record in records %}<tr><td><strong>{{ record.preparation_date|date:"d M Y" }}</strong><small>{{ record.created_at|date:"H:i" }}</small></td><td><span class="std-reagent-name">{{ record.titrant.rname }}</span></td><td>{{ record.standard.rname }}</td><td>{{ record.standard_normality|floatformat:4 }} N</td><td>{{ record.aliquot_volume_ml|floatformat:2 }} <small>mL</small></td><td>{{ record.average_titre|floatformat:2 }} <small>mL</small></td><td><strong>{{ record.actual_normality|floatformat:4 }} N</strong></td><td>{% if record.prepared_by %}{{ record.prepared_by.get_full_name|default:record.prepared_by.username }}{% else %}<span class="std-muted">—</span>{% endif %}</td></tr>{% endfor %}
+            </tbody></table></div>
+            {% if page_obj.paginator.num_pages > 1 %}<nav class="std-pagination" aria-label="Standardization history pages"><span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span><div>{% if page_obj.has_previous %}<a href="?period={{ selected_period }}&amp;titrant={{ selected_titrant|urlencode }}&amp;q={{ search_query|urlencode }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}{% if page_obj.has_next %}<a href="?period={{ selected_period }}&amp;titrant={{ selected_titrant|urlencode }}&amp;q={{ search_query|urlencode }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}</div></nav>{% endif %}
+            {% else %}<div class="std-empty-table"><i class="fa-regular fa-folder-open" aria-hidden="true"></i><strong>No matching records</strong><span>Try a wider period, a different reagent or a shorter search.</span></div>{% endif %}
+        </section>
+        <footer class="std-footer"><span>QAD · Laboratory standardization</span><span>Values calculated from the saved raw readings</span></footer>
+    </div>
+</div>
+{% endblock %}

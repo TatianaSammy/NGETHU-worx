@@ -5,7 +5,7 @@
 {% block title %}Chemical Analysis Intelligence Command Center{% endblock %}
 
 {% block page_css %}
-<link rel="stylesheet" href="{% static 'ca/css/pages/dashboard.css' %}">
+<link rel="stylesheet" href="{% static 'ca/css/pages/dashboard.css' %}?v=20261114-ca-theme-v2">
 <link rel="stylesheet" href="{% static 'ca/css/pages/dashboard-analytics.css' %}">
 {% endblock %}
 
@@ -1821,6 +1821,78 @@
     }
 
 
+    function chartThemeValues() {
+        const root = document.getElementById("chemical-analysis-dashboard");
+        const style = getComputedStyle(root || document.documentElement);
+        const value = (name, fallback) => style.getPropertyValue(name).trim() || fallback;
+        return {
+            font: style.fontFamily || value("--font-sans", "sans-serif"),
+            text: value("--theme-text", "#172033"),
+            muted: value("--theme-text-secondary", value("--theme-muted", "#64748b")),
+            border: value("--theme-border", "#dbe3eb"),
+            surface: value("--theme-surface", "#ffffff"),
+            colorway: [
+                value("--theme-accent", "#0284c7"),
+                value("--color-success", "#16a34a"),
+                value("--color-warning", "#d97706"),
+                value("--color-danger", "#dc2626")
+            ]
+        };
+    }
+
+
+    function applyChartTheme(layout) {
+        const colors = chartThemeValues();
+        layout = {
+            ...layout,
+            template: "none",
+            paper_bgcolor: "transparent",
+            plot_bgcolor: "transparent",
+            colorway: colors.colorway,
+            font: { ...(layout.font || {}), family: colors.font, color: colors.text },
+            hoverlabel: {
+                ...(layout.hoverlabel || {}),
+                bgcolor: colors.surface,
+                bordercolor: colors.border,
+                font: { ...((layout.hoverlabel || {}).font || {}), family: colors.font, color: colors.text }
+            }
+        };
+        if (layout.title) {
+            const title = typeof layout.title === "string" ? { text: layout.title } : layout.title;
+            layout.title = {
+                ...title,
+                font: { ...(title.font || {}), family: colors.font, color: colors.text }
+            };
+        }
+        Object.keys(layout).filter(key => /^[xyz]axis\d*$/.test(key)).forEach(key => {
+            const axis = layout[key] || {};
+            const title = typeof axis.title === "string" ? { text: axis.title } : (axis.title || {});
+            layout[key] = {
+                ...axis,
+                color: colors.muted,
+                gridcolor: colors.border,
+                linecolor: colors.border,
+                zerolinecolor: colors.border,
+                tickfont: { ...(axis.tickfont || {}), family: colors.font, color: colors.muted },
+                title: { ...title, font: { ...(title.font || {}), family: colors.font, color: colors.text } }
+            };
+        });
+        if (layout.legend) {
+            layout.legend = {
+                ...layout.legend,
+                font: { ...(layout.legend.font || {}), family: colors.font, color: colors.text }
+            };
+        }
+        if (Array.isArray(layout.annotations)) {
+            layout.annotations = layout.annotations.map(annotation => ({
+                ...annotation,
+                font: { ...(annotation.font || {}), family: colors.font, color: colors.text }
+            }));
+        }
+        return layout;
+    }
+
+
     function defaultLayout() {
         return {
             autosize: true,
@@ -1872,11 +1944,11 @@
                 Array.isArray(raw.data)
                     ? raw.data
                     : [],
-            layout: {
+            layout: applyChartTheme({
                 ...defaultLayout(),
                 ...(raw.layout || {}),
                 ...(overrides || {})
-            },
+            }),
             config: {
                 responsive: true,
                 displaylogo: false,
@@ -2375,10 +2447,10 @@
             window.Plotly.react(
                 "chart-comparison",
                 matching,
-                {
+                applyChartTheme({
                     ...defaultLayout(),
                     ...(figure.layout || {})
-                },
+                }),
                 {
                     responsive: true,
                     displaylogo: false
@@ -2696,6 +2768,7 @@
 
 
     renderAllCharts();
+    window.addEventListener("themeChanged", renderAllCharts);
 
     attachProcessDrilldown();
 

@@ -29,6 +29,7 @@ from .forms import (
     AnalystAssignmentForm,
     ChemicalBatchHoldResolutionForm,
     ChemicalBatchForm,
+    ChemicalBatchReceiptForm,
     ChemicalCustodyRecordForm,
     ChemicalSpecificationFilterForm,
     TestResultFilterForm,
@@ -37,6 +38,7 @@ from .mixins import CaWanjalaMixin
 from .models import (
     BatchTestResult,
     Chemical,
+    CHEMICAL_INSPECTION_CHECKLIST,
     ChemicalAnalysisInput,
     ChemicalAnalysisProcess,
     ChemicalAnalysisRequest,
@@ -245,22 +247,16 @@ def _result_display_queryset(user, plant_id=None):
 
 
 def _analysis_input_queryset(user, plant_id=None):
-    queryset = (
-        ChemicalAnalysisInput.objects
-        .select_related(
-            "test_result",
-            "test_result__batch",
-            "test_result__batch__chemical",
-            "test_result__parameter",
-            "test_result__parameter__method",
-        )
+    method_ids = (
+        _specification_queryset(user, plant_id=plant_id)
+        .exclude(method_id__isnull=True)
+        .values_list("method_id", flat=True)
     )
-
-    return _scope_queryset(
-        queryset,
-        user,
-        "test_result__batch__treatment_plant_id",
-        plant_id=plant_id,
+    return (
+        ChemicalAnalysisInput.objects
+        .filter(method_id__in=method_ids)
+        .select_related("method")
+        .distinct()
     )
 
 
@@ -772,6 +768,9 @@ class ChemicalBatchWorkflowActionView(CaWanjalaMixin, View):
             if not user.is_superuser and not user.has_perm(permission):
                 raise PermissionDenied("You do not have permission to run this workflow task.")
 
+            if not batch.inspections.filter(status="PASS").exists():
+                raise PermissionDenied("A passing Inspection Committee inspection is required before analyst workflow tasks can proceed.")
+
             if node_name == "checklist":
                 if analysis_request.checklists.filter(completed=True).exists() or process.status not in {
                     ChemicalAnalysisProcess.WorkflowStatus.RECEIVED,
@@ -939,6 +938,50 @@ class ChemicalBatchDetailView(
     context_object_name = "batch"
     permission_required_view = "ca.view_chemicalbatch"
 
+    def _is_batch_committee_member(self, user=None):
+        user = user or self.request.user
+        plant_id = getattr(user, "assigned_treatment_plant_id", None)
+        if not user.is_authenticated or not user.is_active or not plant_id:
+            return False
+        batch_plant_id = ChemicalBatch.objects.filter(
+            pk=self.kwargs.get("pk"),
+            treatment_plant_id=plant_id,
+        ).values_list("treatment_plant_id", flat=True).first()
+        if batch_plant_id is None:
+            return False
+        from .services.inspection_committee import is_active_committee_member
+
+        return is_active_committee_member(user, batch_plant_id)
+
+    def has_ca_module_access(self, user=None):
+        user = user or self.request.user
+        return (
+            super().has_ca_module_access(user)
+            or self._is_batch_committee_member(user)
+            or any(
+                user.has_perm(permission)
+                for permission in (
+                    "ca.receive_chemical_batch",
+                    "ca.reject_chemical_batch",
+                    "ca.return_chemical_batch",
+                )
+            )
+        )
+
+    def check_permission(self, action=None):
+        if action == "view" and self._is_batch_committee_member():
+            return True
+        if action == "view" and any(
+            self.request.user.has_perm(permission)
+            for permission in (
+                "ca.receive_chemical_batch",
+                "ca.reject_chemical_batch",
+                "ca.return_chemical_batch",
+            )
+        ):
+            return True
+        return super().check_permission(action)
+
     def get_object(self, queryset=None):
         return _get_batch_or_404(
             self.request.user,
@@ -948,6 +991,11 @@ class ChemicalBatchDetailView(
 
     @staticmethod
     def _task_permission_ok(user, task):
+        if getattr(getattr(task, "flow_task", None), "name", "") == "inspection_committee":
+            from .services.inspection_committee import can_access_committee_inspection_form
+
+            batch = getattr(getattr(task, "process", None), "batch", None)
+            return bool(batch and can_access_committee_inspection_form(user, batch))
         if user.is_superuser:
             return True
         required_permission = getattr(task, "owner_permission", None)
@@ -977,6 +1025,7 @@ class ChemicalBatchDetailView(
         if (
             stage_key == "assignment"
             and analysis_request is not None
+            and process.batch.inspections.filter(status="PASS").exists()
             and analysis_request.status == ChemicalAnalysisRequest.Status.PENDING
             and not analysis_request.has_assigned_analysts
             and (user.is_superuser or user.has_perm("ca.create_analysis_request"))
@@ -1026,7 +1075,7 @@ class ChemicalBatchDetailView(
             try:
                 if task.owner_id == user.pk and node.can_execute(user, task):
                     action = "execute"
-                    label = "Open current step"
+                    label = "Start Committee Inspection" if node_name == "inspection_committee" else "Open current step"
                     return (
                         reverse(
                             f"ca:chemicalanalysis:{node_name}:{action}",
@@ -1040,7 +1089,7 @@ class ChemicalBatchDetailView(
                             "ca:batch-task-claim",
                             kwargs={"pk": process.batch_id, "task_pk": task.pk},
                         ),
-                        "Claim this step",
+                        "Commence Committee Inspection" if node_name == "inspection_committee" else "Claim this step",
                     )
                 else:
                     continue
@@ -1061,6 +1110,17 @@ class ChemicalBatchDetailView(
             t for t in active_tasks
             if stage_for_task_name(getattr(t.flow_task, "name", None)) == stage_key
         ]
+        if stage_key == "inspection":
+            review_task = next(
+                (t for t in stage_tasks if getattr(t.flow_task, "name", "") == "supply_chain_review"),
+                None,
+            )
+            target = "Supply Chain reviewer" if review_task else "Inspection Committee member"
+            task = review_task or next(iter(stage_tasks), None)
+            if task and task.owner:
+                owner_name = task.owner.get_full_name().strip() or task.owner.get_username()
+                return f"Waiting for {target} ({owner_name})"
+            return f"Waiting for {target}"
 
         # 1. Check if an active task for this stage has an assigned owner
         for t in stage_tasks:
@@ -1129,6 +1189,7 @@ class ChemicalBatchDetailView(
                 (batch.status != ChemicalBatch.Status.RECEIVED or bool(batch.received_date))
                 and not (process and status == ChemicalAnalysisProcess.WorkflowStatus.CREATED)
             ),
+            "inspection": batch.inspections.filter(status="PASS").exists(),
             "assignment": bool(analysis_request and analysis_request.has_assigned_analysts),
             "checklist": bool(process and process.analysis_ready),
             "analysis": bool(process and process.is_analysis_complete and status != ChemicalAnalysisProcess.WorkflowStatus.ANALYSIS),
@@ -1168,6 +1229,38 @@ class ChemicalBatchDetailView(
 
             if key == "receipt":
                 summary = f"Received {batch.received_date:%d %b %Y}" if batch.received_date else "Batch receipt is not recorded yet."
+            elif key == "inspection":
+                latest_inspection = batch.inspections.order_by("-attempt").first()
+                if latest_inspection and latest_inspection.status == "PASS":
+                    summary = f"Inspection passed on attempt {latest_inspection.attempt}; {latest_inspection.sample_count} packages were weighed."
+                elif latest_inspection and latest_inspection.status == "FAIL":
+                    if latest_inspection.reviewed_at and latest_inspection.supply_chain_decision == "REJECT":
+                        summary = "Inspection failed and Supply Chain rejected the batch for return to the supplier."
+                    elif latest_inspection.reviewed_at:
+                        summary = "Supply Chain authorized a new Inspection Committee attempt."
+                    else:
+                        summary = "Inspection failed. Supply Chain rejection is required before supplier collection."
+                else:
+                    from .services.inspection_committee import committee_attendance_status
+
+                    attendance = committee_attendance_status(batch)
+                    if attendance["total_members"] == 0:
+                        summary = "No active Inspection Committee members are appointed for this treatment plant."
+                    elif not attendance["network_configured"]:
+                        summary = "Configure the treatment plant committee attendance policy before inspection."
+                    elif not attendance["quorum_met"]:
+                        summary = (
+                            f"Waiting for committee notification acknowledgements: "
+                            f"{attendance['present_count']} of {attendance['total_members']} present; "
+                            f"{attendance['required_count']} required."
+                        )
+                    elif not any(
+                        member.role == member.Role.SECRETARY
+                        for member in attendance["present_members"]
+                    ):
+                        summary = "Quorum is met. The appointed secretary must acknowledge the inspection notification."
+                    else:
+                        summary = "Quorum is met. The appointed secretary can complete the 10% sample and inspection checklist."
             elif key == "assignment":
                 count = analysis_request.assigned_analysts.count() if analysis_request else 0
                 summary = f"{count} analyst{'s' if count != 1 else ''} assigned." if count else "An analyst must be assigned before the checklist can begin."
@@ -1181,7 +1274,14 @@ class ChemicalBatchDetailView(
             elif key == "certificate":
                 summary = "Certificate generated and approved." if completed[key] else ("Certificate is not required for a rejected batch." if is_skipped else "Generate and approve the Certificate of Analysis.")
             elif key == "disposition":
-                summary = "Batch disposition is recorded." if completed[key] else "Record utilization or return the batch to its supplier."
+                if batch.supplier_collection_due_at and not batch.supplier_collected_at:
+                    summary = (
+                        f"Supplier collection is due by {timezone.localtime(batch.supplier_collection_due_at):%d %b %Y %H:%M}."
+                    )
+                elif batch.supplier_collection_due_at and batch.supplier_collected_at:
+                    summary = "Supplier collection has been recorded."
+                else:
+                    summary = "Batch disposition is recorded." if completed[key] else "Record utilization or return the batch to its supplier."
             else:
                 summary = "The workflow is closed." if completed[key] else "The batch will appear complete after its final disposition."
 
@@ -1253,6 +1353,33 @@ class ChemicalBatchDetailView(
                 .first()
             )
 
+        inspection_attempts = list(
+            batch.inspections
+            .prefetch_related("samples", "committee_members")
+            .select_related("completed_by", "reviewed_by")
+            .order_by("-attempt")
+        )
+        latest_inspection = inspection_attempts[0] if inspection_attempts else None
+        from .services.inspection_committee import committee_attendance_status
+
+        committee_attendance = committee_attendance_status(batch)
+        present_committee_ids = [
+            member.pk for member in committee_attendance["present_members"]
+        ]
+        inspection_attendance = list(
+            batch.inspection_attendance
+            .filter(committee_member_id__in=present_committee_ids)
+            .select_related("committee_member__user")
+            .order_by("acknowledged_at", "pk")
+        )
+        inspection_checklist_rows = [
+            {
+                "label": label,
+                "result": "FAIL" if key in latest_inspection.failed_criteria else latest_inspection.checklist_results.get(key, "—"),
+            }
+            for key, label in CHEMICAL_INSPECTION_CHECKLIST
+        ] if latest_inspection else []
+
         workflow_stages, selected_stage, current_stage, workflow_progress = self._workflow_stage_context(
             batch, process, analysis_request, checklist, coa
         )
@@ -1265,6 +1392,7 @@ class ChemicalBatchDetailView(
                     reverse("ca:request-assign-analyst", kwargs={"pk": analysis_request.pk})
                     if (
                         analysis_request
+                        and batch.inspections.filter(status="PASS").exists()
                         and analysis_request.status in {
                             ChemicalAnalysisRequest.Status.PENDING,
                             ChemicalAnalysisRequest.Status.IN_PROGRESS,
@@ -1274,6 +1402,11 @@ class ChemicalBatchDetailView(
                     else ""
                 ),
                 "checklist": checklist,
+                "inspection_attempts": inspection_attempts,
+                "inspection_attendance": inspection_attendance,
+                "committee_attendance": committee_attendance,
+                "latest_inspection": latest_inspection,
+                "inspection_checklist_rows": inspection_checklist_rows,
                 "results": results,
                 "test_results": results,
                 "coa": coa,
@@ -1410,7 +1543,7 @@ class ChemicalBatchCreateView(
     CreateView,
 ):
     model = ChemicalBatch
-    form_class = ChemicalBatchForm
+    form_class = ChemicalBatchReceiptForm
     template_name = "ca/chema/batch_form.html"
     permission_required_view = CHEMICAL_PERMISSIONS["receive"]
 
@@ -1472,6 +1605,9 @@ class ChemicalBatchCreateView(
         context["chemical_locations"] = list(
             context["form"].fields["location"].queryset
         )
+        context["default_delivery_datetime"] = timezone.localtime().strftime(
+            "%Y-%m-%dT%H:%M"
+        )
         return context
 
     def form_valid(self, form):
@@ -1488,8 +1624,8 @@ class ChemicalBatchCreateView(
         elif not form.instance.treatment_plant_id and getattr(user, "assigned_treatment_plant_id", None):
             form.instance.treatment_plant_id = user.assigned_treatment_plant_id
 
-        # Receipt is confirmed by this intake form, so persist the batch in
-        # its received state before creating its analysis request and flow.
+        # Receipt is confirmed here; inspection and the later analysis request
+        # remain gated by the Inspection Committee workflow.
         form.instance.status = ChemicalBatch.Status.RECEIVED
         form.instance.received_date = form.instance.received_date or timezone.localdate()
 
@@ -1498,8 +1634,27 @@ class ChemicalBatchCreateView(
 
         is_ajax = self._wants_json_response()
 
-        # Intake starts the analysis workflow. Keep all submitted batch fields
-        # and its generated request in one transaction.
+        from .services.inspection_committee import inspection_committee_setup_errors
+
+        committee_setup_errors = inspection_committee_setup_errors(
+            form.instance.treatment_plant_id
+        )
+        if committee_setup_errors:
+            message = " ".join(committee_setup_errors)
+            if is_ajax:
+                return JsonResponse(
+                    {
+                        "status": "error",
+                        "message": message,
+                        "errors": {"__all__": committee_setup_errors},
+                    },
+                    status=400,
+                )
+            form.add_error(None, message)
+            return self.form_invalid(form)
+
+        # Intake records the consignment; weight-based stock is posted after
+        # the committee verifies the packages during inspection.
         try:
             with transaction.atomic():
                 # WanjalaMixin.form_valid() is intended for generic CRUD
@@ -1512,18 +1667,8 @@ class ChemicalBatchCreateView(
                 self.after_save(self.object)
                 from .services.workflow_enhancements import (
                     record_custody_event,
-                    record_intake_holds,
-                    record_inventory_movement,
                 )
 
-                record_inventory_movement(
-                    self.object,
-                    movement_type="RECEIPT",
-                    quantity=self.object.quantity_received,
-                    actor=user,
-                    idempotency_key=f"batch:{self.object.pk}:receipt",
-                    notes=f"Delivery note {self.object.delivery_note_number}",
-                )
                 record_custody_event(
                     self.object,
                     event_type="RECEIVED",
@@ -1532,19 +1677,8 @@ class ChemicalBatchCreateView(
                     to_location=str(self.object.location),
                     remarks=self.object.remarks,
                 )
-                holds = record_intake_holds(
-                    self.object,
-                    issues=form.cleaned_data.get("intake_discrepancies"),
-                    details=form.cleaned_data.get("hold_reason"),
-                    actor=user,
-                )
-                analysis_request, _ = ChemicalAnalysisRequest.objects.get_or_create(
-                    batch=self.object,
-                    defaults={
-                        "delivery_date": self.object.received_date or timezone.localdate(),
-                        "requested_by": user,
-                    },
-                )
+                holds = []
+                analysis_request = None
                 from .chemical_flow import start_chemical_analysis_for_batch
 
                 analysis_process = start_chemical_analysis_for_batch(
@@ -1553,6 +1687,9 @@ class ChemicalBatchCreateView(
                     user,
                     self.request,
                 )
+                from .models import ChemicalBatchInspection
+
+                inspection = ChemicalBatchInspection.create_attempt(self.object)
                 from .services.workflow_enhancements import record_workflow_event
 
                 record_workflow_event(
@@ -1562,39 +1699,21 @@ class ChemicalBatchCreateView(
                     actor=user,
                     to_status=analysis_process.status,
                     details={
-                        "analysis_request_id": analysis_request.pk,
+                        "analysis_request_id": None,
                         "hold_ids": [hold.pk for hold in holds],
                         "held": bool(holds),
+                        "inspection_id": inspection.pk,
+                        "sample_count": inspection.sample_count,
                     },
                 )
 
-                # Persist a recipient-scoped batch receipt alert. The workflow
-                # signal generates and links the appropriate voice clone once.
+                # Notify the appointed Inspection Committee after the random
+                # sample plan and workflow task have been created.
                 _batch = self.object
-                _hold_suffix = (
-                    f" NOTE: {len(holds)} intake discrepanc{'y' if len(holds) == 1 else 'ies'} recorded. Batch placed on hold."
-                    if holds else ""
+                from .services.workflow_notifications import (
+                    notify_inspection_committee,
                 )
-                _voice_msg = (
-                    f"Chemical batch {_batch.batch_number} received. "
-                    f"Chemical: {_batch.chemical.name}. "
-                    f"Plant: {_batch.treatment_plant}. "
-                    f"Quantity: {_batch.quantity_received} {getattr(_batch, 'unit', '')}."
-                    f"{_hold_suffix}"
-                )
-                _voice_title = f"Chemical Batch Received – {_batch.batch_number}"
-                from .services.workflow_notifications import create_workflow_alert
-                create_workflow_alert(
-                    batch=_batch,
-                    request=analysis_request,
-                    alert_type="ca_batch_received",
-                    title=_voice_title,
-                    message=_voice_msg,
-                    url=f"/ca/batches/{_batch.pk}/",
-                    severity="high" if holds else "medium",
-                    dedupe_key=f"batch-received:{_batch.pk}",
-                    permissions=("ca.receive_chemical_batch",),
-                )
+                notify_inspection_committee(_batch)
 
                 response = redirect(self.get_success_url())
 
@@ -1626,26 +1745,24 @@ class ChemicalBatchCreateView(
         if is_ajax:
             return JsonResponse({
                 "status": "ok",
-                "message": f"Chemical batch {self.object.batch_number} received successfully!",
+                "message": f"Chemical consignment {self.object.sample_id} received successfully!",
                 "batch_id": self.object.pk,
                 "sample_id": self.object.sample_id,
-                "analysis_request_id": analysis_request.pk,
-                "request_id": analysis_request.request_id,
+                "analysis_request_id": None,
+                "request_id": None,
                 "process_id": analysis_process.pk,
+                "inspection_pending": True,
                 "on_hold": bool(holds),
                 "hold_count": len(holds),
                 "notification": ({
-                    "id": f"ca_assignment_pending_{analysis_request.pk}",
-                    "type": "ca_assignment_pending",
-                    "title": "Analysis request needs an analyst",
-                    "message": f"Assign an analyst to {self.object.chemical.name} batch {self.object.batch_number}.",
-                    "url": reverse(
-                        "ca:request-assign-analyst",
-                        kwargs={"pk": analysis_request.pk},
-                    ),
+                    "id": f"ca_inspection_required_{self.object.pk}",
+                    "type": "ca_inspection_required",
+                    "title": "Inspection Committee review required",
+                    "message": f"Complete the consignment inspection for {self.object.chemical.name} ({self.object.sample_id}).",
+                    "url": f"{reverse('ca:batch-detail', kwargs={'pk': self.object.pk})}?stage=inspection",
                 } if (
                     self.is_ca_superuser()
-                    or user.has_perm("ca.create_analysis_request")
+                    or user.has_perm("ca.receive_chemical_batch")
                 ) else None),
                 "redirect_url": self.get_success_url(),
             })
@@ -2145,12 +2262,13 @@ class ProcessDetailView(
             .filter(batch=process.batch)
         )
 
+        method_ids = process.required_specifications().exclude(
+            method_id__isnull=True
+        ).values_list("method_id", flat=True)
         inputs = (
             _analysis_input_queryset(user, plant_id=self.get_scope_plant_id())
-            .filter(
-                test_result__batch=process.batch
-            )
-            .order_by("-pk")
+            .filter(method_id__in=method_ids)
+            .order_by("method__method", "position")
         )
 
         coa = (
@@ -2185,13 +2303,13 @@ class ProcessDetailView(
                 "ca:my-tasks",
             ),
             ChemicalAnalysisProcess.WorkflowStatus.RECEIVED: (
-                "Complete the receiving checklist and confirm the analysis request and analyst assignment.",
-                "Open workflow tasks to continue intake.",
+                "Submit the Inspection Committee checklist. A passing inspection automatically generates the analysis request and routes it for analyst assignment.",
+                "Open workflow tasks to inspect the consignment.",
                 "ca:my-tasks",
             ),
             ChemicalAnalysisProcess.WorkflowStatus.REQUESTED: (
-                "Complete the receiving checklist, then assign one or more permitted analysts.",
-                "Open workflow tasks to continue intake.",
+                "The passing committee inspection generated the analysis request. Assign one or more permitted analysts if none has been assigned automatically.",
+                "Open workflow tasks to assign an analyst.",
                 "ca:my-tasks",
             ),
             ChemicalAnalysisProcess.WorkflowStatus.ASSIGNED: (
@@ -2536,66 +2654,27 @@ class RecalculateAnalysisInputView(
     permission_required_view = CHEMICAL_PERMISSIONS["result"]
 
     def post(self, request, *args, **kwargs):
+        result = _get_result_or_404(
+            request.user,
+            kwargs["pk"],
+            plant_id=self.get_scope_plant_id(),
+        )
+        method = result.parameter.method if result.parameter_id and result.parameter else None
         try:
-            with transaction.atomic():
-                analysis_input = get_object_or_404(
-                    _analysis_input_queryset(
-                        request.user,
-                        plant_id=self.get_scope_plant_id()
-                    )
-                    .select_for_update(of=("self",)),
-                    pk=kwargs["pk"],
-                )
-
-                recalculator = getattr(
-                    analysis_input,
-                    "recalculate",
-                    None,
-                )
-
-                if not callable(recalculator):
-                    calculate = getattr(
-                        analysis_input,
-                        "calculate",
-                        None,
-                    )
-
-                    if not callable(calculate):
-                        raise ValidationError(
-                            "This analysis input does not support recalculation."
-                        )
-
-                    analysis_input.calculated_value = calculate()
-                    analysis_input.save(
-                        update_fields=["calculated_value"]
-                    )
-                else:
-                    recalculator()
-
-                analysis_input.refresh_from_db()
+            if method is None or not method.formula:
+                raise ValidationError("This result has no formula-backed method to recalculate.")
+            calculated = method.evaluate(result.method_inputs or {})
+            if calculated != result.value:
+                raise ValidationError("The saved method inputs do not reproduce the recorded result.")
         except ValidationError as exc:
             messages.error(
                 request,
-                "Analysis input could not be recalculated: "
+                "Analysis inputs could not be verified: "
                 + "; ".join(str(message) for message in exc.messages),
             )
-            return redirect(
-                reverse("ca:analysis-input-detail", kwargs={"pk": kwargs["pk"]})
-            )
-
-        messages.success(
-            request,
-            "Analysis input recalculated successfully.",
-        )
-
-        return redirect(
-            reverse(
-                "ca:analysis-input-detail",
-                kwargs={
-                    "pk": analysis_input.pk
-                },
-            )
-        )
+        else:
+            messages.success(request, "Saved analysis inputs reproduce the recorded result.")
+        return redirect(reverse("ca:result-detail", kwargs={"pk": result.pk}))
 
 
 class ChemicalSpecificationListView(
@@ -2798,15 +2877,27 @@ class ResultDetailView(
             **kwargs
         )
 
-        context["analysis_input"] = (
+        method = self.object.parameter.method if self.object.parameter_id and self.object.parameter else None
+        definitions = method.get_input_definitions() if method else []
+        supplied = self.object.method_inputs or {}
+        context["analysis_input_values"] = [
+            {
+                "name": definition["name"],
+                "label": definition.get("label") or definition["name"],
+                "value": supplied.get(definition["name"], "—"),
+                "unit": definition.get("unit") or "",
+            }
+            for definition in definitions
+        ]
+        context["analysis_input_definition"] = (
             _analysis_input_queryset(
                 self.request.user,
-                plant_id=self.get_scope_plant_id()
+                plant_id=self.get_scope_plant_id(),
             )
-            .filter(
-                test_result=self.object
-            )
+            .filter(method=method)
+            .order_by("position", "pk")
             .first()
+            if method else None
         )
         batch = self.object.batch
         context["process"] = (
@@ -3732,6 +3823,11 @@ class MyChemicalTasksView(
         try:
             if not node.can_execute(user, task):
                 return False
+            if node.name == "inspection_committee":
+                from .services.inspection_committee import can_access_committee_inspection_form
+
+                batch = getattr(getattr(task, "process", None), "batch", None)
+                return bool(batch and can_access_committee_inspection_form(user, batch))
             required_permission = task.owner_permission
             if not required_permission:
                 return True
@@ -3784,11 +3880,11 @@ class MyChemicalTasksView(
                     or node.name.replace("_", " ").title()
                 )
                 stage_key = "analysis"
-                if node.name in {"receive", "create_request", "checklist", "complete_checklist"}:
+                if node.name in {"receive", "inspection_committee", "supply_chain_review", "create_request", "checklist", "complete_checklist"}:
                     stage_key = "intake"
                 elif node.name in {"qa_review", "capa", "retest", "retest_result", "retest_input", "complete_retest", "quality_control_gate", "record_method_qc"}:
                     stage_key = "quality"
-                elif node.name in {"approval", "reject", "generate_coa", "refer_kebs", "approve_coa", "batch_disposition", "utilize", "return_to_supplier", "return_rejected"}:
+                elif node.name in {"approval", "reject", "generate_coa", "refer_kebs", "approve_coa", "batch_disposition", "utilize", "return_to_supplier", "return_rejected", "supplier_collection"}:
                     stage_key = "release"
                 batch = process.batch if process.batch_id else None
                 task_rows.append({

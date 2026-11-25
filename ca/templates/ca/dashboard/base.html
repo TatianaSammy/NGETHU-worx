@@ -6,7 +6,6 @@
     lang="en"
     data-theme="day"
     data-app="chemical-analysis"
-    class="app-fullscreen"
 >
 <head>
     <meta charset="utf-8">
@@ -23,11 +22,11 @@
     name="theme-color"
     content="#417690"
 >
-<script src="{% static 'core/js/theme.js' %}?v=20261020-enterprise-theme"></script>
+<script src="{% static 'core/js/theme.js' %}?v=20261123-cyber-executive-v1"></script>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<link rel="manifest" href="/manifest.json?v=20261020-enterprise-theme">
+<link rel="manifest" href="/manifest.json?v=20261115-network-only">
 {% if company.logo %}
 <link rel="apple-touch-icon" href="{{ company.logo.url }}">
 <link rel="icon" href="{{ company.logo.url }}">
@@ -66,89 +65,88 @@
 
 <!-- Platform Core Framework Styles -->
 <link rel="stylesheet" href="{% static 'core/css/base.css' %}">
-<link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261020-enterprise-theme">
-<link rel="stylesheet" href="{% static 'core/css/app-fullscreen.css' %}?v=20261018-fullscreen">
+<link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261123-cyber-executive-v1">
 <link rel="stylesheet" href="{% static 'core/css/header.css' %}?v=20261023-standard-alert-center">
 <link rel="stylesheet" href="{% static 'core/css/dropdown.css' %}">
 <link rel="stylesheet" href="{% static 'core/css/sidebar.css' %}">
 
 <!-- CA Design System Tokens & Base -->
-<link rel="stylesheet" href="{% static 'ca/css/base/tokens.css' %}">
-<link rel="stylesheet" href="{% static 'ca/css/base/base.css' %}">
-<link rel="stylesheet" href="{% static 'ca/css/ca_unified.css' %}">
+<link rel="stylesheet" href="{% static 'ca/css/base/tokens.css' %}?v=20261114-ca-theme-v2">
+<link rel="stylesheet" href="{% static 'ca/css/base/base.css' %}?v=20261114-ca-theme-v2">
+<link rel="stylesheet" href="{% static 'ca/css/ca_unified.css' %}?v=20261117-analysis-topbar-actions">
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/layout/app.css' %}"
+    href="{% static 'ca/css/layout/app.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/layout/layout.css' %}"
+    href="{% static 'ca/css/layout/layout.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/layout/sidebar.css' %}"
+    href="{% static 'ca/css/layout/sidebar.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/layout/topbar.css' %}"
+    href="{% static 'ca/css/layout/topbar.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/layout/responsive.css' %}"
+    href="{% static 'ca/css/layout/responsive.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/components.css' %}"
+    href="{% static 'ca/css/components/components.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/buttons.css' %}"
+    href="{% static 'ca/css/components/buttons.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/cards.css' %}"
+    href="{% static 'ca/css/components/cards.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/forms.css' %}"
+    href="{% static 'ca/css/components/forms.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/tables.css' %}"
+    href="{% static 'ca/css/components/tables.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/badges.css' %}"
+    href="{% static 'ca/css/components/badges.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/alerts.css' %}"
+    href="{% static 'ca/css/components/alerts.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/navigation/navigation.css' %}"
+    href="{% static 'ca/css/navigation/navigation.css' %}?v=20261114-ca-theme-v2"
 >
 
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/dialogs/dialogs.css' %}"
+    href="{% static 'ca/css/dialogs/dialogs.css' %}?v=20261114-ca-theme-v2"
 >
 <link
     rel="stylesheet"
-    href="{% static 'ca/css/components/futuristic_forms_modal.css' %}"
+    href="{% static 'ca/css/components/futuristic_forms_modal.css' %}?v=20261114-ca-theme-v2"
 >
 
 {% block vendor_css %}{% endblock %}
@@ -156,14 +154,15 @@
 {% block styles %}{% endblock %}
 {% block extra_css %}{% endblock %}
 {% block head %}{% endblock %}
-<link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261020-enterprise-theme">
-<link rel="stylesheet" href="{% static 'ca/css/components/advanced-forms.css' %}?v=20261020-focused-form">
+<link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261114-ca-theme-v2">
+<link rel="stylesheet" href="{% static 'ca/css/components/advanced-forms.css' %}?v=20261114-ca-theme-v2">
 <link rel="stylesheet" href="{% static 'ca/css/components/analyst_assignment_dialog.css' %}?v=20261023-assignment-dialog-v2">
+<link rel="stylesheet" href="{% static 'ca/css/theme-aware.css' %}?v=20261114-ca-theme-v2">
 
 </head>
 
 <body
-    class="ca-app app-fullscreen-shell"
+    class="ca-app"
     data-app="chemical-analysis"
     data-module="{% block app_module %}dashboard{% endblock %}"
     data-authenticated="{% if request.user.is_authenticated %}true{% else %}false{% endif %}"
@@ -586,8 +585,7 @@
     defer
 ></script>
 <script src="{% static 'core/js/header.js' %}?v=20261023-standard-alert-center"></script>
-<script src="{% static 'core/js/fullscreen.js' %}?v=20261018-first-interaction"></script>
-<script src="{% static 'core/js/pwa.js' %}?v=20261105-safe-logout" defer></script>
+<script src="{% static 'core/js/pwa.js' %}?v=20261115-network-only" defer></script>
 
 {% block vendor_js %}{% endblock %}
 {% block layout_js %}{% endblock %}
@@ -617,7 +615,6 @@
 </dialog>
 
 <script src="{% static 'ca/js/analyst-assignment-dialog.js' %}?v=20261023-assignment-dialog-v2" defer></script>
-<script src="{% static 'core/js/global_notifications.js' %}?v=20261023-standard-alert-center" defer></script>
 <script src="{% static 'core/js/notification_updates.js' %}?v=20261023-event-notifications" defer></script>
 
 <noscript>

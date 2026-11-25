@@ -1,0 +1,775 @@
+/* CA surfaces inherit the active platform palette and typography. */
+:root {
+    --ca-font-sans: var(--font-sans, Inter, ui-sans-serif, system-ui, sans-serif);
+    --ca-font-mono: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    --ca-theme-surface: var(--theme-surface, #ffffff);
+    --ca-theme-surface-raised: var(--theme-surface-strong, var(--theme-surface, #ffffff));
+    --ca-theme-surface-muted: var(--theme-surface-muted, #f4f7fa);
+    --ca-theme-text: var(--theme-text, #172033);
+    --ca-theme-text-soft: var(--theme-text-secondary, var(--theme-muted, #64748b));
+    --ca-theme-border: var(--theme-border, #dbe3eb);
+    --ca-theme-border-strong: var(--theme-border-strong, var(--theme-border, #cbd5e1));
+    --ca-theme-success-soft: color-mix(in srgb, var(--color-success, #15803d) 14%, var(--ca-theme-surface));
+    --ca-theme-warning-soft: color-mix(in srgb, var(--color-warning, #a16207) 14%, var(--ca-theme-surface));
+    --ca-theme-danger-soft: color-mix(in srgb, var(--color-danger, #b91c1c) 14%, var(--ca-theme-surface));
+    --ca-theme-info-soft: color-mix(in srgb, var(--color-info, var(--theme-accent, #0284c7)) 14%, var(--ca-theme-surface));
+    --ca-series-1: var(--theme-accent, #0284c7);
+    --ca-series-2: var(--color-success, #16a34a);
+    --ca-series-3: var(--color-warning, #d97706);
+    --ca-series-4: color-mix(in srgb, var(--theme-accent, #0284c7) 68%, var(--color-danger, #dc2626));
+    --ca-series-5: var(--color-danger, #dc2626);
+    --ca-series-6: color-mix(in srgb, var(--theme-accent, #0284c7) 58%, var(--color-success, #16a34a));
+}
+
+.ca-legacy-app,
+body.ca-app,
+body:has(.ca-page) .ca-page,
+body:has(.ca-dashboard) .ca-dashboard,
+body:has(.ca-intelligence) .ca-intelligence,
+body:has(.ca-batch-command) .ca-batch-command,
+body:has(.pbi-dashboard-root) .pbi-dashboard-root {
+    color: var(--ca-theme-text);
+    font-family: var(--ca-font-sans);
+}
+
+body.ca-app .ca-mt {
+    --ca-panel-bg: var(--theme-surface);
+    --ca-panel-border: var(--theme-border);
+    --ca-cyan-glow: color-mix(in srgb, var(--theme-accent) 22%, transparent);
+    --ca-emerald-glow: color-mix(in srgb, var(--color-success) 22%, transparent);
+    --ca-rose-glow: color-mix(in srgb, var(--color-danger) 22%, transparent);
+    --ca-amber-glow: color-mix(in srgb, var(--color-warning) 22%, transparent);
+    color: var(--theme-text);
+}
+
+.ca-legacy-app :is(h1, h2, h3, h4, h5, strong, b),
+body.ca-app :is(h1, h2, h3, h4, h5, strong, b),
+body:has(.ca-page) .ca-page :is(h1, h2, h3, h4, h5, strong, b),
+.ca-dashboard :is(h1, h2, h3, h4, h5, strong, b),
+.ca-batch-command :is(h1, h2, h3, h4, h5, strong, b) {
+    color: var(--ca-theme-text);
+}
+
+/* Native, Bootstrap, and custom CA controls share the same theme tokens. */
+.ca-legacy-app :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea, .form-control, .form-select),
+body.ca-app :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea, .form-control, .form-select),
+body:has(.ca-page) .ca-page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea, .form-control, .form-select) {
+    border-color: var(--ca-theme-border-strong) !important;
+    background-color: var(--ca-theme-surface-raised) !important;
+    color: var(--ca-theme-text) !important;
+    font-family: var(--ca-font-sans) !important;
+    color-scheme: inherit;
+}
+
+.ca-legacy-app :is(input, select, textarea, .form-control, .form-select):focus,
+.ca-legacy-app :is(input, select, textarea, .form-control, .form-select):focus-visible,
+body.ca-app :is(input, select, textarea, .form-control, .form-select):focus,
+body.ca-app :is(input, select, textarea, .form-control, .form-select):focus-visible,
+body:has(.ca-page) .ca-page :is(input, select, textarea, .form-control, .form-select):focus,
+body:has(.ca-page) .ca-page :is(input, select, textarea, .form-control, .form-select):focus-visible {
+    border-color: var(--theme-accent, #0284c7) !important;
+    outline-color: var(--theme-accent, #0284c7);
+    box-shadow: 0 0 0 3px var(--theme-accent-soft, rgb(2 132 199 / .16)) !important;
+}
+
+.ca-legacy-app :is(button, [type="button"], [type="submit"], [type="reset"]):focus-visible,
+body.ca-app :is(button, [type="button"], [type="submit"], [type="reset"]):focus-visible {
+    outline: 2px solid var(--theme-accent, #0284c7);
+    outline-offset: 2px;
+}
+
+.ca-legacy-app :is(input[type="checkbox"], input[type="radio"]),
+body.ca-app :is(input[type="checkbox"], input[type="radio"]),
+body:has(.ca-page) .ca-page :is(input[type="checkbox"], input[type="radio"]) {
+    accent-color: var(--theme-accent, #0284c7);
+}
+
+.ca-legacy-app form :is(label, .form-label, .ca-form-label),
+body.ca-app form :is(label, .form-label, .ca-form-label),
+body:has(.ca-page) .ca-page form :is(label, .form-label, .ca-form-label) {
+    color: var(--ca-theme-text);
+}
+
+.ca-legacy-app :is(input, textarea)::placeholder,
+body.ca-app :is(input, textarea)::placeholder,
+body:has(.ca-page) .ca-page :is(input, textarea)::placeholder {
+    color: var(--theme-muted, #64748b);
+    opacity: .85;
+}
+
+.ca-legacy-app :is(.form-text, .helptext, .ca-form-help, .ca-field-help, .help-text),
+body.ca-app :is(.form-text, .helptext, .ca-form-help, .ca-field-help, .help-text),
+body:has(.ca-page) .ca-page :is(.form-text, .helptext, .ca-form-help, .ca-field-help, .help-text) {
+    color: var(--ca-theme-text-soft);
+}
+
+.ca-legacy-app :is(.errorlist, .invalid-feedback, .ca-field-errors, .text-danger),
+body.ca-app :is(.errorlist, .invalid-feedback, .ca-field-errors, .text-danger),
+body:has(.ca-page) .ca-page :is(.errorlist, .invalid-feedback, .ca-field-errors, .text-danger) {
+    color: var(--color-danger, #dc2626);
+}
+
+.ca-legacy-app :is(.ca-field-error, .field-errors, .ca-form-error-summary, .alert-danger),
+body.ca-app :is(.ca-field-error, .field-errors, .ca-form-error-summary, .alert-danger),
+body:has(.ca-page) .ca-page :is(.ca-field-error, .field-errors, .ca-form-error-summary, .alert-danger) {
+    border-color: color-mix(in srgb, var(--color-danger) 38%, var(--theme-border)) !important;
+    background-color: var(--ca-theme-danger-soft) !important;
+    color: var(--color-danger) !important;
+}
+
+.ca-legacy-app :is(.alert-success, .ca-alert--success),
+body.ca-app :is(.alert-success, .ca-alert--success),
+body:has(.ca-page) .ca-page :is(.alert-success, .ca-alert--success) {
+    border-color: color-mix(in srgb, var(--color-success) 38%, var(--theme-border)) !important;
+    background-color: var(--ca-theme-success-soft) !important;
+    color: var(--color-success) !important;
+}
+
+.ca-legacy-app :is(.alert-warning, .ca-alert--warning),
+body.ca-app :is(.alert-warning, .ca-alert--warning),
+body:has(.ca-page) .ca-page :is(.alert-warning, .ca-alert--warning) {
+    border-color: color-mix(in srgb, var(--color-warning) 38%, var(--theme-border)) !important;
+    background-color: var(--ca-theme-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+.ca-legacy-app :is(.alert-info, .ca-alert--info),
+body.ca-app :is(.alert-info, .ca-alert--info),
+body:has(.ca-page) .ca-page :is(.alert-info, .ca-alert--info) {
+    border-color: color-mix(in srgb, var(--theme-accent) 38%, var(--theme-border)) !important;
+    background-color: var(--ca-theme-info-soft) !important;
+    color: var(--theme-accent) !important;
+}
+
+.ca-legacy-app .ca-page :is(.card, .ca-form-card, .ca-advanced-form-panel),
+body.ca-app .ca-page :is(.card, .ca-form-card, .ca-advanced-form-panel) {
+    border-color: var(--theme-border) !important;
+    background-color: var(--theme-surface) !important;
+    color: var(--theme-text);
+}
+
+.ca-legacy-app form :is(.btn-primary, .ca-btn-primary, .ca-form-button--primary, button[type="submit"], input[type="submit"]):not(.btn-danger):not(.ca-btn-danger):not([class*="danger"]):not([class*="success"]):not([class*="warning"]),
+body.ca-app form :is(.btn-primary, .ca-btn-primary, .ca-form-button--primary, button[type="submit"], input[type="submit"]):not(.btn-danger):not(.ca-btn-danger):not([class*="danger"]):not([class*="success"]):not([class*="warning"]) {
+    border-color: var(--theme-accent) !important;
+    background: var(--theme-accent) !important;
+    color: var(--theme-on-accent, #ffffff) !important;
+}
+
+.ca-legacy-app form :is(.btn-primary, .ca-btn-primary, .ca-form-button--primary, button[type="submit"], input[type="submit"]):not(.btn-danger):not(.ca-btn-danger):not([class*="danger"]):not([class*="success"]):not([class*="warning"]):hover,
+body.ca-app form :is(.btn-primary, .ca-btn-primary, .ca-form-button--primary, button[type="submit"], input[type="submit"]):not(.btn-danger):not(.ca-btn-danger):not([class*="danger"]):not([class*="success"]):not([class*="warning"]):hover {
+    border-color: var(--theme-accent-hover, var(--theme-accent)) !important;
+    background: var(--theme-accent-hover, var(--theme-accent)) !important;
+}
+
+.ca-legacy-app :is(.btn-success, .ca-btn-success, .ca-form-button--success),
+body.ca-app :is(.btn-success, .ca-btn-success, .ca-form-button--success) {
+    border-color: var(--color-success) !important;
+    background: var(--color-success) !important;
+    color: var(--theme-on-accent, #ffffff) !important;
+}
+
+.ca-legacy-app :is(.btn-warning, .ca-btn-warning, .ca-form-button--warning),
+body.ca-app :is(.btn-warning, .ca-btn-warning, .ca-form-button--warning) {
+    border-color: var(--color-warning) !important;
+    background: var(--color-warning) !important;
+    color: var(--theme-on-accent, #ffffff) !important;
+}
+
+.ca-legacy-app :is(.btn-danger, .ca-btn-danger, .ca-form-button--danger),
+body.ca-app :is(.btn-danger, .ca-btn-danger, .ca-form-button--danger) {
+    border-color: var(--color-danger) !important;
+    background: var(--color-danger) !important;
+    color: var(--theme-on-accent, #ffffff) !important;
+}
+
+.ca-legacy-app form :is(input, select, textarea, .form-control, .form-select).is-invalid,
+body.ca-app form :is(input, select, textarea, .form-control, .form-select).is-invalid {
+    border-color: var(--color-danger) !important;
+}
+
+.ca-legacy-app option,
+body.ca-app option,
+body:has(.ca-page) .ca-page option {
+    background: var(--ca-theme-surface-raised);
+    color: var(--ca-theme-text);
+}
+
+/* Apply themed surfaces to every CA table, including Bootstrap and bespoke dashboards. */
+.ca-legacy-app table,
+body.ca-app table,
+body:has(.ca-page) .ca-page table {
+    --bs-table-bg: var(--ca-theme-surface);
+    --bs-table-color: var(--ca-theme-text);
+    --bs-table-border-color: var(--ca-theme-border);
+    border-color: var(--ca-theme-border) !important;
+    color: var(--ca-theme-text) !important;
+    font-family: var(--ca-font-sans);
+}
+
+.ca-legacy-app table caption,
+body.ca-app table caption,
+body:has(.ca-page) .ca-page table caption {
+    color: var(--ca-theme-text-soft);
+}
+
+.ca-legacy-app table thead th,
+body.ca-app table thead th,
+body:has(.ca-page) .ca-page table thead th {
+    border-color: var(--ca-theme-border-strong) !important;
+    background: var(--table-header-bg, var(--ca-theme-surface-raised)) !important;
+    color: var(--ca-theme-text) !important;
+}
+
+.ca-legacy-app table tbody td,
+body.ca-app table tbody td,
+body:has(.ca-page) .ca-page table tbody td {
+    border-color: var(--ca-theme-border) !important;
+    background-color: var(--ca-theme-surface) !important;
+    color: var(--ca-theme-text) !important;
+}
+
+.ca-legacy-app table tbody tr:hover > *,
+body.ca-app table tbody tr:hover > *,
+body:has(.ca-page) .ca-page table tbody tr:hover > * {
+    background-color: var(--row-hover-bg, var(--theme-accent-soft, var(--ca-theme-surface-muted))) !important;
+}
+
+.ca-legacy-app :is(.ca-table-wrapper, .table-responsive, .ca-table-responsive, .batch-table-scroll, .ai-table-wrap),
+body.ca-app :is(.ca-table-wrapper, .table-responsive, .ca-table-responsive, .batch-table-scroll, .ai-table-wrap),
+body:has(.ca-page) .ca-page :is(.ca-table-wrapper, .table-responsive, .ca-table-responsive, .batch-table-scroll, .ai-table-wrap) {
+    border-color: var(--ca-theme-border);
+    scrollbar-color: var(--theme-border-strong, #94a3b8) transparent;
+}
+
+/* Keep dashboard panels, filters, and summary tiles readable in every palette. */
+.ca-legacy-app :is(.batch-console, .batch-filters, .batch-register__toolbar, .batch-register__summary,
+    .ca-home-panel, .ca-home-metric, .ca-home-pipeline, .ca-stat-card, .ca-panel, .ca-dashboard-card,
+    .ca-mt-panel, .ai-panel, .ai-card, .dashboard-analytics-card, .pbi-card, .pbi-visual-card),
+body.ca-app :is(.batch-console, .batch-filters, .batch-register__toolbar, .batch-register__summary,
+    .ca-home-panel, .ca-home-metric, .ca-home-pipeline, .ca-stat-card, .ca-panel, .ca-dashboard-card,
+    .ca-mt-panel, .ai-panel, .ai-card, .dashboard-analytics-card, .pbi-card, .pbi-visual-card),
+body:has(.ca-page) .ca-page :is(.batch-console, .batch-filters, .batch-register__toolbar, .batch-register__summary,
+    .ca-home-panel, .ca-home-metric, .ca-home-pipeline, .ca-stat-card, .ca-panel, .ca-dashboard-card,
+    .ca-mt-panel, .ai-panel, .ai-card, .dashboard-analytics-card, .pbi-card, .pbi-visual-card) {
+    border-color: var(--ca-theme-border);
+    color: var(--ca-theme-text);
+}
+
+.ca-legacy-app :is(.batch-console, .ca-home-panel, .ca-home-metric, .ca-home-pipeline,
+    .ca-stat-card, .ca-panel, .ca-dashboard-card, .ca-mt-panel, .ai-panel, .ai-card,
+    .dashboard-analytics-card, .pbi-card, .pbi-visual-card),
+body.ca-app :is(.batch-console, .ca-home-panel, .ca-home-metric, .ca-home-pipeline,
+    .ca-stat-card, .ca-panel, .ca-dashboard-card, .ca-mt-panel, .ai-panel, .ai-card,
+    .dashboard-analytics-card, .pbi-card, .pbi-visual-card),
+body:has(.ca-page) .ca-page :is(.batch-console, .ca-home-panel, .ca-home-metric, .ca-home-pipeline,
+    .ca-stat-card, .ca-panel, .ca-dashboard-card, .ca-mt-panel, .ai-panel, .ai-card,
+    .dashboard-analytics-card, .pbi-card, .pbi-visual-card) {
+    background-color: var(--ca-theme-surface);
+}
+
+.ca-legacy-app :is(.batch-filters, .batch-register__toolbar),
+body.ca-app :is(.batch-filters, .batch-register__toolbar),
+body:has(.ca-page) .ca-page :is(.batch-filters, .batch-register__toolbar) {
+    background-color: var(--ca-theme-surface-raised);
+}
+
+/* Batch workflow pages use a local vocabulary; bind its full stepper palette too. */
+body.ca-app .ca-batch-workbench {
+    --wb-ink: var(--theme-text);
+    --wb-muted: var(--theme-text-secondary, var(--theme-muted));
+    --wb-line: var(--theme-border);
+    --wb-accent: var(--theme-accent);
+    --wb-accent-strong: var(--theme-accent-hover, var(--theme-accent));
+    --wb-soft: var(--theme-surface-muted);
+    --surface-card: var(--theme-surface);
+    color: var(--theme-text);
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-batch-workbench__header, .ca-workbench-progress,
+    .ca-workflow-tab, .ca-workflow-stage, .ca-workbench-record) {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workbench-back, .ca-workbench-icon-link,
+    .ca-workflow-tab__number, .ca-workflow-facts > div, .ca-workflow-checklist-state,
+    .ca-analysis-progress, .ca-workbench-record__body) {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface-muted) !important;
+    color: var(--theme-text) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workflow-stage__heading, .ca-workflow-tab--current) {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-accent-soft) !important;
+    color: var(--theme-text) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-workflow-tab--current .ca-workflow-tab__number,
+body.ca-app .ca-batch-workbench .ca-workflow-primary-action {
+    border-color: var(--theme-accent) !important;
+    background: var(--theme-accent) !important;
+    color: var(--theme-on-accent, #ffffff) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-workbench-icon-link--delete:hover {
+    border-color: var(--color-danger) !important;
+    background: var(--color-danger) !important;
+    color: var(--theme-on-accent, #ffffff) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-workbench-icon-link--delete {
+    border-color: color-mix(in srgb, var(--color-danger) 35%, var(--theme-border)) !important;
+    color: var(--color-danger) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-workbench-hold {
+    border-color: color-mix(in srgb, var(--color-warning) 38%, var(--theme-border)) !important;
+    background: var(--ca-theme-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workbench-hold__icon, .ca-workbench-hold > a, .ca-workbench-hold p) {
+    background-color: var(--ca-theme-warning-soft) !important;
+    color: var(--color-warning) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-workbench-eyebrow > span {
+    background: var(--color-success) !important;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 18%, transparent) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workbench-status, .ca-workflow-complete-badge,
+    .ca-workflow-checklist-state.is-complete, .ca-result-state--pass) {
+    border-color: color-mix(in srgb, var(--color-success) 35%, var(--theme-border)) !important;
+    background: var(--ca-theme-success-soft) !important;
+    color: var(--color-success) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-result-state--fail {
+    background: var(--ca-theme-danger-soft) !important;
+    color: var(--color-danger) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-result-state--na {
+    background: var(--theme-surface-muted) !important;
+    color: var(--theme-text-secondary, var(--theme-muted)) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-workflow-tab:hover {
+    border-color: var(--theme-accent) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workflow-tab, .ca-workbench-back, .ca-workbench-icon-link):focus-visible {
+    outline-color: var(--theme-accent) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workflow-waiting, .ca-workflow-tab--skipped) {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface-muted) !important;
+    color: var(--theme-text-secondary, var(--theme-muted)) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workbench-progress__track, .ca-analysis-progress__track) {
+    background: var(--theme-border-strong, var(--theme-border)) !important;
+}
+
+body.ca-app .ca-batch-workbench :is(.ca-workbench-progress__track > span, .ca-analysis-progress__track > span) {
+    background: linear-gradient(90deg, var(--theme-accent), color-mix(in srgb, var(--theme-accent) 70%, var(--color-success))) !important;
+}
+
+body.ca-app .ca-batch-workbench .ca-workbench-document-link,
+body.ca-app .ca-batch-workbench .ca-workflow-assignees > div > span {
+    border-color: var(--theme-border-strong, var(--theme-border)) !important;
+    background: var(--theme-accent-soft) !important;
+    color: var(--theme-accent) !important;
+}
+
+/* Alternate CA dashboards keep their local palette tokens in sync with the app theme. */
+body.ca-app .ca-intelligence {
+    --grid: var(--theme-border, #dfe4ea);
+    --surface: var(--theme-surface, #ffffff);
+    --surface-alt: var(--theme-surface-muted, #f6f8fa);
+    --text: var(--theme-text, #18202a);
+    --muted: var(--theme-text-secondary, var(--theme-muted, #687382));
+    --border: var(--theme-border, #d8dee6);
+    --positive: var(--color-success, #237a57);
+    --negative: var(--color-danger, #b53a3a);
+    --warning: var(--color-warning, #a66a00);
+    --info: var(--theme-accent, #2868a6);
+}
+
+/* Preserve the inset search field inside the themed batch search control. */
+.ca-legacy-app .batch-search input,
+body.ca-app .batch-search input {
+    border-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.ca-legacy-app table tbody :is(.table-success, .text-success),
+body.ca-app table tbody :is(.table-success, .text-success),
+.ca-legacy-app table tbody tr.table-success > *,
+body.ca-app table tbody tr.table-success > * {
+    color: var(--color-success, #15803d) !important;
+}
+
+.ca-legacy-app table tbody :is(.table-warning, .text-warning),
+body.ca-app table tbody :is(.table-warning, .text-warning),
+.ca-legacy-app table tbody tr.table-warning > *,
+body.ca-app table tbody tr.table-warning > * {
+    color: var(--color-warning, #a16207) !important;
+}
+
+.ca-legacy-app table tbody :is(.table-danger, .text-danger),
+body.ca-app table tbody :is(.table-danger, .text-danger),
+.ca-legacy-app table tbody tr.table-danger > *,
+body.ca-app table tbody tr.table-danger > * {
+    color: var(--color-danger, #b91c1c) !important;
+}
+
+.ca-legacy-app table tbody tr.table-success > *,
+body.ca-app table tbody tr.table-success > *,
+.ca-legacy-app table tbody td.table-success,
+body.ca-app table tbody td.table-success {
+    background-color: var(--ca-theme-success-soft) !important;
+}
+
+.ca-legacy-app table tbody tr.table-warning > *,
+body.ca-app table tbody tr.table-warning > *,
+.ca-legacy-app table tbody td.table-warning,
+body.ca-app table tbody td.table-warning {
+    background-color: var(--ca-theme-warning-soft) !important;
+}
+
+.ca-legacy-app table tbody tr.table-danger > *,
+body.ca-app table tbody tr.table-danger > *,
+.ca-legacy-app table tbody td.table-danger,
+body.ca-app table tbody td.table-danger {
+    background-color: var(--ca-theme-danger-soft) !important;
+}
+
+.ca-legacy-app table tbody tr.table-info > *,
+body.ca-app table tbody tr.table-info > *,
+.ca-legacy-app table tbody td.table-info,
+body.ca-app table tbody td.table-info {
+    background-color: var(--ca-theme-info-soft) !important;
+}
+
+.ca-dashboard :is(.ca-dashboard__table-secondary, .ca-dashboard__numeric, .ca-dashboard__badge),
+.ca-page :is(.batch-mono, .ca-code, code, kbd, pre),
+.ca-dashboard :is(code, kbd, pre) {
+    font-family: var(--ca-font-mono);
+}
+
+/* The Power BI style canvas uses its own component names; map its remaining
+   surfaces, labels, and table colors onto the same active platform theme. */
+.pbi-dashboard-root {
+    --pbi-canvas-gradient: linear-gradient(135deg, var(--theme-bg), var(--theme-surface-muted));
+    --pbi-sidebar-bg: var(--theme-surface-strong, var(--theme-surface));
+    --pbi-sidebar-active: var(--theme-accent-soft, var(--theme-surface-muted));
+    --pbi-sidebar-active-text: var(--theme-accent);
+    --pbi-sidebar-text: var(--theme-text-secondary, var(--theme-muted));
+    --pbi-header-pill-bg: var(--theme-accent);
+    --pbi-slicer-header-bg: var(--theme-surface-muted);
+    --pbi-slicer-border: var(--theme-border);
+    --pbi-card-bg: var(--theme-surface);
+    --pbi-card-border: var(--theme-border);
+    --pbi-navy-text: var(--theme-text);
+    --pbi-sub-text: var(--theme-text-secondary, var(--theme-muted));
+    --pbi-accent-blue: var(--theme-accent);
+    --pbi-gauge-fill: var(--theme-accent);
+    --pbi-gauge-track: var(--theme-surface-muted);
+    color: var(--theme-text);
+    font-family: var(--ca-font-sans);
+}
+
+.pbi-dashboard-root :is(.pbi-sidebar, .pbi-table-card, .pbi-card, .pbi-kpi-card, .pbi-slicer-card) {
+    border-color: var(--theme-border) !important;
+    background-color: var(--theme-surface) !important;
+    color: var(--theme-text);
+}
+
+.pbi-dashboard-root .pbi-sidebar {
+    border-right: 1px solid var(--theme-border) !important;
+}
+
+.pbi-dashboard-root .pbi-sidebar-toggle-btn {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface-muted) !important;
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root .pbi-sidebar-toggle-btn:hover {
+    border-color: var(--theme-accent) !important;
+    background: var(--theme-accent-soft) !important;
+    color: var(--theme-accent) !important;
+}
+
+.pbi-dashboard-root :is(.pbi-emblem-logo-text, .pbi-emblem-subtext, .pbi-kpi-value,
+    .pbi-kpi-label, .pbi-kpi-sub, .pbi-card-title, .pbi-card-subtitle, .pbi-hbar-label,
+    .pbi-hbar-value, .pbi-gauge-center-text, .pbi-gauge-pct, .pbi-gauge-sub,
+    .pbi-col-axis-label, .pbi-table td, .pbi-axis-text, .pbi-axis-month) {
+    color: var(--theme-text-secondary, var(--theme-muted));
+    fill: var(--theme-text-secondary, var(--theme-muted));
+}
+
+.pbi-dashboard-root :is(.pbi-header-title, .pbi-slicer-header) {
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root :is(.pbi-emblem-logo-text, .pbi-kpi-value, .pbi-card-title,
+    .pbi-hbar-value, .pbi-gauge-center-text, .pbi-axis-month) {
+    color: var(--theme-text) !important;
+    fill: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root .pbi-table th {
+    border-color: var(--theme-border-strong, var(--theme-border)) !important;
+    background: var(--table-header-bg, var(--theme-surface-muted)) !important;
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root .pbi-table td {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root .pbi-table tr:hover td {
+    background: var(--row-hover-bg, var(--theme-accent-soft)) !important;
+}
+
+.pbi-dashboard-root .pbi-header-title {
+    color: var(--theme-on-accent, #ffffff) !important;
+}
+
+.pbi-dashboard-root .pbi-slicer-header {
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root .pbi-sidebar.is-collapsed .pbi-nav-link:hover::after {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface-strong, var(--theme-surface)) !important;
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root :is(.pbi-hbar-track, .pbi-matrix-track, .pbi-slicer-select-wrap,
+    .pbi-polar-core, .pbi-polar-mid-ring, .pbi-spark-box) {
+    border-color: var(--theme-border) !important;
+    background-color: var(--theme-surface-muted) !important;
+    color: var(--theme-text);
+}
+
+.pbi-dashboard-root .pbi-kpi-card::after {
+    background: var(--theme-border) !important;
+}
+
+.pbi-dashboard-root :is(.pbi-emblem-circle, .pbi-social-icon) {
+    border-color: var(--theme-border) !important;
+}
+
+.pbi-dashboard-root .pbi-status-chip {
+    border-color: color-mix(in srgb, var(--color-success) 38%, var(--theme-border)) !important;
+    background: color-mix(in srgb, var(--color-success) 14%, var(--theme-surface)) !important;
+    color: var(--color-success) !important;
+}
+
+.pbi-dashboard-root .pbi-status-dot {
+    background: var(--color-success) !important;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--color-success) 60%, transparent) !important;
+}
+
+body.ca-app #ca-rbm-alert {
+    border-color: color-mix(in srgb, var(--color-danger) 40%, var(--theme-border)) !important;
+    background: color-mix(in srgb, var(--color-danger) 15%, var(--theme-surface)) !important;
+    color: var(--color-danger) !important;
+}
+
+body.ca-app #ca-rbm-success-overlay {
+    background: color-mix(in srgb, var(--theme-bg) 82%, transparent) !important;
+}
+
+body.ca-app #ca-rbm-success-overlay > div {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text) !important;
+}
+
+body.ca-app #ca-rbm-success-overlay :is(h3, p) {
+    color: var(--theme-text) !important;
+}
+
+body.ca-app .ca-modal-overlay {
+    background: color-mix(in srgb, var(--theme-bg) 82%, transparent) !important;
+}
+
+body.ca-app .ca-modal-dialog {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root .pbi-nav-link:hover,
+.pbi-dashboard-root .pbi-nav-link.is-active {
+    color: var(--theme-accent) !important;
+    background: var(--theme-accent-soft) !important;
+}
+
+.pbi-dashboard-root .pbi-slicer-select {
+    border-color: var(--theme-border-strong, var(--theme-border)) !important;
+    background: var(--input-bg, var(--theme-surface)) !important;
+    color: var(--theme-text) !important;
+}
+
+.pbi-dashboard-root .pbi-pill--success {
+    background: color-mix(in srgb, var(--color-success) 14%, var(--theme-surface)) !important;
+    color: var(--color-success) !important;
+}
+
+.pbi-dashboard-root .pbi-pill--warning {
+    background: color-mix(in srgb, var(--color-warning) 14%, var(--theme-surface)) !important;
+    color: var(--color-warning) !important;
+}
+
+.pbi-dashboard-root .pbi-pill--danger {
+    background: color-mix(in srgb, var(--color-danger) 14%, var(--theme-surface)) !important;
+    color: var(--color-danger) !important;
+}
+
+.pbi-dashboard-root .pbi-pill--info {
+    background: var(--theme-accent-soft) !important;
+    color: var(--theme-accent) !important;
+}
+
+/* Inline accents in CA's tabbed dashboard also resolve through theme tokens. */
+body.ca-app [style*="color: #64748b"],
+body.ca-app [style*="color:#64748b"],
+body.ca-app [style*="color: #475569"],
+body.ca-app [style*="color:#475569"],
+body.ca-app [style*="color: #94a3b8"],
+body.ca-app [style*="color:#94a3b8"] {
+    color: var(--theme-text-secondary, var(--theme-muted)) !important;
+}
+
+body.ca-app [style*="color: #38bdf8"],
+body.ca-app [style*="color:#38bdf8"],
+body.ca-app [style*="color: #0284c7"],
+body.ca-app [style*="color:#0284c7"],
+body.ca-app [style*="color: #0ea5e9"],
+body.ca-app [style*="color:#0ea5e9"],
+body.ca-app [style*="color: #00f2fe"],
+body.ca-app [style*="color:#00f2fe"] {
+    color: var(--theme-accent) !important;
+}
+
+body.ca-app [style*="color: #10b981"],
+body.ca-app [style*="color:#10b981"],
+body.ca-app [style*="color: #34d399"],
+body.ca-app [style*="color:#34d399"],
+body.ca-app [style*="color: #86efac"],
+body.ca-app [style*="color:#86efac"] {
+    color: var(--color-success) !important;
+}
+
+body.ca-app [style*="color: #dc2626"],
+body.ca-app [style*="color:#dc2626"],
+body.ca-app [style*="color: #ef4444"],
+body.ca-app [style*="color:#ef4444"],
+body.ca-app [style*="color: #fca5a5"],
+body.ca-app [style*="color:#fca5a5"] {
+    color: var(--color-danger) !important;
+}
+
+body.ca-app [style*="color: #f59e0b"],
+body.ca-app [style*="color:#f59e0b"],
+body.ca-app [style*="color: #fbbf24"],
+body.ca-app [style*="color:#fbbf24"],
+body.ca-app [style*="color: #fdba74"],
+body.ca-app [style*="color:#fdba74"] {
+    color: var(--color-warning) !important;
+}
+
+body.ca-app .ca-mt .ca-hud-bar[style*="background: rgba(13, 31, 56"],
+body.ca-app .ca-mt .ca-hud-bar[style*="background:rgba(13, 31, 56"] {
+    border-color: var(--theme-border) !important;
+    background: var(--hud-bg, var(--theme-surface)) !important;
+}
+
+body.ca-app .ca-mt :is(.ca-exception-card, .ca-stage-aging) {
+    border-color: var(--theme-border) !important;
+    background: var(--theme-surface) !important;
+    color: var(--theme-text);
+}
+
+body.ca-app .ca-mt .ca-exception-card--hold {
+    border-color: color-mix(in srgb, var(--color-warning) 45%, transparent) !important;
+    color: var(--color-warning) !important;
+}
+
+body.ca-app .ca-mt .ca-exception-card--quality {
+    border-color: color-mix(in srgb, var(--color-danger) 45%, transparent) !important;
+    color: var(--color-danger) !important;
+}
+
+body.ca-app .ca-mt .ca-exception-card--stalled {
+    border-color: color-mix(in srgb, var(--theme-accent) 45%, transparent) !important;
+    color: var(--theme-accent) !important;
+}
+
+body.ca-app .ca-mt .ca-exception-card--clear {
+    border-color: color-mix(in srgb, var(--color-success) 45%, transparent) !important;
+    color: var(--color-success) !important;
+}
+
+body.ca-app .ca-mt .ca-stage-aging__item {
+    background: var(--theme-surface-muted) !important;
+}
+
+body.ca-app .ca-mt .ca-stage-aging__item span {
+    color: var(--theme-accent) !important;
+}
+
+/* Theme the inline SVG palette used by CA's Power BI overview tab. */
+body.ca-app .pbi-overview-canvas [stroke="#0284c7"],
+body.ca-app .pbi-overview-canvas [stroke="#0ea5e9"],
+body.ca-app .pbi-overview-canvas [stroke="#00f2fe"],
+body.ca-app .pbi-overview-canvas [stroke="#00e5ff"],
+body.ca-app .pbi-overview-canvas [stop-color="#00f2fe"],
+body.ca-app .pbi-overview-canvas [stop-color="#0ea5e9"] {
+    stroke: var(--theme-accent) !important;
+    stop-color: var(--theme-accent) !important;
+}
+
+body.ca-app .pbi-overview-canvas [fill="#0284c7"],
+body.ca-app .pbi-overview-canvas [fill="#0ea5e9"],
+body.ca-app .pbi-overview-canvas [fill="#00f2fe"] {
+    fill: var(--theme-accent) !important;
+}
+
+body.ca-app .pbi-overview-canvas [stroke="#10b981"],
+body.ca-app .pbi-overview-canvas [stop-color="#10b981"],
+body.ca-app .pbi-overview-canvas [fill="#10b981"] {
+    stroke: var(--color-success) !important;
+    stop-color: var(--color-success) !important;
+    fill: var(--color-success) !important;
+}
+
+body.ca-app .pbi-overview-canvas [stroke="#ef4444"],
+body.ca-app .pbi-overview-canvas [fill="#ef4444"] {
+    stroke: var(--color-danger) !important;
+    fill: var(--color-danger) !important;
+}
+
+body.ca-app .pbi-overview-canvas [stroke="#8b5cf6"],
+body.ca-app .pbi-overview-canvas [stop-color="#8b5cf6"],
+body.ca-app .pbi-overview-canvas [fill="#8b5cf6"] {
+    stroke: color-mix(in srgb, var(--theme-accent) 65%, #8b5cf6) !important;
+    stop-color: color-mix(in srgb, var(--theme-accent) 65%, #8b5cf6) !important;
+    fill: color-mix(in srgb, var(--theme-accent) 65%, #8b5cf6) !important;
+}
+
+body.ca-app .pbi-overview-canvas :is(.pbi-polar-legend-dot, .pbi-matrix-swatch) {
+    border-color: var(--theme-border) !important;
+}

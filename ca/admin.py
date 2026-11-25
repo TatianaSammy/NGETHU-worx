@@ -19,6 +19,11 @@ from .models import (
     ChemicalAnalysisProcess,
     ChemicalAnalysisRequest,
     ChemicalBatch,
+    ChemicalBatchInspection,
+    ChemicalBatchInspectionSample,
+    ChemicalInspectionAttendance,
+    ChemicalInspectionCommitteeMember,
+    ChemicalInspectionPlantNetwork,
     ChemicalBatchHold,
     ChemicalCorrectiveAction,
     ChemicalCustodyEvent,
@@ -434,6 +439,13 @@ class ChemicalAdmin(CaSuperuserDeletionAdminMixin, admin.ModelAdmin):
             },
         ),
         (
+            "Receipt Inspection",
+            {
+                "fields": ("weight_tolerance",),
+                "description": "Maximum allowed absolute measured-weight deviation for each sampled package, in the batch unit.",
+            },
+        ),
+        (
             "Operational Statistics",
             {
                 "fields": (
@@ -802,6 +814,7 @@ class ChemicalBatchAdmin(
         "location",
         "received_date",
         "quantity_received",
+        "package_quantity",
         "package_count",
         "status_badge",
         "quality_indicator",
@@ -891,6 +904,8 @@ class ChemicalBatchAdmin(
                     "quantity_received",
                     "unit",
                     "package_count",
+                    "package_weight",
+                    "package_type",
                     "received_by",
                     "status",
                     "remarks",
@@ -929,6 +944,10 @@ class ChemicalBatchAdmin(
             },
         ),
     )
+
+    @admin.display(description="Package quantity")
+    def package_quantity(self, obj):
+        return obj.package_quantity_display or "—"
 
     @admin.display(description="Sample ID")
     def sample_identifier(self, obj):
@@ -1875,6 +1894,7 @@ class BatchTestResultAdmin(
         "instrument_snapshot",
         "specification_snapshot",
         "method_snapshot",
+        "method_inputs",
         "quality_flags",
         "revision_number",
     )
@@ -1925,6 +1945,8 @@ class BatchTestResultAdmin(
                     "instrument",
                     "instrument_calibration",
                     "instrument_snapshot",
+                    "method_snapshot",
+                    "method_inputs",
                     "input_link",
                 )
             },
@@ -1971,14 +1993,22 @@ class BatchTestResultAdmin(
 
     @admin.display(description="Analysis Inputs")
     def input_status(self, obj):
-        try:
-            inputs = obj.inputs
-        except ChemicalAnalysisInput.DoesNotExist:
+        method = obj.parameter.method if obj.parameter_id and obj.parameter else None
+        if method is None:
             return format_html(
                 '<span style="color:#b45309;font-weight:700;">MISSING</span>'
             )
-
-        if inputs.calculated_value is not None:
+        required = [
+            item["name"] for item in method.get_input_definitions()
+            if item.get("required", True)
+        ]
+        missing = [name for name in required if name not in (obj.method_inputs or {})]
+        if missing:
+            return format_html(
+                '<span style="color:#b45309;font-weight:700;">{} MISSING</span>',
+                len(missing),
+            )
+        if obj.value is not None:
             return format_html(
                 '<span style="color:#15803d;font-weight:700;">CALCULATED</span>'
             )
@@ -1987,19 +2017,14 @@ class BatchTestResultAdmin(
 
     @admin.display(description="Input Record")
     def input_link(self, obj):
-        try:
-            input_record = obj.inputs
-        except ChemicalAnalysisInput.DoesNotExist:
-            return "No input record"
-
-        url = reverse(
-            "admin:ca_chemicalanalysisinput_change",
-            args=[input_record.pk],
-        )
+        method = obj.parameter.method if obj.parameter_id and obj.parameter else None
+        if method is None:
+            return "No analysis method"
+        url = reverse("admin:ca_chemicalanalysisinput_changelist")
 
         return format_html(
-            '<a href="{}">Open analysis inputs</a>',
-            url,
+            '<a href="{}?method__id__exact={}">Open method input fields</a>',
+            url, method.pk,
         )
 
     @admin.display(description="Batch Context")
@@ -2036,164 +2061,45 @@ class BatchTestResultAdmin(
 
 
 class ChemicalAnalysisInputAdmin(
-    CaSuperuserDeletionAdminMixin,
-    PlantScopedAdminMixin,
     admin.ModelAdmin,
 ):
-    plant_field = "test_result__batch__treatment_plant"
-    plant_filter_field = "test_result__batch__treatment_plant"
-
     list_display = (
-        "test_result_identifier",
-        "chemical",
-        "parameter",
         "method",
-        "calculated_value",
-        "input_completeness",
+        "name",
+        "label",
+        "input_type",
+        "required",
+        "unit",
+        "position",
     )
     search_fields = (
-        "test_result__batch__sample_id",
-        "test_result__batch__batch_number",
-        "test_result__batch__chemical__name",
-        "test_result__parameter__parameter_name",
-        "test_result__analyst__username",
+        "method__method",
+        "name",
+        "label",
     )
-    list_filter = (
-        PlantFilter,
-    )
-    autocomplete_fields = (
-        "test_result",
-    )
-    readonly_fields = (
-        "test_parameter",
-        "analysis_method",
-        "required_input_fields",
-        "formula",
-        "rounding_precision",
-        "calculated_value",
-    )
-    ordering = (
-        "-pk",
-    )
+    list_filter = ("method", "input_type", "required")
+    ordering = ("method__method", "position", "pk")
     list_per_page = 100
 
-    def get_readonly_fields(self, request, obj=None):
-        readonly = tuple(super().get_readonly_fields(request, obj))
-        if obj is not None:
-            return readonly + ("inputs", "method_snapshot")
-        return readonly
+    def has_add_permission(self, request):
+        return False
 
-    fieldsets = (
-        (
-            "Test Result",
-            {
-                "fields": (
-                    "test_result",
-                    "test_parameter",
-                    "analysis_method",
-                )
-            },
-        ),
-        (
-            "Required Inputs",
-            {
-                "fields": (
-                    "required_input_fields",
-                    "inputs",
-                )
-            },
-        ),
-        (
-            "Calculation",
-            {
-                "fields": (
-                    "formula",
-                    "rounding_precision",
-                    "calculated_value",
-                )
-            },
-        ),
-    )
+    def has_change_permission(self, request, obj=None):
+        return False
 
-    @admin.display(description="Test Result")
-    def test_result_identifier(self, obj):
-        return f"Result #{obj.test_result_id}"
-
-    @admin.display(description="Chemical")
-    def chemical(self, obj):
-        parameter = obj.test_parameter
-
-        if parameter is None:
-            return "—"
-
-        return getattr(
-            parameter.chemical,
-            "name",
-            "—",
-        )
-
-    @admin.display(description="Parameter")
-    def parameter(self, obj):
-        parameter = obj.test_parameter
-
-        if parameter is None:
-            return "—"
-
-        return parameter.parameter_name
-
-    @admin.display(description="Method")
-    def method(self, obj):
-        method = obj.analysis_method
-
-        if method is None:
-            return "—"
-
-        return str(method)
-
-    @admin.display(description="Input Completeness")
-    def input_completeness(self, obj):
-        try:
-            required = obj.required_input_fields
-            supplied = obj.inputs or {}
-        except ValidationError:
-            return format_html(
-                '<span style="color:#b91c1c;font-weight:700;">INVALID</span>'
-            )
-
-        missing = [
-            field
-            for field in required
-            if field not in supplied
-        ]
-
-        if missing:
-            return format_html(
-                '<span style="color:#b45309;font-weight:700;">{} MISSING</span>',
-                len(missing),
-            )
-
-        return format_html(
-            '<span style="color:#15803d;font-weight:700;">COMPLETE</span>'
-        )
+    def has_delete_permission(self, request, obj=None):
+        return False
 
     def get_queryset(self, request):
         return (
             super()
             .get_queryset(request)
-            .select_related(
-                "test_result",
-                "test_result__batch",
-                "test_result__batch__chemical",
-                "test_result__batch__treatment_plant",
-                "test_result__parameter",
-                "test_result__parameter__chemical",
-                "test_result__parameter__method",
-            )
+            .select_related("method")
         )
 
-    def save_model(self, request, obj, form, change):
-        obj.recalculate()
-        super().save_model(request, obj, form, change)
+    @admin.display(description="Analysis method")
+    def method(self, obj):
+        return obj.method
 
 
 class ChemicalAnalysisProcessAdmin(
@@ -2969,6 +2875,9 @@ class PlantScopedAppendOnlyAdmin(CaSuperuserDeletionAdminMixin, PlantScopedAdmin
         return False
 
     def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return bool(
             getattr(request.user, "is_active", False)
             and getattr(request.user, "is_superuser", False)
@@ -3188,6 +3097,230 @@ class RegisteredChemicalCertApproverAdmin(
 @admin.register(ChemicalBatch)
 class RegisteredChemicalBatchAdmin(ChemicalBatchAdmin):
     pass
+
+
+class ChemicalBatchInspectionSampleInline(admin.TabularInline):
+    model = ChemicalBatchInspectionSample
+    extra = 0
+    can_delete = False
+    fields = (
+        "package_number",
+        "declared_weight",
+        "measured_weight",
+        "weight_difference",
+        "within_tolerance",
+    )
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ChemicalBatchInspection)
+class ChemicalBatchInspectionAdmin(PlantScopedAdminMixin, admin.ModelAdmin):
+    plant_field = "batch__treatment_plant"
+    plant_filter_field = "batch__treatment_plant"
+    list_display = (
+        "batch",
+        "attempt",
+        "status",
+        "vehicle_registration",
+        "package_count",
+        "sample_count",
+        "sampling_interval",
+        "random_start",
+        "completed_at",
+        "reviewed_at",
+    )
+    list_filter = ("status", "created_at", "completed_at")
+    search_fields = ("batch__sample_id", "batch__batch_number")
+    list_select_related = ("batch", "batch__chemical", "completed_by", "reviewed_by")
+    inlines = (ChemicalBatchInspectionSampleInline,)
+    readonly_fields = tuple(field.name for field in ChemicalBatchInspection._meta.fields) + ("committee_members",)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+class CommitteeMemberUserSelect(forms.Select):
+    """Expose the selected Accounts user's name for the form's read-only preview."""
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        user = getattr(value, "instance", None)
+        if user is not None:
+            option["attrs"]["data-full-name"] = user.get_full_name().strip()
+        return option
+
+
+class ChemicalInspectionCommitteeMemberAdminForm(forms.ModelForm):
+    member_full_name = forms.CharField(label="Full name", required=False, disabled=True)
+
+    class Meta:
+        model = ChemicalInspectionCommitteeMember
+        fields = (
+            "user",
+            "member_full_name",
+            "date_of_appointment",
+            "role",
+            "appointment_letter",
+            "is_active",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and self.instance.user_id:
+            self.fields["member_full_name"].initial = self.instance.user.get_full_name().strip()
+
+
+@admin.register(ChemicalInspectionCommitteeMember)
+class ChemicalInspectionCommitteeMemberAdmin(
+    CaSuperuserDeletionAdminMixin,
+    PlantScopedAdminMixin,
+    admin.ModelAdmin,
+):
+    plant_field = "treatment_plant"
+    form = ChemicalInspectionCommitteeMemberAdminForm
+    list_display = ("member_name", "member_section", "treatment_plant", "role", "date_of_appointment", "is_active")
+    list_filter = (PlantFilter, "role", "is_active")
+    search_fields = (
+        "user__username",
+        "user__email",
+        "user__first_name",
+        "user__last_name",
+        "user__section__name",
+        "treatment_plant__name",
+    )
+    list_select_related = ("user", "user__section", "treatment_plant")
+    fields = (
+        "user",
+        "member_full_name",
+        "date_of_appointment",
+        "role",
+        "appointment_letter",
+        "is_active",
+    )
+
+    class Media:
+        js = ("ca/js/committee-member-name.js",)
+
+    @admin.display(description="Committee member", ordering="user__last_name")
+    def member_name(self, obj):
+        return obj.user.get_full_name().strip() or obj.user.get_username()
+
+    @admin.display(description="Section", ordering="user__section__name")
+    def member_section(self, obj):
+        return obj.user.section or "—"
+
+    def save_model(self, request, obj, form, change):
+        user = obj.user
+        plant_id = getattr(user, "assigned_treatment_plant_id", None)
+        if not plant_id:
+            raise ValidationError("Select an Accounts user assigned to a treatment plant.")
+        if (
+            not request.user.is_superuser
+            and plant_id != getattr(request.user, "assigned_treatment_plant_id", None)
+        ):
+            raise ValidationError("You can only appoint a user assigned to your treatment plant.")
+        obj.treatment_plant_id = plant_id
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "user":
+            field_queryset = db_field.remote_field.model.objects.filter(
+                is_active=True,
+                assigned_treatment_plant__isnull=False,
+            ).select_related(
+                "section", "assigned_treatment_plant"
+            )
+            if not request.user.is_superuser:
+                plant_id = getattr(request.user, "assigned_treatment_plant_id", None)
+                field_queryset = field_queryset.filter(assigned_treatment_plant_id=plant_id) if plant_id else field_queryset.none()
+            kwargs["queryset"] = field_queryset.order_by("section__name", "last_name", "first_name", "username")
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        if db_field.name == "user" and formfield is not None:
+            formfield.widget = CommitteeMemberUserSelect()
+            formfield.widget.choices = formfield.choices
+
+            def label_committee_user(user):
+                full_name = user.get_full_name().strip() or user.get_username()
+                section = getattr(getattr(user, "section", None), "name", "No section")
+                plant = getattr(getattr(user, "assigned_treatment_plant", None), "name", "No plant")
+                return f"{full_name} · {user.get_username()} · {section} · {plant}"
+
+            formfield.label_from_instance = label_committee_user
+        return formfield
+
+
+@admin.register(ChemicalInspectionPlantNetwork)
+class ChemicalInspectionPlantNetworkAdmin(PlantScopedAdminMixin, admin.ModelAdmin):
+    plant_field = "treatment_plant"
+    list_display = ("treatment_plant", "ip_restriction_enabled", "lan_cidr", "updated_at")
+    list_filter = ("ip_restriction_enabled",)
+    search_fields = ("treatment_plant__name", "treatment_plant__code", "lan_cidr")
+    readonly_fields = ("updated_at",)
+    fields = ("treatment_plant", "ip_restriction_enabled", "lan_cidr", "updated_at")
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if not request.user.is_superuser:
+            fields.append("ip_restriction_enabled")
+        return tuple(fields)
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            if change:
+                obj.ip_restriction_enabled = type(obj).objects.only(
+                    "ip_restriction_enabled"
+                ).get(pk=obj.pk).ip_restriction_enabled
+            else:
+                obj.ip_restriction_enabled = True
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+
+    def has_add_permission(self, request):
+        plant_model = self.model._meta.get_field("treatment_plant").remote_field.model
+        available = plant_model.objects.filter(chemical_inspection_network__isnull=True)
+        if not request.user.is_superuser:
+            plant_id = getattr(request.user, "assigned_treatment_plant_id", None)
+            return bool(plant_id and available.filter(pk=plant_id).exists())
+        return available.exists()
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "treatment_plant" and not request.user.is_superuser:
+            plant_id = getattr(request.user, "assigned_treatment_plant_id", None)
+            kwargs["queryset"] = db_field.remote_field.model.objects.filter(pk=plant_id) if plant_id else db_field.remote_field.model.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+@admin.register(ChemicalInspectionAttendance)
+class ChemicalInspectionAttendanceAdmin(PlantScopedAdminMixin, admin.ModelAdmin):
+    plant_field = "batch__treatment_plant"
+    plant_filter_field = "batch__treatment_plant"
+    list_display = ("batch", "committee_member", "acknowledged_at", "client_ip")
+    list_filter = (PlantFilter, "acknowledged_at")
+    search_fields = (
+        "batch__batch_number",
+        "committee_member__user__username",
+        "committee_member__user__first_name",
+        "committee_member__user__last_name",
+        "committee_member__user__section__name",
+    )
+    list_select_related = ("batch", "committee_member", "committee_member__user", "batch__treatment_plant")
+    readonly_fields = tuple(field.name for field in ChemicalInspectionAttendance._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(ChemicalAnalysisRequest)

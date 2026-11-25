@@ -6,38 +6,38 @@
 /* ─── Design Tokens ────────────────────────────────────────────────── */
 
 :root {
---ca-dashboard-bg: #f0f4f9;
---ca-dashboard-surface: #ffffff;
---ca-dashboard-surface-soft: #f7f9fc;
---ca-dashboard-border: rgba(15, 23, 42, 0.08);
---ca-dashboard-border-strong: rgba(15, 23, 42, 0.14);
---ca-dashboard-text: #0f172a;
---ca-dashboard-text-soft: #3b4963;
---ca-dashboard-text-muted: #64748b;
+--ca-dashboard-bg: var(--theme-bg, #f0f4f9);
+--ca-dashboard-surface: var(--theme-surface, #ffffff);
+--ca-dashboard-surface-soft: var(--theme-surface-muted, #f7f9fc);
+--ca-dashboard-border: var(--theme-border, rgba(15, 23, 42, 0.08));
+--ca-dashboard-border-strong: var(--theme-border-strong, rgba(15, 23, 42, 0.14));
+--ca-dashboard-text: var(--theme-text, #0f172a);
+--ca-dashboard-text-soft: var(--theme-text-secondary, #3b4963);
+--ca-dashboard-text-muted: var(--theme-muted, #64748b);
 
---ca-dashboard-primary: #2563eb;
---ca-dashboard-primary-soft: #eff6ff;
---ca-dashboard-primary-border: #bfdbfe;
+--ca-dashboard-primary: var(--theme-accent, #2563eb);
+--ca-dashboard-primary-soft: var(--theme-accent-soft, #eff6ff);
+--ca-dashboard-primary-border: var(--theme-border-strong, #bfdbfe);
 
---ca-dashboard-success: #059669;
---ca-dashboard-success-soft: #ecfdf5;
---ca-dashboard-success-border: #a7f3d0;
+--ca-dashboard-success: var(--color-success, #059669);
+--ca-dashboard-success-soft: color-mix(in srgb, var(--color-success, #059669) 12%, transparent);
+--ca-dashboard-success-border: color-mix(in srgb, var(--color-success, #059669) 30%, transparent);
 
---ca-dashboard-warning: #d97706;
---ca-dashboard-warning-soft: #fffbeb;
---ca-dashboard-warning-border: #fde68a;
+--ca-dashboard-warning: var(--color-warning, #d97706);
+--ca-dashboard-warning-soft: color-mix(in srgb, var(--color-warning, #d97706) 12%, transparent);
+--ca-dashboard-warning-border: color-mix(in srgb, var(--color-warning, #d97706) 30%, transparent);
 
---ca-dashboard-danger: #dc2626;
---ca-dashboard-danger-soft: #fef2f2;
---ca-dashboard-danger-border: #fecaca;
+--ca-dashboard-danger: var(--color-danger, #dc2626);
+--ca-dashboard-danger-soft: color-mix(in srgb, var(--color-danger, #dc2626) 12%, transparent);
+--ca-dashboard-danger-border: color-mix(in srgb, var(--color-danger, #dc2626) 30%, transparent);
 
---ca-dashboard-info: #0284c7;
---ca-dashboard-info-soft: #f0f9ff;
---ca-dashboard-info-border: #bae6fd;
+--ca-dashboard-info: var(--theme-accent, #0284c7);
+--ca-dashboard-info-soft: var(--theme-accent-soft, #f0f9ff);
+--ca-dashboard-info-border: color-mix(in srgb, var(--theme-accent, #0284c7) 30%, transparent);
 
 --ca-dashboard-purple: #7c3aed;
---ca-dashboard-purple-soft: #f5f3ff;
---ca-dashboard-purple-border: #ddd6fe;
+--ca-dashboard-purple-soft: rgba(124, 58, 237, 0.1);
+--ca-dashboard-purple-border: rgba(124, 58, 237, 0.25);
 
 --ca-dashboard-radius-xs: 8px;
 --ca-dashboard-radius-sm: 10px;
@@ -55,50 +55,47 @@
 
 --ca-dashboard-content-max: 1720px;
 
---ca-dashboard-glass: rgba(255, 255, 255, 0.72);
---ca-dashboard-glass-border: rgba(255, 255, 255, 0.35);
---ca-dashboard-glow: rgba(37, 99, 235, 0.06);
+--ca-dashboard-glass: var(--theme-surface-strong, rgba(255, 255, 255, 0.72));
+--ca-dashboard-glass-border: var(--theme-border, rgba(255, 255, 255, 0.35));
+--ca-dashboard-glow: var(--theme-accent-glow, rgba(37, 99, 235, 0.06));
 }
 
-/* ─── Dark Theme ───────────────────────────────────────────────────── */
+/* ─── Dark Themes ───────────────────────────────────────────────────── */
 
+html[data-theme="cyber"],
+html[data-theme="abyss"],
+html[data-theme="aurora"],
+html[data-theme="dusk"],
+html[data-theme="night"],
+html[data-theme="dark"],
+html[data-theme="oled"],
+html[data-theme="amoled"],
+html[data-theme="emerald-dark"],
+html[data-theme="inferno"],
+html[data-theme="celestial"],
+body[class*="theme-cyber"],
+body[class*="theme-abyss"],
+body[class*="theme-aurora"],
+body[class*="theme-dusk"],
+body[class*="theme-night"],
+body[class*="theme-dark"],
 html.theme-dark {
---ca-dashboard-bg: #080e1a;
---ca-dashboard-surface: rgba(17, 24, 42, 0.92);
---ca-dashboard-surface-soft: #131c2e;
---ca-dashboard-border: rgba(148, 163, 184, 0.1);
---ca-dashboard-border-strong: rgba(148, 163, 184, 0.18);
---ca-dashboard-text: #f1f5f9;
---ca-dashboard-text-soft: #94a3b8;
---ca-dashboard-text-muted: #64748b;
+--ca-dashboard-bg: var(--theme-bg, #080e1a);
+--ca-dashboard-surface: var(--theme-surface, rgba(17, 24, 42, 0.92));
+--ca-dashboard-surface-soft: var(--theme-surface-muted, #131c2e);
+--ca-dashboard-border: var(--theme-border, rgba(148, 163, 184, 0.1));
+--ca-dashboard-border-strong: var(--theme-border-strong, rgba(148, 163, 184, 0.18));
+--ca-dashboard-text: var(--theme-text, #f1f5f9);
+--ca-dashboard-text-soft: var(--theme-text-secondary, #94a3b8);
+--ca-dashboard-text-muted: var(--theme-muted, #64748b);
 
---ca-dashboard-primary: #60a5fa;
---ca-dashboard-primary-soft: rgba(37, 99, 235, 0.12);
---ca-dashboard-primary-border: rgba(96, 165, 250, 0.25);
+--ca-dashboard-primary: var(--theme-accent, #60a5fa);
+--ca-dashboard-primary-soft: var(--theme-accent-soft, rgba(37, 99, 235, 0.12));
+--ca-dashboard-primary-border: color-mix(in srgb, var(--theme-accent, #60a5fa) 35%, transparent);
 
---ca-dashboard-success: #34d399;
---ca-dashboard-success-soft: rgba(5, 150, 105, 0.12);
---ca-dashboard-success-border: rgba(52, 211, 153, 0.2);
-
---ca-dashboard-warning: #fbbf24;
---ca-dashboard-warning-soft: rgba(217, 119, 6, 0.1);
---ca-dashboard-warning-border: rgba(251, 191, 36, 0.18);
-
---ca-dashboard-danger: #f87171;
---ca-dashboard-danger-soft: rgba(220, 38, 38, 0.1);
---ca-dashboard-danger-border: rgba(248, 113, 113, 0.18);
-
---ca-dashboard-info: #38bdf8;
---ca-dashboard-info-soft: rgba(2, 132, 199, 0.1);
---ca-dashboard-info-border: rgba(56, 189, 248, 0.18);
-
---ca-dashboard-purple: #a78bfa;
---ca-dashboard-purple-soft: rgba(124, 58, 237, 0.1);
---ca-dashboard-purple-border: rgba(167, 139, 250, 0.18);
-
---ca-dashboard-glass: rgba(17, 24, 42, 0.78);
---ca-dashboard-glass-border: rgba(148, 163, 184, 0.08);
---ca-dashboard-glow: rgba(96, 165, 250, 0.06);
+--ca-dashboard-glass: var(--theme-surface-strong, rgba(17, 24, 42, 0.78));
+--ca-dashboard-glass-border: var(--theme-border, rgba(148, 163, 184, 0.08));
+--ca-dashboard-glow: var(--theme-accent-glow, rgba(96, 165, 250, 0.06));
 }
 
 /* ─── Root Container ───────────────────────────────────────────────── */

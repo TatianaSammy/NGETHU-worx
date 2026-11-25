@@ -216,7 +216,11 @@ class ChemicalReportGenerator:
                 "batch_number": b.batch_number,
                 "chemical": b.chemical.name if b.chemical else "—",
                 "supplier": b.supplier.name if b.supplier else "—",
-                "quantity": f"{b.quantity_received:,.1f} {b.unit}",
+                "quantity": (
+                    f"{b.quantity_received:,.1f} {b.unit}"
+                    if b.quantity_received is not None
+                    else "Pending committee inspection"
+                ),
                 "date": b.received_date.strftime("%Y-%m-%d") if b.received_date else b.created_at.strftime("%Y-%m-%d"),
                 "status": b.status,
                 "coa_generated": "Yes" if b.coa_generated else "Pending",

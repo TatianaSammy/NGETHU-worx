@@ -10,16 +10,16 @@
 - **Alerts and notifications:** persisted alerts, recipient inboxes, WebSocket updates, email and configured channel delivery, retries, acknowledgement timers, and escalation policies.
 - **Voice alerts:** generated alert audio can use a configured reference voice runtime; other TTS providers are fallbacks. Browser controls allow users to replay audio when autoplay is blocked.
 - **Operational dashboards:** dashboards for plant operations, filtered water, quality results, non-compliance, reporting, and workload.
-- **Fullscreen and PWA support:** installable application experience for laboratory and kiosk workstations.
+- **PWA support:** installable application experience in a standard standalone app window; the app requires a live network connection.
 
 ## Technology
 
 - Python 3.11 and Django
-- PostgreSQL for production; SQLite is supported for local development
+- PostgreSQL for all environments
 - Redis for caching, Channels/WebSockets, and Celery
 - Gunicorn for HTTP, Daphne for ASGI/WebSocket traffic, and Celery workers plus beat
-- Nginx for the Docker Compose front end
-- Optional Kubernetes manifests under k8s/
+- Nginx for static/media serving in Kubernetes
+- Kubernetes manifests under k8s/ (Kustomize structure: base + overlays)
 
 ## Repository layout
 
@@ -35,7 +35,7 @@
 | filtered_water/, o/, destw/, wsp/, wc/ | Operational and treatment dashboards and modules |
 | k8s/ | Kubernetes manifests and a secrets template |
 | nginx/, pgbouncer/ | Reverse proxy and PostgreSQL connection-pool configuration |
-| Dockerfile, Dockerfile.nginx, docker-compose.yml | Container builds and Docker Compose deployment |
+| Dockerfile, Dockerfile.nginx | Container image builds |
 
 ## Requirements
 
@@ -43,19 +43,147 @@
 
 - Python 3.11
 - Redis 7 for background tasks and real-time notifications
-- PostgreSQL only if developing against PostgreSQL; the development configuration can use SQLite
+- PostgreSQL 14+ for local development and deployment
 
-### Docker Compose deployment
+### Kubernetes deployment
+
+The project runs exclusively on Kubernetes using Kustomize (built into kubectl). No Helm or Docker Compose is used.
+
+### Prerequisites
+
+- **Docker Desktop** with the Docker daemon running (to build images)
+- **kubectl** v1.20+ ¡ª `kubectl version --client`
+- **kind** ¡ª `kind version`
+
+### Directory layout
+
+```
+k8s/
+©À©¤©¤ base/                   # Shared production-grade manifests
+©¦   ©À©¤©¤ kustomization.yaml
+©¦   ©À©¤©¤ namespace.yaml
+©¦   ©À©¤©¤ serviceaccount.yaml
+©¦   ©À©¤©¤ configmap.yaml
+©¦   ©À©¤©¤ pgbouncer-configmap.yaml
+©¦   ©À©¤©¤ pvc.yaml
+©¦   ©À©¤©¤ postgres.yaml
+©¦   ©À©¤©¤ pgbouncer.yaml
+©¦   ©À©¤©¤ redis.yaml
+©¦   ©À©¤©¤ migrate-job.yaml
+©¦   ©À©¤©¤ web.yaml
+©¦   ©À©¤©¤ daphne.yaml
+©¦   ©À©¤©¤ celery.yaml
+©¦   ©À©¤©¤ beat.yaml
+©¦   ©À©¤©¤ nginx.yaml
+©¦   ©À©¤©¤ ingress.yaml
+©¦   ©À©¤©¤ hpa.yaml
+©¦   ©À©¤©¤ pdb.yaml
+©¦   ©À©¤©¤ networkpolicy.yaml
+©¦   ©¸©¤©¤ secrets.example.yaml
+©À©¤©¤ overlays/
+©¦   ©À©¤©¤ local/              # Kind / local dev (single replicas, localhost)
+©¦   ©¦   ©¸©¤©¤ kustomization.yaml
+©¦   ©¸©¤©¤ production/         # Production (full replicas, real domain)
+©¦       ©¸©¤©¤ kustomization.yaml
+©À©¤©¤ kind-config.yaml        # Kind cluster definition (1 control-plane + 2 workers)
+©¸©¤©¤ deploy-local.sh         # One-shot local deployment script
+```
+
+### Quick start (local Kind cluster)
+
+#### 1. Build the Docker images
+
+```bash
+docker build -t qad-backend:latest .
+docker build -f Dockerfile.nginx -t qad-nginx:stable .
+```
+
+#### 2. Create your secrets file
+
+```bash
+cp k8s/base/secrets.example.yaml k8s/base/secrets.yaml
+# Edit k8s/base/secrets.yaml ¡ª fill in SECRET_KEY, POSTGRES_PASSWORD, DATABASE_URL, etc.
+```
+
+`k8s/base/secrets.yaml` is in `.gitignore` ¡ª never commit it.
+
+#### 3. Run the deployment script
+
+```bash
+bash k8s/deploy-local.sh
+```
+
+This script:
+- Creates the Kind cluster (`qad`) with 1 control-plane + 2 workers
+- Installs ingress-nginx
+- Loads the Docker images into Kind
+- Applies your secrets
+- Applies the local overlay with `kubectl apply -k k8s/overlays/local`
+- Waits for the migrate Job and all Deployments to roll out
+
+#### 4. Access the application
+
+Add to your hosts file (`C:\Windows\System32\drivers\etc\hosts` on Windows):
+
+```
+127.0.0.1 qad.local
+```
+
+Then visit: **http://qad.local:8080**
+
+### Useful commands
+
+```bash
+# See everything in the namespace
+kubectl -n qad get all
+
+# View web logs
+kubectl -n qad logs deploy/qad-web -f
+
+# View celery logs
+kubectl -n qad logs deploy/qad-celery -f
+
+# Django shell
+kubectl -n qad exec -it deploy/qad-web -- python manage.py shell
+
+# Create superuser
+kubectl -n qad exec -it deploy/qad-web -- python manage.py createsuperuser
+
+# Scale web manually
+kubectl -n qad scale deployment qad-web --replicas=6
+
+# Redeploy after a code change (rebuild + reload)
+docker build -t qad-backend:latest .
+kind load docker-image qad-backend:latest --name qad
+kubectl -n qad rollout restart deployment qad-web qad-daphne qad-celery qad-beat
+
+# Tear down the cluster
+kind delete cluster --name qad
+```
+
+### Production deployment
+
+Apply the production overlay pointing at a real cluster:
+
+```bash
+kubectl config use-context <your-production-context>
+kubectl apply -f k8s/base/secrets.yaml      # your real secrets
+kubectl apply -k k8s/overlays/production
+```
+
+The production overlay sets:
+- Domain: `nairobiwater.co.ke` in the Ingress
+- Full replica counts (web¡Á4, daphne¡Á3, celery¡Á4, pgbouncer¡Á2, nginx¡Á2)
+- Full HPA ranges (web: 2¨C12, daphne: 2¨C8, celery: 2¨C8)
+- Strict `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`
+
+## Docker Compose deployment
 
 - Docker Engine or Docker Desktop with the Compose v2 plugin
 - A .env file containing the production settings described below
 - Persistent disk space for PostgreSQL, uploaded media, logs, and collected static files
 
-### Kubernetes deployment
 
-- A working Kubernetes cluster, kubectl, and a StorageClass that can provision the PVCs in k8s/pvc.yaml
-- An ingress controller and TLS secret if publishing through HTTPS
-- A container registry for clusters that cannot load a locally built image
 
 ## Local development
 
@@ -103,7 +231,7 @@ Do not reuse the example value or commit .env. For a local secret key, generate 
 python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 ~~~
 
-When DEBUG=True and no DATABASE_URL is provided, the development configuration uses db.sqlite3. Start Redis locally if you need Channels, Celery, and live notifications.
+Set `DATABASE_URL` to a reachable PostgreSQL instance in every environment. The application exits during startup when the PostgreSQL URL is missing or invalid. Start Redis locally for Channels, Celery, and live notifications.
 
 ### 4. Initialize and run the app
 
@@ -268,16 +396,11 @@ Update or roll back deployments using the normal Kubernetes rollout commands aft
 
 Alert events and recipient delivery state are persisted before delivery. Redis and Daphne support the live WebSocket inbox; Celery workers handle background delivery, voice generation, retry, and escalation tasks; Celery beat schedules periodic work. Configure external delivery providers and email credentials through environment variables or a secret manager.
 
-Each generated voice alert is tied to an active VoiceOver profile. The worker uses the sample clip for reference-conditioned synthesis when a compatible Chatterbox runtime and model are available; otherwise it uses local eSpeak speech selected by the profile's gender, accent, and rate, with network TTS as a final fallback. The runtime image includes eSpeak so server-side speech generation can work without internet. The browser caches alert audio and the notification feed per signed-in user for offline playback. Browser autoplay policies still require users to enable voice alerts once in the notification menu; previously cached unread alerts can then play while offline. A device that has never downloaded an alert clip cannot play that clip without a network connection.
+Each generated voice alert is tied to an active VoiceOver profile. The worker uses the sample clip for reference-conditioned synthesis when a compatible Chatterbox runtime and model are available; otherwise it uses local eSpeak speech selected by the profile's gender, accent, and rate, with network TTS as a final fallback. Celery beat runs durable notification delivery, escalation, and repeat tasks. The browser retrieves notifications and audio from the live service and does not store them for offline use. Voice alerts are enabled by default; browser autoplay policies may block sound until the user interacts with the page, after which queued alerts retry automatically.
 
-## Fullscreen and PWA use
+## PWA use
 
-The app remembers fullscreen state across internal navigation and provides an installable PWA experience. On a lab workstation, install the site from Chrome or Edge for an app window. For a local development server:
-
-~~~cmd
-msedge.exe --app=http://localhost:8000/qc/dashboard/ --start-fullscreen
-chrome.exe --app=http://localhost:8000/qc/dashboard/ --start-fullscreen
-~~~
+The installable PWA opens in a standard standalone window and requires a live connection to the application and PostgreSQL service. Dynamic responses use `no-store`; the app does not cache pages, forms, or notification audio. Upgrade activation removes legacy app caches and offline queues; pending local drafts are discarded and never replayed.
 
 ## Operational notes
 

@@ -7,19 +7,12 @@
 
 <style>
     .batch-page {
-        --cb-border: rgba(148, 163, 184, .22);
-        --cb-muted: #64748b;
-        --cb-text: #0f172a;
-        --cb-bg: #f8fafc;
-        --cb-card: #ffffff;
-    }
-
-    .dark .batch-page {
-        --cb-muted: #94a3b8;
-        --cb-text: #e2e8f0;
-        --cb-bg: #0f172a;
-        --cb-card: #111827;
-        --cb-border: rgba(148, 163, 184, .18);
+        --cb-border: var(--theme-border);
+        --cb-muted: var(--theme-text-secondary, var(--theme-muted));
+        --cb-text: var(--theme-text);
+        --cb-bg: var(--theme-bg);
+        --cb-card: var(--theme-surface);
+        font-family: var(--font-sans, var(--ca-font-sans));
     }
 
     .batch-header {
@@ -74,14 +67,14 @@
     }
 
     .cb-btn-primary {
-        background: #2563eb;
-        border-color: #2563eb;
-        color: #fff;
+        background: var(--theme-accent);
+        border-color: var(--theme-accent);
+        color: var(--theme-on-accent, #fff);
     }
 
     .cb-btn-primary:hover {
-        background: #1d4ed8;
-        color: #fff;
+        background: var(--theme-accent-hover, var(--theme-accent));
+        color: var(--theme-on-accent, #fff);
     }
 
     .stats-grid {
@@ -162,8 +155,8 @@
     }
 
     .filter-control:focus {
-        border-color: #2563eb;
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, .1);
+        border-color: var(--theme-accent);
+        box-shadow: 0 0 0 3px var(--theme-accent-soft);
     }
 
     .table-header {
@@ -222,22 +215,18 @@
     }
 
     .batch-table tbody tr:hover {
-        background: rgba(37, 99, 235, .035);
+        background: color-mix(in srgb, var(--theme-accent) 5%, var(--theme-surface));
     }
 
     .batch-table tbody tr.batch-row--highlighted {
-        background: rgba(34, 211, 238, .12);
-        box-shadow: inset 4px 0 0 #06b6d4;
+        background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
+        box-shadow: inset 4px 0 0 var(--theme-accent);
         scroll-margin-top: 7rem;
-    }
-
-    .dark .batch-table tbody tr.batch-row--highlighted {
-        background: rgba(34, 211, 238, .1);
     }
 
     .batch-id {
         font-weight: 800;
-        color: #2563eb;
+        color: var(--theme-accent);
         text-decoration: none;
     }
 
@@ -273,43 +262,38 @@
     }
 
     .status-received {
-        color: #0369a1;
-        background: #e0f2fe;
+        color: var(--theme-accent);
+        background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface));
     }
 
     .status-analysed {
-        color: #7c3aed;
-        background: #ede9fe;
+        color: color-mix(in srgb, var(--theme-accent) 72%, var(--color-danger));
+        background: color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface));
     }
 
     .status-approved {
-        color: #15803d;
-        background: #dcfce7;
+        color: var(--color-success);
+        background: color-mix(in srgb, var(--color-success) 14%, var(--theme-surface));
     }
 
     .status-rejected {
-        color: #b91c1c;
-        background: #fee2e2;
+        color: var(--color-danger);
+        background: color-mix(in srgb, var(--color-danger) 14%, var(--theme-surface));
     }
 
     .status-utilized {
-        color: #166534;
-        background: #d1fae5;
+        color: var(--color-success);
+        background: color-mix(in srgb, var(--color-success) 14%, var(--theme-surface));
     }
 
     .status-returned {
-        color: #92400e;
-        background: #fef3c7;
+        color: var(--color-warning);
+        background: color-mix(in srgb, var(--color-warning) 14%, var(--theme-surface));
     }
 
     .status-default {
-        color: #475569;
-        background: #f1f5f9;
-    }
-
-    .dark .status-default {
-        color: #cbd5e1;
-        background: #1e293b;
+        color: var(--theme-text-secondary, var(--theme-muted));
+        background: var(--theme-surface-muted);
     }
 
     .progress-cell {
@@ -324,17 +308,13 @@
         height: 6px;
         overflow: hidden;
         border-radius: 999px;
-        background: #e2e8f0;
-    }
-
-    .dark .progress {
-        background: #334155;
+        background: var(--theme-border-strong, var(--theme-border));
     }
 
     .progress-bar {
         height: 100%;
         border-radius: inherit;
-        background: #2563eb;
+        background: var(--theme-accent);
     }
 
     .progress-value {
@@ -357,10 +337,10 @@
         justify-content: center;
         min-height: 34px;
         padding: .45rem .65rem;
-        border: 1px solid #0891b2;
+        border: 1px solid var(--theme-accent);
         border-radius: .55rem;
-        background: #ecfeff;
-        color: #0e7490;
+        background: var(--theme-accent-soft);
+        color: var(--theme-accent);
         font-size: .7rem;
         font-weight: 800;
         line-height: 1.2;
@@ -370,15 +350,9 @@
     }
 
     .batch-workflow-action:hover {
-        background: #cffafe;
-        color: #155e75;
+        background: color-mix(in srgb, var(--theme-accent) 18%, var(--theme-surface));
+        color: var(--theme-accent);
         transform: translateY(-1px);
-    }
-
-    .dark .batch-workflow-action {
-        border-color: rgba(34, 211, 238, .42);
-        background: rgba(8, 145, 178, .16);
-        color: #a5f3fc;
     }
 
     .icon-btn {
@@ -396,19 +370,19 @@
     }
 
     .icon-btn:hover {
-        color: #2563eb;
-        border-color: #2563eb;
+        color: var(--theme-accent);
+        border-color: var(--theme-accent);
     }
 
     .icon-btn.batch-delete-action {
-        color: #dc2626;
-        border-color: rgba(220, 38, 38, .3);
+        color: var(--color-danger);
+        border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
     }
 
     .icon-btn.batch-delete-action:hover {
-        color: #fff;
-        border-color: #dc2626;
-        background: #dc2626;
+        color: var(--theme-on-accent, #fff);
+        border-color: var(--color-danger);
+        background: var(--color-danger);
     }
 
     .empty-state {
@@ -424,8 +398,8 @@
         align-items: center;
         justify-content: center;
         border-radius: 50%;
-        background: rgba(37, 99, 235, .08);
-        color: #2563eb;
+        background: var(--theme-accent-soft);
+        color: var(--theme-accent);
         font-size: 1.4rem;
     }
 
@@ -478,14 +452,14 @@
     }
 
     .page-link:hover {
-        border-color: #2563eb;
-        color: #2563eb;
+        border-color: var(--theme-accent);
+        color: var(--theme-accent);
     }
 
     .page-link.active {
-        color: #fff;
-        background: #2563eb;
-        border-color: #2563eb;
+        color: var(--theme-on-accent, #fff);
+        background: var(--theme-accent);
+        border-color: var(--theme-accent);
     }
 
     @media (max-width: 1100px) {

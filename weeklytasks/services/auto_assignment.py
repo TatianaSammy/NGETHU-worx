@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from sc.models import AnnualLeave, ShiftAssignment
+from sc.models import AnnualLeave, INCHARGE_GROUPS, ShiftAssignment
 from core.plant_section_scope import section_belongs_to_plant, section_scope_q
 
 from weeklytasks.models import DailyTaskAssignment, WeeklyDutyTask
@@ -49,14 +49,23 @@ def assign_task(task_id, from_date=None):
             if first_day > last_day:
                 return 0
 
-            valid_existing = DailyTaskAssignment.objects.filter(
+            existing_assignments = list(DailyTaskAssignment.objects.filter(
                 task_id=task.pk,
                 date__range=(task.start_date, task.end_date),
                 user__is_active=True,
                 user__assigned_treatment_plant_id=plant_id,
                 user__section_id=section_id,
-            ).exists()
-            if valid_existing:
+            ).select_related("user"))
+            invalid_existing_ids = []
+            for existing_assignment in existing_assignments:
+                if (
+                    existing_assignment.user.groups.filter(name__in=INCHARGE_GROUPS).exists()
+                    or AnnualLeave.is_exempt_from_routine_work(existing_assignment.user_id, existing_assignment.date)
+                ):
+                    invalid_existing_ids.append(existing_assignment.pk)
+            if invalid_existing_ids:
+                DailyTaskAssignment.objects.filter(pk__in=invalid_existing_ids).delete()
+            if len(invalid_existing_ids) < len(existing_assignments):
                 return 0
 
             staff = list(
@@ -66,6 +75,8 @@ def assign_task(task_id, from_date=None):
                     assigned_treatment_plant_id=plant_id,
                     section_id=section_id,
                 )
+                .exclude(groups__name__in=INCHARGE_GROUPS)
+                .distinct()
                 .order_by("pk")
             )
             if not staff:
@@ -76,7 +87,7 @@ def assign_task(task_id, from_date=None):
             leave_periods = AnnualLeave.objects.filter(
                 staff_id__in=staff_ids,
                 treatment_plant_id=plant_id,
-                status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+                status__in=AnnualLeave.EXEMPT_FROM_ROUTINE_STATUSES,
                 start_date__lte=last_day,
                 end_date__gte=first_day,
             ).values_list("staff_id", "start_date", "end_date")
@@ -86,6 +97,19 @@ def assign_task(task_id, from_date=None):
                 while current <= leave_end:
                     unavailable[staff_id].add(current)
                     current += timedelta(days=1)
+
+            now = timezone.now()
+            temporary_supervision = ShiftAssignment.objects.filter(
+                temp_supervisor_id__in=staff_ids,
+                date__range=(first_day, last_day),
+                is_deleted=False,
+                temp_supervisor_id__isnull=False,
+                temp_supervisor__is_active=True,
+                temp_supervisor_start__lte=now,
+                temp_supervisor_end__gt=now,
+            ).values_list("temp_supervisor_id", "date")
+            for staff_id, supervision_date in temporary_supervision:
+                unavailable[staff_id].add(supervision_date)
 
             task_load = Counter(
                 DailyTaskAssignment.objects.filter(

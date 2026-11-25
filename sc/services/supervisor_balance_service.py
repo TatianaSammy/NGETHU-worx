@@ -14,6 +14,7 @@ from sc.models import (
     ShiftAssignment,
     ShiftSectionRequirement,
     ShiftSupervisor,
+    WeeklyShiftTeam,
     _has_valid_shift_assignment_for_week,
 )
 from accounts.models import CustomUser
@@ -149,49 +150,112 @@ def _ensure_candidate_has_shift_assignment(
                 moved_by=actor_user or user,
                 remarks=f"Dynamically aligned to supervised {shift.name}.",
             )
-        except Exception:
-            ShiftAssignment.objects.filter(pk=other_asg.pk).update(shift=shift)
+        except ValidationError:
+            # A designation cannot bypass roster section capacity or eligibility rules.
+            continue
 
-    # 2. Check if candidate now has a valid assignment on this shift
-    if _has_valid_shift_assignment_for_week(
-        user_id=user.pk,
+    # A weekly supervisor must belong to every category crew in the week.
+    week_dates = []
+    current_date = week_start
+    while current_date <= week_end:
+        week_dates.append(current_date)
+        current_date += timedelta(days=1)
+    holiday_dates = set(ShiftAssignment.objects.filter(
+        shift__treatment_plant_id=treatment_plant_id,
+        staff__section_id=section_id,
+        date__range=(week_start, week_end),
+        day_type=ShiftAssignment.DAYTYPE_HOLIDAY,
+        is_deleted=False,
+    ).values_list("date", flat=True))
+    assignment_dates = week_dates
+    existing_target_rows = list(ShiftAssignment.objects.filter(
+        staff_id=user.pk,
         shift_id=shift.pk,
-        section_id=section_id,
-        week_start=week_start,
-        week_end=week_end,
-    ):
+        staff__section_id=section_id,
+        date__range=(week_start, week_end),
+        is_deleted=False,
+    ))
+    existing_by_date = {assignment.date: assignment for assignment in existing_target_rows}
+    if all(day in existing_by_date for day in assignment_dates):
         return True
 
-    # 3. If candidate has no assignments at all in this week, create an anchor assignment
     duty_roster = MonthlyDutyRoster.objects.filter(
         treatment_plant_id=treatment_plant_id,
         year=week_start.year,
         month=week_start.month,
     ).first()
 
-    curr = week_start
-    while curr <= week_end:
-        day_type = (
-            ShiftAssignment.DAYTYPE_WEEKEND
-            if curr.weekday() >= 5
-            else ShiftAssignment.DAYTYPE_WEEKDAY
+    if duty_roster is None:
+        duty_roster, _created = MonthlyDutyRoster.objects.get_or_create(
+            treatment_plant_id=treatment_plant_id,
+            year=week_start.year,
+            month=week_start.month,
         )
-        can_accept, _ = shift.can_accept_assignment(section_id, curr, day_type=day_type)
-        is_eligible, _ = shift.is_staff_eligible(user, curr, section=section_id)
-        if can_accept and is_eligible:
-            try:
-                ShiftAssignment.objects.create(
+
+    if all(
+        shift.can_accept_assignment(
+            section_id,
+            day,
+            day_type=(
+                ShiftAssignment.DAYTYPE_WEEKEND
+                if day.weekday() >= 5
+                else ShiftAssignment.DAYTYPE_HOLIDAY
+                if day in holiday_dates
+                else ShiftAssignment.DAYTYPE_WEEKDAY
+            ),
+            exclude_assignment_id=existing_by_date[day].pk if day in existing_by_date else None,
+        )[0]
+        and shift.is_staff_eligible(
+            user,
+            day,
+            section=section_id,
+            exclude_assignment_id=existing_by_date[day].pk if day in existing_by_date else None,
+        )[0]
+        for day in assignment_dates
+    ):
+        try:
+            with transaction.atomic():
+                weekly_team, _created = WeeklyShiftTeam.get_for_date(
                     duty_roster=duty_roster,
                     shift=shift,
-                    staff=user,
-                    date=curr,
-                    day_type=day_type,
-                    supervisor=user,
+                    section=user.section,
+                    target_date=week_start,
+                    create=True,
                 )
-                return True
-            except (ValidationError, Exception):
-                pass
-        curr += timedelta(days=1)
+                existing_team_ids = set(weekly_team.members.values_list("pk", flat=True))
+                existing_assignment_staff_ids = set(ShiftAssignment.objects.filter(
+                    duty_roster=duty_roster,
+                    shift=shift,
+                    staff__section_id=section_id,
+                    date__range=(week_start, week_end),
+                    is_deleted=False,
+                ).values_list("staff_id", flat=True))
+                weekly_team.replace_staff_ids(
+                    existing_team_ids | existing_assignment_staff_ids | {user.pk},
+                    reconciled=False,
+                )
+                for day in assignment_dates:
+                    if day in existing_by_date:
+                        continue
+                    day_type = (
+                        ShiftAssignment.DAYTYPE_WEEKEND
+                        if day.weekday() >= 5
+                        else ShiftAssignment.DAYTYPE_HOLIDAY
+                        if day in holiday_dates
+                        else ShiftAssignment.DAYTYPE_WEEKDAY
+                    )
+                    ShiftAssignment.objects.create(
+                        duty_roster=duty_roster,
+                        shift=shift,
+                        staff=user,
+                        date=day,
+                        day_type=day_type,
+                        supervisor=user,
+                    )
+                weekly_team.refresh_reconciliation()
+            return True
+        except Exception:
+            pass
 
     return False
 

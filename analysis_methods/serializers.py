@@ -61,7 +61,11 @@ class ChemicalAnalysisMethodSerializer(DynamicFieldMixin, serializers.ModelSeria
         return obj.example_input_payload()
 
     def get_input_labels(self, obj):
-        return {i['name']: i['label'] for i in obj.inputs_structure if isinstance(i, dict) and 'name' in i and 'label' in i}
+        return {
+            item["name"]: item.get("label", item["name"])
+            for item in obj.get_input_definitions()
+            if item.get("name")
+        }
 
     def get_description_text(self, obj):
         return obj.describe_inputs()

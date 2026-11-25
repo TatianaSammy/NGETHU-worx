@@ -22,24 +22,27 @@
 }
 
 .ca-table th {
-    background: var(--ca-surface-raised);
-    color: var(--ca-text-muted);
+    background: var(--table-header-bg, var(--ca-surface-raised, var(--theme-surface-strong))) !important;
+    color: var(--theme-text) !important;
     font-size: 11px;
-    font-weight: 750;
+    font-weight: 850;
     letter-spacing: .04em;
     text-transform: uppercase;
     white-space: nowrap;
+    border-bottom: 2px solid var(--theme-border-strong, var(--ca-border)) !important;
 }
 
 .ca-table td {
-    color: var(--ca-text-soft);
+    color: var(--theme-text) !important;
+    background: var(--theme-surface) !important;
     font-size: 13px;
+    border-bottom: 1px solid var(--theme-border, var(--ca-border)) !important;
 }
 
 .ca-table tbody tr:last-child td {
-    border-bottom: 0;
+    border-bottom: 0 !important;
 }
 
-.ca-table tbody tr:hover {
-    background: var(--ca-surface-hover);
+.ca-table tbody tr:hover td {
+    background: var(--row-hover-bg, var(--ca-surface-hover, var(--theme-accent-soft))) !important;
 }

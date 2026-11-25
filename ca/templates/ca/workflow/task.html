@@ -5,7 +5,7 @@
 
 {% block extra_styles %}
     {{ block.super }}
-    <link rel="stylesheet" href="{% static 'ca/css/components/advanced-forms.css' %}?v=20261020-focused-form">
+    <link rel="stylesheet" href="{% static 'ca/css/components/advanced-forms.css' %}?v=20261120-inspection-gate-feedback-v2">
     <link rel="stylesheet" href="{% static 'ca/css/components/interlaboratory.css' %}?v=20261030-interlab">
 {% endblock %}
 
@@ -51,6 +51,15 @@
             </div>
             <span class="ca-required-note"><span aria-hidden="true">*</span> Required</span>
         </div>
+
+        {% if flow_task.name == "checklist" %}
+            <div class="ca-form-context" aria-label="Confirmed batch data">
+                <span class="ca-context-chip"><i class="fa-solid fa-flask" aria-hidden="true"></i> {{ batch.chemical.name }}</span>
+                <span class="ca-context-chip"><i class="fa-solid fa-industry" aria-hidden="true"></i> {{ batch.treatment_plant.name }}</span>
+                <span class="ca-context-chip"><i class="fa-solid fa-boxes-stacked" aria-hidden="true"></i> {{ batch.package_quantity_display }}</span>
+                <span class="ca-context-chip"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i> Received {% if batch.received_at %}{{ batch.received_at|date:"d M Y, H:i:s" }}{% else %}{{ batch.received_date|date:"d M Y" }}{% endif %}</span>
+            </div>
+        {% endif %}
 
         {% if interlab_referrals %}
             <section class="ca-interlab-review" aria-label="Independent laboratory results">
@@ -127,6 +136,24 @@
             {% endif %}
         {% endif %}
 
+        {% if committee_attendance %}
+            <div class="ca-form-context" aria-label="Inspection Committee attendance" role="status">
+                <span class="ca-context-chip"><i class="fa-solid fa-people-group" aria-hidden="true"></i>
+                    Alert acknowledgements: {{ committee_attendance.present_count }} / {{ committee_attendance.total_members }}
+                </span>
+                <span class="ca-context-chip"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+                    Quorum required: {{ committee_attendance.required_count }}
+                </span>
+                {% if not committee_attendance.network_configured %}
+                    <span class="ca-context-chip">Plant committee attendance policy is not configured</span>
+                {% elif committee_attendance.quorum_met %}
+                    <span class="ca-context-chip">Quorum met. The inspection form is unlocked.</span>
+                {% else %}
+                    <span class="ca-context-chip">Members acknowledge their persistent receipt alerts to record attendance.</span>
+                {% endif %}
+            </div>
+        {% endif %}
+
         <form method="post" enctype="multipart/form-data" novalidate class="ca-advanced-form">
             {% csrf_token %}
             {% if form.non_field_errors %}
@@ -140,7 +167,98 @@
                 {% if hidden.errors %}<div class="ca-field-errors" role="alert">{{ hidden.errors }}</div>{% endif %}
             {% endfor %}
 
-            {% if form_groups %}
+            {% if form_tabs %}
+                <div class="ca-inspection-tabs" data-inspection-tabs>
+                    <div class="ca-inspection-tabs__list" role="tablist" aria-label="Committee inspection sections">
+                        {% for tab in form_tabs %}
+                            <button type="button" class="ca-inspection-tab{% if forloop.first %} is-active{% endif %}" role="tab" id="inspection-tab-{{ tab.key }}" aria-controls="inspection-panel-{{ tab.key }}" aria-selected="{% if forloop.first %}true{% else %}false{% endif %}" tabindex="{% if forloop.first %}0{% else %}-1{% endif %}" data-inspection-tab="{{ tab.key }}"{% if tab.key == "sampling" %} disabled{% endif %}>
+                                <span class="ca-inspection-tab__step">{{ tab.step }}</span>
+                                <span>{{ tab.title }}</span>
+                            </button>
+                        {% endfor %}
+                    </div>
+
+                    {% for tab in form_tabs %}
+                        <section class="ca-inspection-tab-panel" id="inspection-panel-{{ tab.key }}" role="tabpanel" aria-labelledby="inspection-tab-{{ tab.key }}" data-inspection-tab-panel="{{ tab.key }}"{% if not forloop.first %} hidden{% endif %}>
+                            {% if tab.key == "committee" %}
+                                <div class="ca-inspection-receipt-summary" aria-label="Received consignment details">
+                                    <div><span>Treatment plant</span><strong>{{ batch.treatment_plant.name }}</strong></div>
+                                    <div><span>Chemical / grade</span><strong>{{ batch.chemical.name }}{% if batch.chemical.grade %} · {{ batch.chemical.grade }}{% endif %}</strong></div>
+                                    <div><span>Supplier</span><strong>{{ batch.supplier.name }}</strong></div>
+                                    <div><span>Delivery note / sample ID</span><strong>{{ batch.delivery_note_number }} · {{ batch.sample_id }}</strong></div>
+                                    <div><span>Recorded package count</span><strong>{{ batch.package_count|default:"—" }}</strong></div>
+                                    <div><span>Received</span><strong>{% if batch.received_at %}{{ batch.received_at|date:"d M Y, H:i:s" }}{% else %}{{ batch.received_date|date:"d M Y" }}{% endif %}{% if batch.quantity_received %} · {{ batch.quantity_received|floatformat:1 }} {{ batch.unit }}{% else %} · awaiting committee quantity verification{% endif %}</strong></div>
+                                    <div><span>Quantity / storage</span><strong>{{ batch.package_quantity_display|default:"—" }} · {{ batch.location.name|default:"—" }}</strong></div>
+                                    {% if batch.remarks %}<p class="ca-inspection-receipt-summary__note"><span>Receipt remarks</span>{{ batch.remarks }}</p>{% endif %}
+                                    {% if batch.delivery_note_attachment or batch.manufacturer_certificate_of_analysis %}
+                                        <div class="ca-inspection-receipt-documents">
+                                            <span>Receipt documents</span>
+                                            {% if batch.delivery_note_attachment %}<a href="{{ batch.delivery_note_attachment.url }}" target="_blank" rel="noopener">Delivery Note</a>{% endif %}
+                                            {% if batch.manufacturer_certificate_of_analysis %}<a href="{{ batch.manufacturer_certificate_of_analysis.url }}" target="_blank" rel="noopener">Manufacturer Certificate of Analysis</a>{% endif %}
+                                        </div>
+                                    {% endif %}
+                                    {% if inspection.expiry_label_attachment or inspection.batch_number_label_attachment %}
+                                        <div class="ca-inspection-receipt-documents">
+                                            <span>Label evidence</span>
+                                            {% if inspection.expiry_label_attachment %}<a href="{{ inspection.expiry_label_attachment.url }}" target="_blank" rel="noopener">Expiry date</a>{% endif %}
+                                            {% if inspection.batch_number_label_attachment %}<a href="{{ inspection.batch_number_label_attachment.url }}" target="_blank" rel="noopener">Batch number</a>{% endif %}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            {% elif tab.key == "sampling" and inspection %}
+                                <section class="ca-inspection-sample-plan" aria-label="Consignment sampling plan">
+                                    <div class="ca-inspection-sample-plan__heading">
+                                        <div><span>Inspection attempt {{ inspection.attempt }}</span><h3>{{ inspection.sample_count }} of {{ inspection.package_count }} packages · 10%, rounded up</h3></div>
+                                        <strong>±{{ inspection.weight_tolerance }} {{ batch.unit }}</strong>
+                                    </div>
+                                    <div class="ca-inspection-sample-plan__facts">
+                                        <span>Random start <strong>Package {{ inspection.random_start }}</strong></span>
+                                        <span>Sampling interval <strong>{{ inspection.sampling_interval }}</strong></span>
+                                        <span>Every selected package must be weighed</span>
+                                    </div>
+                                    <div class="ca-inspection-sample-plan__packages" aria-label="Selected sample packages">
+                                        {% for sample in inspection_samples %}<span>Package {{ sample.package_number }}{% if sample.measured_weight != None %}<strong>{{ sample.measured_weight|floatformat:1 }} {{ batch.unit }}</strong>{% endif %}</span>{% endfor %}
+                                    </div>
+                                    {% if inspection_failed_criteria %}<p class="ca-form-help">Previous failed checks: {{ inspection_failed_criteria|join:", " }}.</p>{% endif %}
+                                </section>
+                            {% endif %}
+
+                            <div class="ca-form-sections">
+                                {% for group in tab.groups %}
+                                    <section class="ca-form-section" aria-labelledby="{{ tab.key }}-section-{{ forloop.counter }}">
+                                        <div class="ca-form-section__heading">
+                                            <span class="ca-form-section__icon" aria-hidden="true"><i class="fa-solid {{ group.icon }}"></i></span>
+                                            <div><h3 id="{{ tab.key }}-section-{{ forloop.counter }}">{{ group.title }}</h3><p>{{ group.description }}</p></div>
+                                            <span class="ca-form-section__index">0{{ forloop.counter }}</span>
+                                        </div>
+                                        <div class="ca-workflow-fields{% if group.title == 'Package identification' %} ca-workflow-fields--compact{% endif %}">
+                                            {% for field in group.fields %}
+                                                <div class="ca-workflow-field{% if field.field.widget.input_type == 'checkbox' %} ca-workflow-field--check{% endif %}{% if field.name == 'inspection_notes' %} ca-workflow-field--wide{% endif %}">
+                                                    <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="ca-required-star" aria-hidden="true">*</span>{% endif %}</label>
+                                                    {{ field }}
+                                                    {% if field.help_text %}<small class="ca-form-help">{{ field.help_text }}</small>{% endif %}
+                                                    {% if field.errors %}<div class="ca-field-errors" role="alert">{{ field.errors }}</div>{% endif %}
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </section>
+                                {% endfor %}
+                            </div>
+
+                            <div class="ca-inspection-step-actions">
+                                {% if tab.key == "committee" %}
+                                    <span>Complete the vehicle and consignment checks, then continue to the sample.</span>
+                                    <button type="button" class="ca-form-button ca-form-button--primary" data-inspection-go="sampling" disabled aria-disabled="true">Start Systematic Random Sampling <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></button>
+                                {% else %}
+                                    <button type="button" class="ca-form-button ca-form-button--secondary" data-inspection-go="committee"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to inspection</button>
+                                    <span>Measure all {{ inspection.sample_count }} selected packages before submitting.</span>
+                                {% endif %}
+                            </div>
+                        </section>
+                    {% endfor %}
+                </div>
+                <p class="ca-inspection-gate-message" data-inspection-gate-message role="status" aria-live="polite">Complete all required inspection fields to continue.</p>
+            {% elif form_groups %}
                 <div class="ca-form-sections">
                     {% for group in form_groups %}
                     <section class="ca-form-section" aria-labelledby="checklist-section-{{ forloop.counter }}">
@@ -195,8 +313,8 @@
                             <i class="fa-solid fa-flask-vial" aria-hidden="true"></i> Confirm complete checklist and start analysis
                         </button>
                     {% else %}
-                        <button type="submit" class="ca-form-button ca-form-button--primary"{% if formula_setup_error or interlab_pending %} disabled aria-disabled="true"{% endif %}>
-                            {% if formula_result %}<i class="fa-solid fa-calculator" aria-hidden="true"></i> Calculate, evaluate and continue{% elif flow_task.name == "interlaboratory_review" %}<i class="fa-solid fa-scale-balanced" aria-hidden="true"></i> Finalize comparison and continue to certificate{% else %}<i class="fa-solid fa-check" aria-hidden="true"></i> Save and continue{% endif %}
+                        <button type="submit" class="ca-form-button ca-form-button--primary"{% if flow_task.name == "inspection_committee" %} data-inspection-submit data-quorum-ready="{% if committee_attendance.quorum_met %}true{% else %}false{% endif %}" disabled aria-disabled="true"{% elif formula_setup_error or interlab_pending or committee_attendance and not committee_attendance.quorum_met %} disabled aria-disabled="true"{% endif %}>
+                            {% if flow_task.name == "inspection_committee" %}<i class="fa-solid fa-clipboard-check" aria-hidden="true"></i> Submit committee inspection{% elif flow_task.name == "supply_chain_review" %}<i class="fa-solid fa-scale-balanced" aria-hidden="true"></i> Record Supply Chain decision{% elif formula_result %}<i class="fa-solid fa-calculator" aria-hidden="true"></i> Calculate, evaluate and continue{% elif flow_task.name == "interlaboratory_review" %}<i class="fa-solid fa-scale-balanced" aria-hidden="true"></i> Finalize comparison and continue to certificate{% else %}<i class="fa-solid fa-check" aria-hidden="true"></i> Save and continue{% endif %}
                         </button>
                     {% endif %}
                 </div>
@@ -204,4 +322,100 @@
         </form>
     </section>
 </main>
+<script>
+(() => {
+    const root = document.querySelector("[data-inspection-tabs]");
+    if (!root) return;
+
+    const tabs = Array.from(root.querySelectorAll("[data-inspection-tab]"));
+    const panels = Array.from(root.querySelectorAll("[data-inspection-tab-panel]"));
+    const form = root.closest("form");
+    const committeePanel = panels.find((panel) => panel.dataset.inspectionTabPanel === "committee");
+    const samplingPanel = panels.find((panel) => panel.dataset.inspectionTabPanel === "sampling");
+    const samplingTab = tabs.find((tab) => tab.dataset.inspectionTab === "sampling");
+    const samplingStart = root.querySelector('[data-inspection-go="sampling"]');
+    const submit = form?.querySelector("[data-inspection-submit]");
+    const gateMessage = root.querySelector("[data-inspection-gate-message]");
+    const requiredFields = (panel) => panel ? Array.from(
+        panel.querySelectorAll("input[required], select[required], textarea[required]")
+    ).filter((field) => !field.disabled) : [];
+    const missingLabels = (panel) => requiredFields(panel)
+        .filter((field) => !field.checkValidity())
+        .map((field) => (field.closest(".ca-workflow-field")?.querySelector("label")?.textContent || field.name)
+            .replace(/\*/g, "")
+            .trim());
+    const activate = (key, focusTab = false) => {
+        tabs.forEach((tab) => {
+            const active = tab.dataset.inspectionTab === key;
+            tab.classList.toggle("is-active", active);
+            tab.setAttribute("aria-selected", active ? "true" : "false");
+            tab.tabIndex = active ? 0 : -1;
+            if (active && focusTab) tab.focus();
+        });
+        panels.forEach((panel) => {
+            panel.hidden = panel.dataset.inspectionTabPanel !== key;
+        });
+    };
+
+    const syncGates = () => {
+        const committeeMissing = missingLabels(committeePanel);
+        const samplingMissing = missingLabels(samplingPanel);
+        const committeeReady = committeeMissing.length === 0;
+        const samplingReady = samplingMissing.length === 0;
+        if (samplingTab) {
+            samplingTab.disabled = !committeeReady;
+            samplingTab.setAttribute("aria-disabled", committeeReady ? "false" : "true");
+        }
+        if (samplingStart) {
+            samplingStart.disabled = !committeeReady;
+            samplingStart.setAttribute("aria-disabled", committeeReady ? "false" : "true");
+        }
+        if (submit) {
+            const enabled = committeeReady && samplingReady && submit.dataset.quorumReady === "true";
+            submit.disabled = !enabled;
+            submit.setAttribute("aria-disabled", enabled ? "false" : "true");
+        }
+        if (!committeeReady && samplingPanel && !samplingPanel.hidden) activate("committee");
+
+        if (gateMessage) {
+            let message = "";
+            if (committeeMissing.length) {
+                message = `Complete required inspection fields to continue: ${committeeMissing.join(", ")}.`;
+            } else if (samplingMissing.length) {
+                message = `Enter every selected package weight before submitting: ${samplingMissing.join(", ")}.`;
+            } else if (submit?.dataset.quorumReady !== "true") {
+                message = "Committee quorum must be met before this inspection can be submitted.";
+            }
+            gateMessage.textContent = message;
+            gateMessage.hidden = !message;
+        }
+    };
+
+    root.addEventListener("click", (event) => {
+        const tab = event.target.closest("[data-inspection-tab]");
+        if (tab) {
+            if (tab.disabled) return;
+            activate(tab.dataset.inspectionTab);
+            return;
+        }
+        const next = event.target.closest("[data-inspection-go]");
+        if (next && !next.disabled) activate(next.dataset.inspectionGo, true);
+    });
+
+    root.addEventListener("input", syncGates);
+    root.addEventListener("change", syncGates);
+
+    root.addEventListener("keydown", (event) => {
+        if (!event.target.matches("[data-inspection-tab]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const current = tabs.indexOf(event.target);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length;
+        activate(tabs[next].dataset.inspectionTab, true);
+    });
+
+    const erroredPanel = panels.find((panel) => panel.querySelector(".ca-field-errors"));
+    if (erroredPanel) activate(erroredPanel.dataset.inspectionTabPanel);
+    syncGates();
+})();
+</script>
 {% endblock %}

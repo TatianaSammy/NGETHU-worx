@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" data-theme="day">
+<html lang="en" data-theme="cyber">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,10 +8,21 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="NCWSCwaterLAB">
     <title>Login | Nairobi City Water & Sewerage</title>
-    <link rel="manifest" href="/manifest.json?v=20261020-enterprise-theme">
-    <meta name="theme-color" content="#417690">
-    <script src="{% static 'core/js/theme.js' %}?v=20261020-enterprise-theme"></script>
-    <script>document.documentElement.classList.remove('fullscreen-app');</script>
+    <link rel="manifest" href="/manifest.json?v=20261115-network-only">
+    <meta name="theme-color" content="#090e17">
+    <!-- The login screen is permanently pinned to Cyber Command (Midnight). -->
+    <script>
+        (function () {
+            var root = document.documentElement;
+            var pinnedTheme = 'cyber';
+            root.setAttribute('data-theme', pinnedTheme);
+            new MutationObserver(function () {
+                if (root.getAttribute('data-theme') !== pinnedTheme) {
+                    root.setAttribute('data-theme', pinnedTheme);
+                }
+            }).observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+        })();
+    </script>
 
 
     <link rel="stylesheet" href="{% static 'css/font_awesome/all.min.css' %}">
@@ -28,9 +39,9 @@
     <link rel="icon" href="{% static 'image/logo.ico' %}" type="image/x-icon">
     {% endif %}
 
-    <link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261020-enterprise-theme">
+    <link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261123-cyber-executive-v1">
 
-    <link rel="stylesheet" href="{% static 'accounts/css/login.css' %}?v=20261030-auth-feedback-v3">
+    <link rel="stylesheet" href="{% static 'accounts/css/login.css' %}?v=20261123-cyber-executive-v1">
 </head>
 <body>
 
@@ -45,26 +56,15 @@
             {% include 'accounts/components/company_branding.html' %}
         </div>
 
-        <div id="errorMessage"
-             class="error-message{% if error %} is-{{ feedback_level|default:'error' }}{% endif %}"
-             role="{% if error and feedback_level == 'info' %}status{% else %}alert{% endif %}"
-             aria-live="{% if error and feedback_level == 'info' %}polite{% else %}assertive{% endif %}"
-             aria-atomic="true"
-             {% if not error %}hidden{% endif %}>
-            <i id="feedbackIcon"
-               class="fas {% if feedback_level == 'warning' %}fa-triangle-exclamation{% elif feedback_level == 'info' %}fa-circle-info{% else %}fa-circle-exclamation{% endif %} feedback-icon"
-               aria-hidden="true"></i>
-            <span id="feedbackText">{% if error %}{{ error }}{% endif %}</span>
-            <button type="button" id="dismissFeedback" class="feedback-dismiss" aria-label="Dismiss message">
-                <i class="fas fa-xmark" aria-hidden="true"></i>
-            </button>
-        </div>
-
 
         <form id="loginForm"
               method="post"
               action="{% url 'accounts:login' %}"
               autocomplete="off"
+              data-form-type="other"
+              data-min-username-length="{{ login_min_username_length }}"
+              data-min-password-length="{{ login_min_password_length }}"
+              data-username-pattern="{{ login_username_pattern }}"
               style="width:100%; display:flex; flex-direction:column; gap:8px; margin-top:10px;">
 
             {% csrf_token %}
@@ -74,13 +74,19 @@
                 <i class="fas fa-user left-icon" aria-hidden="true"></i>
                 <input type="text"
                        id="username"
-                       name="username"
                        placeholder="Username"
                        autocomplete="off"
+                       readonly
+                       autocorrect="off"
+                       minlength="{{ login_min_username_length }}"
+                       maxlength="10"
+                       required
                        spellcheck="false"
                        autocapitalize="characters"
                        data-1p-ignore="true"
                        data-lpignore="true"
+                       data-bwignore="true"
+                       data-form-type="other"
                        aria-label="Username">
             </div>
 
@@ -90,27 +96,35 @@
 
                 <input type="password"
                        id="password"
-                       name="password"
                        placeholder="Password"
-                       autocomplete="off"
+                       autocomplete="new-password"
+                       readonly
+                       minlength="{{ login_min_password_length }}"
+                       required
+                       disabled
                        data-1p-ignore="true"
                        data-lpignore="true"
+                       data-bwignore="true"
+                       data-form-type="other"
                        aria-label="Password">
 
                 <button type="button"
                         class="toggle-password"
                         id="togglePassword"
                         aria-label="Show password"
-                        aria-pressed="false">
+                        aria-pressed="false"
+                        disabled>
                     <i class="fas fa-eye" aria-hidden="true"></i>
                 </button>
             </div>
-            <p id="passwordCapsWarning" class="auth-hint caps-warning" hidden>
-                <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
-                Caps Lock is on.
-            </p>
+            <div id="loginPasswordPolicy" class="login-password-policy" hidden aria-live="polite">
+                <div class="password-strength-meter" role="img" aria-label="Password strength: 0 of 5 checks met">
+                    <div class="password-strength-fill" data-strength-fill></div>
+                </div>
+            </div>
 
             <button type="submit"
+                    disabled
                     id="loginBtn">
                 Login
             </button>
@@ -118,24 +132,88 @@
 
 
         <div class="forgot-password" id="forgotDiv">
-            <a href="#" id="forgotPasswordLink"
-               data-url="{% url 'accounts:reset_password_request' %}">
+            <a href="#" id="forgotPasswordLink">
                 Forgot your password?
             </a>
         </div>
 
-        <div id="resetMessage" class="reset-status" hidden></div>
-        <div class="login-network-status" aria-live="polite" role="status" hidden>
-            <span id="networkIndicator" class="network-indicator" aria-hidden="true"></span>
-            <span id="networkStatus"></span>
-        </div>
-
     </div>
+
+    <div id="loginPolicyNotice" class="password-policy-notice password-policy-notice-login" role="note" aria-label="Password security reminder" aria-hidden="true">
+        <div class="password-policy-notice-track">
+            <span>For secure access, use a strong, unique password that complies with the NCWSC Password Policy.</span>
+            <span aria-hidden="true">For secure access, use a strong, unique password that complies with the NCWSC Password Policy.</span>
+        </div>
+    </div>
+
+    <div class="login-network-status" aria-live="polite" role="status" hidden>
+        <span id="networkIndicator" class="network-indicator" aria-hidden="true"></span>
+        <span id="networkStatus"></span>
+    </div>
+
+    <p id="passwordCapsWarning" class="auth-hint caps-warning" role="status" aria-live="polite" hidden>
+        <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+        Caps Lock is on.
+    </p>
+
+    <!-- Error message displayed OUTSIDE and BELOW the container (never inside) -->
+    <div id="errorMessage"
+         class="error-message{% if error %} is-{{ feedback_level|default:'error' }}{% endif %}"
+         role="{% if error and feedback_level == 'info' %}status{% else %}alert{% endif %}"
+         aria-live="{% if error and feedback_level == 'info' %}polite{% else %}assertive{% endif %}"
+         aria-atomic="true"
+         {% if not error %}hidden{% endif %}>
+        <i id="feedbackIcon"
+           class="fas {% if feedback_level == 'warning' %}fa-triangle-exclamation{% elif feedback_level == 'info' %}fa-circle-info{% else %}fa-circle-exclamation{% endif %} feedback-icon"
+           aria-hidden="true"></i>
+        <span id="feedbackText">{% if error %}{{ error }}{% endif %}</span>
+    </div>
+
+    <div id="resetMessage" class="reset-message" role="status" aria-live="polite" aria-atomic="true" hidden>
+        <i id="resetMessageIcon" class="fas fa-circle-info feedback-icon" aria-hidden="true"></i>
+        <span id="resetMessageText"></span>
+    </div>
+
+    <dialog id="forgotPasswordDialog" class="forgot-password-dialog" aria-labelledby="forgotPasswordTitle">
+        <div class="forgot-password-dialog-content">
+            <h2 id="forgotPasswordTitle">Forgot your password?</h2>
+            <p>Enter valid username to receive a password reset email.</p>
+
+            <form id="passwordResetRequestForm"
+                  data-url="{% url 'accounts:reset_password_request' %}"
+                  data-username-pattern="{{ login_username_pattern }}"
+                  autocomplete="off" novalidate>
+                {% csrf_token %}
+                <label for="resetUsername">Username</label>
+                <input type="text"
+                       id="resetUsername"
+                       class="reset-request-input"
+                       placeholder="Username"
+                       autocomplete="off"
+                       readonly
+                       autocapitalize="characters"
+                       spellcheck="false"
+                       data-1p-ignore="true"
+                       data-lpignore="true"
+                       data-bwignore="true"
+                       maxlength="10"
+                       required>
+
+                <div id="resetValidationMessage" class="reset-validation-message" role="alert" aria-live="assertive" hidden></div>
+
+                <div class="reset-request-actions">
+                    <button type="button" id="closePasswordResetDialog" class="reset-cancel-button">Cancel</button>
+                    <button type="submit" id="resetRequestSubmit" disabled>Send reset email</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
 </div>
 
 
-<script src="{% static 'accounts/js/login.js' %}?v=20261030-auth-feedback-v3"></script>
+<script src="{% static 'accounts/js/login.js' %}?v=20261123-cyber-executive-v1"></script>
 
-<script src="{% static 'core/js/pwa.js' %}?v=20261105-safe-logout" defer></script>
+<script src="{% static 'core/js/pwa.js' %}?v=20261115-network-only" defer></script>
 </body>
 </html>

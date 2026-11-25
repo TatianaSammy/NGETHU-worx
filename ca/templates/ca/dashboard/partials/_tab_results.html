@@ -7,10 +7,10 @@
 <div class="ca-tab-results-view" id="ca-results-container">
 
     <!-- KPI SUMMARY STRIP -->
-    <div class="ca-hud-bar" style="margin-bottom: 1rem; border-radius: 12px; background: rgba(13, 31, 56, 0.7); border: 1px solid rgba(56, 189, 248, 0.2);">
+    <div class="ca-hud-bar" style="margin-bottom: 1rem; border-radius: 12px; background: var(--theme-surface); border: 1px solid color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border));">
         <div class="ca-hud-bar__left">
             <div class="ca-hud-scope-chip" title="Laboratory testing coverage">
-                <i class="fa fa-vial-circle-check" style="color: #38bdf8;"></i>
+                <i class="fa fa-vial-circle-check" style="color: var(--theme-accent);"></i>
                 <span>Laboratory Bench Telemetry</span>
             </div>
             <div class="ca-hud-stat-pill">
@@ -44,10 +44,10 @@
     <div class="pbi-table-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #0c2340;">
-                    <i class="fa fa-microscope" style="color: #0b4584;"></i> Quantitative Test Results & Parameter Validation
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--theme-text);">
+                    <i class="fa fa-microscope" style="color: var(--theme-accent);"></i> Quantitative Test Results & Parameter Validation
                 </h3>
-                <span style="font-size: 0.72rem; color: #64748b;">
+                <span style="font-size: 0.72rem; color: var(--theme-text-secondary, var(--theme-muted));">
                     Calibrated instrument measurements, titration inputs, and limit boundary checks
                 </span>
             </div>
@@ -79,24 +79,24 @@
                         </td>
                         <td>
                             <strong>{{ r.request.batch.chemical.name|default:"Chemical" }}</strong>
-                            <div style="font-size: 0.68rem; color: #0284c7;">
+                            <div style="font-size: 0.68rem; color: var(--theme-accent);">
                                 Batch: {{ r.request.batch.batch_number|default:"—" }}
                             </div>
                         </td>
                         <td>
                             <strong>{{ r.parameter.parameter_name|default:r.parameter_name|default:"General Analysis" }}</strong>
-                            <div style="font-size: 0.68rem; color: #64748b;">
+                            <div style="font-size: 0.68rem; color: var(--theme-text-secondary,var(--theme-muted));">
                                 Method: {{ r.method.name|default:r.parameter.method.name|default:"Standard ISO/KS" }}
                             </div>
                         </td>
                         <td>
-                            <span style="font-size: 0.95rem; font-weight: 800; color: #0c2340;">
+                            <span style="font-size: 0.95rem; font-weight: 800; color: var(--theme-text);">
                                 {{ r.numeric_value|default:r.text_value|default:"Pending" }}
                             </span>
-                            <span style="font-size: 0.7rem; color: #64748b;">{{ r.parameter.unit|default:"" }}</span>
+                            <span style="font-size: 0.7rem; color: var(--theme-text-secondary,var(--theme-muted));">{{ r.parameter.unit|default:"" }}</span>
                         </td>
                         <td>
-                            <span style="font-size: 0.74rem; color: #475569;">
+                            <span style="font-size: 0.74rem; color: var(--theme-text-secondary,var(--theme-muted));">
                                 {% if r.parameter.min_limit or r.parameter.max_limit %}
                                     {{ r.parameter.min_limit|default:"0" }} – {{ r.parameter.max_limit|default:"Max" }} {{ r.parameter.unit|default:"" }}
                                 {% else %}
@@ -117,13 +117,13 @@
                         </td>
                         <td>
                             {% if r.analyst %}
-                                <i class="fa fa-user" style="color: #0284c7;"></i> {{ r.analyst.get_full_name|default:r.analyst.username }}
+                                <i class="fa fa-user" style="color: var(--theme-accent);"></i> {{ r.analyst.get_full_name|default:r.analyst.username }}
                             {% else %}
-                                <span style="color: #64748b;">Automated LIMS</span>
+                                <span style="color: var(--theme-text-secondary,var(--theme-muted));">Automated LIMS</span>
                             {% endif %}
                         </td>
                         <td>
-                            <span style="font-size: 0.72rem; color: #64748b;">
+                            <span style="font-size: 0.72rem; color: var(--theme-text-secondary,var(--theme-muted));">
                                 {{ r.tested_at|date:"Y-m-d H:i"|default:r.created_at|date:"Y-m-d H:i"|default:"—" }}
                             </span>
                         </td>
@@ -137,8 +137,8 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="9" style="text-align: center; padding: 2rem; color: #64748b;">
-                            <i class="fa fa-flask" style="font-size: 2.2rem; color: #38bdf8; display: block; margin-bottom: 0.5rem;"></i>
+                        <td colspan="9" style="text-align: center; padding: 2rem; color: var(--theme-text-secondary,var(--theme-muted));">
+                            <i class="fa fa-flask" style="font-size: 2.2rem; color: var(--theme-accent); display: block; margin-bottom: 0.5rem;"></i>
                             <strong>No analytical test results recorded yet.</strong>
                             <p style="font-size: 0.78rem; margin-top: 0.25rem;">Start an analysis from the workflow queue to record parameter values.</p>
                         </td>

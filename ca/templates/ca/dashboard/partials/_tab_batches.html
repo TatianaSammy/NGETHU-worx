@@ -103,9 +103,13 @@
                     </td>
                     <td>
                         <div class="ca-qty-cell">
-                            <strong>{{ b.quantity_received|default:"0" }}</strong> <span class="ca-unit">{{ b.unit|default:"kg" }}</span>
-                            {% if b.package_count %}
-                            <span class="ca-pkg-tag">({{ b.package_count }} pkgs)</span>
+                            {% if b.quantity_received %}
+                            <strong>{{ b.quantity_received }}</strong> <span class="ca-unit">{{ b.unit|default:"kg" }}</span>
+                            {% else %}
+                            <strong>Pending inspection</strong>
+                            {% endif %}
+                            {% if b.package_quantity_display %}
+                            <span class="ca-pkg-tag">{{ b.package_quantity_display }}</span>
                             {% endif %}
                         </div>
                     </td>
@@ -113,7 +117,7 @@
                         <span class="ca-plant-tag"><i class="fa fa-industry"></i> {{ b.treatment_plant.name|default:plant_context.plant_name }}</span>
                     </td>
                     <td>
-                        <span class="ca-date-text">{{ b.received_date|date:"M d, Y"|default:b.created_at|date:"M d, Y"|default:"—" }}</span>
+                        <span class="ca-date-text">{% if b.received_at %}{{ b.received_at|date:"M d, Y H:i:s" }}{% else %}{{ b.received_date|date:"M d, Y"|default:b.created_at|date:"M d, Y"|default:"—" }}{% endif %}</span>
                     </td>
                     <td>
                         {% if b.coa_generated %}

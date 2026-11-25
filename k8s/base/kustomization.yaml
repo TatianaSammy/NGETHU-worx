@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: qad
+
+labels:
+  - pairs:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
+
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  - pgbouncer-configmap.yaml
+  - pvc.yaml
+  - postgres.yaml
+  - pgbouncer.yaml
+  - redis.yaml
+  - migrate-job.yaml
+  - web.yaml
+  - daphne.yaml
+  - celery.yaml
+  - beat.yaml
+  - nginx-configmap.yaml
+  - nginx.yaml
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml

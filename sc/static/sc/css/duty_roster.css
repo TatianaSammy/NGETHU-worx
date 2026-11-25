@@ -22,7 +22,7 @@
 }
 
 .sc-roster-heading > span {
-  color: #667482;
+  color: var(--theme-text-secondary, var(--theme-muted));
   font-size: .62rem;
   font-weight: 800;
   letter-spacing: .14em;
@@ -30,8 +30,8 @@
 
 .sc-roster-heading h1 {
   margin: 6px 0 3px;
-  color: #20252b;
-  font-family: Georgia, "Times New Roman", serif;
+  color: var(--theme-text);
+  font-family: inherit;
   font-size: clamp(1.05rem, 2vw, 1.45rem);
   font-weight: 700;
   text-transform: uppercase;
@@ -39,7 +39,7 @@
 
 .sc-roster-heading p {
   margin: 0;
-  color: #5c6872;
+  color: var(--theme-text-secondary, var(--theme-muted));
   font-size: .76rem;
   font-weight: 700;
 }
@@ -358,10 +358,15 @@
 
 .sc-roster-header,
 .sc-roster-document,
-.sc-roster-table thead th,
 .sc-roster-table tbody tr:nth-child(even),
 .sc-roster-empty-state--global {
   background: var(--roster-soft);
+}
+
+.sc-roster-table thead th {
+  background: var(--table-header-bg, var(--theme-surface-strong, var(--theme-surface))) !important;
+  color: var(--theme-text) !important;
+  border-bottom: 2px solid var(--theme-border-strong, var(--theme-border)) !important;
 }
 
 .sc-roster-heading h1,
@@ -419,6 +424,9 @@
 .sc-roster-assignment-dialog p { margin: 0; color: var(--roster-muted); font-size: .76rem; }
 .sc-roster-assignment-dialog label { display: grid; gap: 5px; color: var(--roster-muted); font-size: .7rem; font-weight: 800; }
 .sc-roster-assignment-dialog :is(select,input[type="date"]) { min-height: 40px; padding: 0 10px; border: 1px solid var(--roster-border); border-radius: 8px; background: var(--roster-panel); color: var(--roster-text); }
+.sc-roster-assignment-dialog select[multiple] { min-height: 150px; padding: 6px; }
+.sc-roster-assignment-dialog select[multiple] option { padding: 5px 7px; border-radius: 4px; }
+.sc-roster-assignment-dialog select[multiple] option:checked { background: var(--roster-accent); color: var(--theme-on-accent, #fff); }
 .sc-roster-assignment-dialog select:disabled { opacity: .78; }
 .sc-roster-dialog-close { align-self: start; width: 32px; height: 32px; border: 1px solid var(--roster-border); border-radius: 9px; background: var(--roster-soft); color: var(--roster-text); font-size: 1.2rem; cursor: pointer; }
 .sc-roster-assignment-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }

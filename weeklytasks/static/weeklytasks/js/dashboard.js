@@ -73,7 +73,11 @@
         var result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.message || "Unable to load task candidates.");
         slots = result.slots || [];
-        fillSelect(document.getElementById("weekly-dialog-date"), slots.map(function (slot) { return { value: slot.date, label: slot.label }; }), slots.length ? "Choose a date" : "No open dates in this task week");
+        var dateSelect = document.getElementById("weekly-dialog-date");
+        fillSelect(dateSelect, slots.map(function (slot) { return { value: slot.date, label: slot.label }; }), slots.length ? "Choose a date" : "No open dates in this task week");
+        var destinationDate = record.dataset.destinationDate || record.dataset.startDate;
+        var selectedSlot = slots.find(function (slot) { return slot.date === destinationDate; }) || slots[0];
+        dateSelect.value = selectedSlot ? selectedSlot.date : "";
         updateUsers();
         dialog.showModal();
       } catch (error) {
@@ -144,11 +148,15 @@
       if (!record || !dragged) return;
       event.preventDefault();
       record.classList.remove("is-drop-target");
-      if (dragged.plantId !== record.dataset.plantId || (dragged.sectionId && record.dataset.sectionId && dragged.sectionId !== record.dataset.sectionId)) {
-        return notify("Weekly task assignments cannot be moved outside their treatment plant and section.", true);
+      if (dragged.plantId !== record.dataset.plantId) {
+        return notify("Weekly task assignments cannot be moved outside their treatment plant.", true);
       }
-      var taskId = record.dataset.taskId;
-      if (!taskId) return notify("Task plan is not available for this cell.", true);
+      var targetTask = Array.from(record.querySelectorAll("[data-task-target-id]"))
+        .find(function (item) { return item.dataset.taskTargetSection === dragged.sectionId; });
+      var taskId = targetTask ? targetTask.dataset.taskTargetId : "";
+      if (!taskId) {
+        return notify("This task cell has no plan for the staff member's section.", true);
+      }
       try {
         await post({ action: "move", assignment_id: dragged.id, task_id: taskId, date: targetDate(record, dragged.date), shift_id: "" });
         notify("Weekly task assignment moved. Refreshing the schedule…", false);
@@ -186,27 +194,69 @@
     if (!root) return;
     var search = document.getElementById("weekly-schedule-search");
     var filter = document.getElementById("weekly-schedule-filter");
+    var shiftFilter = document.getElementById("weekly-shift-filter");
     var density = document.getElementById("weekly-density-toggle");
     var reset = document.getElementById("weekly-filter-reset");
+    var filtersForm = root.querySelector(".sc-assignment-filters");
+    var plantFilter = filtersForm && filtersForm.querySelector('[name="plant"]');
+    var sectionFilter = filtersForm && filtersForm.querySelector('[name="filter_section"]');
+    function submitFilters() {
+      if (!filtersForm) return;
+      if (typeof filtersForm.requestSubmit === "function") filtersForm.requestSubmit();
+      else filtersForm.submit();
+    }
+    if (plantFilter && sectionFilter) {
+      plantFilter.addEventListener("change", function () {
+        sectionFilter.value = "";
+        if (shiftFilter) shiftFilter.value = "";
+        submitFilters();
+      });
+    }
+    if (sectionFilter && shiftFilter && filtersForm.dataset.cascadeSection === "true") {
+      sectionFilter.addEventListener("change", function () {
+        shiftFilter.value = "";
+        submitFilters();
+      });
+    }
     function apply() {
       var query = (search.value || "").trim().toLocaleLowerCase();
+      var shiftId = shiftFilter ? shiftFilter.value : "";
       root.querySelectorAll("[data-weekly-row]").forEach(function (row) {
         var states = Array.from(row.querySelectorAll("[data-weekly-status]")).map(function (cell) { return cell.dataset.weeklyStatus; });
         var planned = states.filter(function (state) { return state !== "not-planned"; });
         var staffed = planned.length > 0 && planned.every(function (state) { return state === "staffed"; });
         var partial = states.indexOf("partial") >= 0 || (states.indexOf("staffed") >= 0 && states.indexOf("unassigned") >= 0);
         var open = !planned.length || states.indexOf("unassigned") >= 0;
-        var matches = filter.value === "all" || (filter.value === "staffed" && staffed) || (filter.value === "partial" && partial) || (filter.value === "open" && open);
+        var statusValue = filter ? filter.value : "all";
+        var matches = statusValue === "all" || (statusValue === "staffed" && staffed) || (statusValue === "partial" && partial) || (statusValue === "open" && open);
         row.hidden = !matches || (query && !row.textContent.toLocaleLowerCase().includes(query));
       });
+      root.querySelectorAll(".weekly-task-cell").forEach(function (cell) {
+        var assignees = Array.from(cell.querySelectorAll(".weekly-assignee"));
+        var visibleCount = 0;
+        assignees.forEach(function (assignee) {
+          var assignmentShift = assignee.dataset.shiftId || "none";
+          var visible = !shiftId || assignmentShift === shiftId;
+          assignee.hidden = !visible;
+          if (visible) visibleCount += 1;
+        });
+        var emptyMessage = cell.querySelector("[data-shift-filter-empty]");
+        if (emptyMessage) emptyMessage.hidden = !shiftId || visibleCount > 0 || assignees.length === 0;
+      });
     }
-    search.addEventListener("input", apply);
-    filter.addEventListener("change", apply);
-    density.addEventListener("click", function () {
+    if (search) search.addEventListener("input", apply);
+    if (filter) filter.addEventListener("change", apply);
+    if (shiftFilter) shiftFilter.addEventListener("change", apply);
+    if (density) density.addEventListener("click", function () {
       var active = root.classList.toggle("is-compact");
       density.setAttribute("aria-pressed", String(active));
     });
-    reset.addEventListener("click", function () { search.value = ""; filter.value = "all"; root.classList.remove("is-compact"); density.setAttribute("aria-pressed", "false"); apply(); });
+    if (reset) reset.addEventListener("click", function () {
+      var url = new URL(window.location.href);
+      ["q", "shift", "task_status"].forEach(function (key) { url.searchParams.delete(key); });
+      window.location.assign(url.toString());
+    });
+    apply();
   }
 
   document.addEventListener("DOMContentLoaded", function () { scheduleActions(); scheduleControls(); });

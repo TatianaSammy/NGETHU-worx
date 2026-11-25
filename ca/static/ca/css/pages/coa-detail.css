@@ -1,20 +1,20 @@
 :root {
-    --coa-bg: #071019;
-    --coa-surface: #0b1621;
-    --coa-surface-2: #0e1c29;
-    --coa-surface-3: #111f2d;
-    --coa-border: rgba(148, 163, 184, 0.14);
-    --coa-border-strong: rgba(148, 163, 184, 0.25);
-    --coa-text: #e7edf4;
-    --coa-text-soft: #c3ced9;
-    --coa-muted: #8191a3;
-    --coa-accent: #48d7c0;
-    --coa-blue: #5aa9ff;
-    --coa-green: #42d392;
-    --coa-yellow: #f5c451;
-    --coa-red: #ff647c;
-    --coa-purple: #a78bfa;
-    --coa-cyan: #46c7e8;
+    --coa-bg: var(--theme-bg, #f4f7fb);
+    --coa-surface: var(--theme-surface, #ffffff);
+    --coa-surface-2: var(--theme-surface-muted, #f8fafc);
+    --coa-surface-3: var(--theme-surface-strong, #f1f5f9);
+    --coa-border: color-mix(in srgb, var(--theme-border, #cbd5e1) 70%, transparent);
+    --coa-border-strong: var(--theme-border-strong, var(--theme-border, #cbd5e1));
+    --coa-text: var(--theme-text, #172033);
+    --coa-text-soft: var(--theme-text-secondary, #475569);
+    --coa-muted: var(--theme-muted, #64748b);
+    --coa-accent: var(--theme-accent, #0284c7);
+    --coa-blue: var(--theme-accent, #2563eb);
+    --coa-green: var(--color-success, #15803d);
+    --coa-yellow: var(--color-warning, #a16207);
+    --coa-red: var(--color-danger, #b91c1c);
+    --coa-purple: color-mix(in srgb, var(--theme-accent, #7c3aed) 68%, #8b5cf6);
+    --coa-cyan: var(--theme-accent, #0891b2);
     --coa-shadow: 0 18px 55px rgba(0, 0, 0, 0.24);
     --coa-shadow-soft: 0 10px 35px rgba(0, 0, 0, 0.14);
     --coa-radius: 16px;
@@ -39,12 +39,7 @@
             rgba(90, 169, 255, 0.055),
             transparent 27rem
         ),
-        linear-gradient(
-            180deg,
-            #071019 0%,
-            #08121c 48%,
-            #071019 100%
-        );
+        linear-gradient(180deg, var(--coa-bg) 0%, var(--coa-surface) 48%, var(--coa-bg) 100%);
 }
 
 .coa-page::before {
@@ -360,7 +355,7 @@
 
 .coa-certificate-value {
     color: var(--coa-text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.87rem;
     font-weight: 750;
     letter-spacing: 0.02em;
@@ -633,7 +628,7 @@
 }
 
 .coa-field-value.mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.7rem;
 }
 
@@ -709,7 +704,7 @@
 
 .coa-result-value {
     color: var(--coa-text);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.69rem;
     font-weight: 750;
 }
@@ -827,7 +822,7 @@
         ),
         #050b11;
     color: #b9c7d6;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
     font-size: 0.62rem;
     line-height: 1.55;
     scrollbar-width: thin;

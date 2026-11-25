@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import ipaddress
 import json
 import logging
 import math
@@ -49,6 +50,12 @@ class Chemical(models.Model):
     code = models.CharField(max_length=25, unique=True, help_text="Short code for the chemical, e.g. ALUM, CL, POLY")
     description = models.TextField(blank=True)
     grade = models.CharField(max_length=100, blank=True)
+    weight_tolerance = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=Decimal("1.000"),
+        help_text="Maximum absolute package-weight deviation allowed during receipt inspection, in the batch unit.",
+    )
     hydrometer_formula = models.TextField(
         blank=True,
         help_text="Python formula using 'reading' as the input variable. Example: (reading * 1.05 + 2)"
@@ -56,6 +63,8 @@ class Chemical(models.Model):
 
     def clean(self):
         super().clean()
+        if self.weight_tolerance is None or self.weight_tolerance < 0:
+            raise ValidationError({"weight_tolerance": "Package weight tolerance cannot be negative."})
         if self.hydrometer_formula:
             formula = self.hydrometer_formula.strip()
             validate_formula_expression(formula, allow_math_attr=True)
@@ -466,8 +475,21 @@ class ChemicalBatch(models.Model):
         UTILIZED = 'UTILIZED', 'Utilized in Treatment'
         RETURNED = 'RETURNED', 'Return to Supplier (RTS)'
 
+    class PackageType(models.TextChoices):
+        BAGS = "BAGS", "BAGS"
+        DRUMS = "DRUMS", "DRUMS"
+        TINS = "TINS", "TINS"
+
     sample_id = models.CharField(max_length=50, unique=True, editable=False)
     delivery_note_number = models.CharField(max_length=100, unique=True, blank=True)
+    delivery_note_attachment = models.FileField(
+        upload_to="chemical_batches/delivery_notes/%Y/%m/",
+        blank=True,
+    )
+    manufacturer_certificate_of_analysis = models.FileField(
+        upload_to="chemical_batches/manufacturer_certificates/%Y/%m/",
+        blank=True,
+    )
     batch_number = models.CharField(max_length=100, unique=True)
     chemical = models.ForeignKey("Chemical", on_delete=models.CASCADE)
     location = models.ForeignKey(
@@ -480,11 +502,31 @@ class ChemicalBatch(models.Model):
     supplier = models.ForeignKey(Supplier,on_delete=models.PROTECT,related_name="chemical_batches",related_query_name="chemical_batches",)
     treatment_plant = models.ForeignKey("t.TreatmentPlant", on_delete=models.SET_NULL, null=True,related_name='chemical_batches')
     received_date = models.DateField(default=timezone.localdate)
-    quantity_received = models.DecimalField(max_digits=18, decimal_places=6)
-    unit = models.CharField(max_length=10, default='kg')
+    received_at = models.DateTimeField(null=True, blank=True, editable=False, db_index=True)
+    quantity_received = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Set from verified package weight when the committee inspection passes.",
+    )
+    unit = models.CharField(max_length=10, default='KG')
     package_count = models.PositiveIntegerField(null=True,blank=True,help_text=(
             "Total number of discrete packages, bags, drums, "
             "containers, or other sampling units in the batch."),
+    )
+    package_weight = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Supplier-declared quantity or net weight per package, verified during committee inspection.",
+    )
+    package_type = models.CharField(
+        max_length=8,
+        choices=PackageType.choices,
+        blank=True,
+        default="",
     )
     received_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,related_name='received_batches')
     status = models.CharField(max_length=25, choices=Status.choices, default=Status.RECEIVED)
@@ -510,6 +552,15 @@ class ChemicalBatch(models.Model):
         related_name="returned_chemical_batches",
     )
     returned_at = models.DateTimeField(null=True, blank=True)
+    supplier_collection_due_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    supplier_collected_at = models.DateTimeField(null=True, blank=True)
+    supplier_collection_recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="recorded_supplier_collections",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -526,20 +577,35 @@ class ChemicalBatch(models.Model):
     def clean(self):
         super().clean()
         errors = {}
-        try:
-            quantity_received = Decimal(str(self.quantity_received))
-        except (InvalidOperation, TypeError, ValueError):
-            quantity_received = None
-        if quantity_received is None or not quantity_received.is_finite():
-            errors["quantity_received"] = "Quantity received must be a finite number."
-        elif quantity_received <= 0:
-            errors["quantity_received"] = "Quantity received must be greater than zero."
+        if self.quantity_received is None:
+            if self.status != self.Status.RECEIVED:
+                errors["quantity_received"] = "A verified quantity is required before a batch can advance beyond receipt."
         else:
-            self.quantity_received = quantity_received
+            try:
+                quantity_received = Decimal(str(self.quantity_received))
+            except (InvalidOperation, TypeError, ValueError):
+                quantity_received = None
+            if quantity_received is None or not quantity_received.is_finite():
+                errors["quantity_received"] = "Quantity received must be a finite number."
+            elif quantity_received <= 0:
+                errors["quantity_received"] = "Quantity received must be greater than zero."
+            else:
+                self.quantity_received = quantity_received
         if self.received_date is None:
             errors["received_date"] = "Date received is required."
         if self.package_count is not None and self.package_count < 1:
             errors["package_count"] = "Package count must be at least one."
+        if self.package_weight is not None:
+            try:
+                package_weight = Decimal(str(self.package_weight))
+            except (InvalidOperation, TypeError, ValueError):
+                package_weight = None
+            if package_weight is None or not package_weight.is_finite() or package_weight <= 0:
+                errors["package_weight"] = "Package weight must be a finite number greater than zero."
+            elif self._state.adding and package_weight != package_weight.quantize(Decimal("0.1")):
+                errors["package_weight"] = "Package weight must be recorded to one decimal place."
+            else:
+                self.package_weight = package_weight
         if self.treatment_plant_id is None:
             errors["treatment_plant"] = "A treatment plant is required."
         if self._state.adding and not self.location_id:
@@ -555,10 +621,57 @@ class ChemicalBatch(models.Model):
     # -------------------------
     @transaction.atomic
     def save(self, *args, **kwargs):
+        if self._state.adding:
+            # The server records the receipt instant; never trust a client
+            # supplied datetime for the official intake timestamp.
+            self.received_at = timezone.now()
+            self.received_date = timezone.localdate(self.received_at)
+
         if self.pk and not getattr(self, "_allow_status_transition", False):
             persisted_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
             if persisted_status is not None and persisted_status != self.status:
                 raise ValidationError("Chemical batch status can only change through the authorized transition workflow.")
+        if self.pk:
+            receipt_fields = (
+                "sample_id",
+                "batch_number",
+                "chemical_id",
+                "location_id",
+                "supplier_id",
+                "treatment_plant_id",
+                "received_date",
+                "received_at",
+                "delivery_note_number",
+                "delivery_note_attachment",
+                "manufacturer_certificate_of_analysis",
+                "package_count",
+                "package_weight",
+                "quantity_received",
+                "package_type",
+                "unit",
+                "received_by_id",
+                "remarks",
+            )
+            persisted = type(self).objects.filter(pk=self.pk).values(*receipt_fields).first()
+            if persisted is not None:
+                changed_fields = []
+                for field_name in receipt_fields:
+                    current_value = getattr(self, field_name)
+                    if (
+                        field_name == "quantity_received"
+                        and persisted[field_name] is None
+                        and current_value is not None
+                        and getattr(self, "_allow_verified_quantity_update", False)
+                    ):
+                        continue
+                    if field_name in {"delivery_note_attachment", "manufacturer_certificate_of_analysis"}:
+                        current_value = getattr(current_value, "name", current_value) or ""
+                    if current_value != persisted[field_name]:
+                        changed_fields.append(field_name.removesuffix("_id"))
+                if changed_fields:
+                    raise ValidationError(
+                        "Confirmed receipt data is immutable: " + ", ".join(changed_fields) + "."
+                    )
         if self._state.adding and not self.location_id:
             raise ValidationError({"location": "A chemical storage location is required."})
         if (
@@ -602,6 +715,14 @@ class ChemicalBatch(models.Model):
             sequence.save(update_fields=["last_value", "updated_at"])
             new_seq = sequence.last_value
             self.sample_id = f"{prefix}-{new_seq:03d}"
+
+        if not self.batch_number:
+            internal_number = self.sample_id
+            suffix = 1
+            while type(self).objects.filter(batch_number=internal_number).exclude(pk=self.pk).exists():
+                internal_number = f"{self.sample_id}-{suffix}"
+                suffix += 1
+            self.batch_number = internal_number
 
         self.clean()
 
@@ -690,6 +811,45 @@ class ChemicalBatch(models.Model):
         return target_status in self.batch_transitions.get(self.status, [])
 
     @property
+    def supplier_collection_overdue(self):
+        return bool(
+            self.supplier_collection_due_at
+            and self.supplier_collected_at is None
+            and timezone.now() >= self.supplier_collection_due_at
+        )
+
+    @property
+    def supplier_collection_was_late(self):
+        return bool(
+            self.supplier_collection_due_at
+            and self.supplier_collected_at
+            and self.supplier_collected_at > self.supplier_collection_due_at
+        )
+
+    @transaction.atomic
+    def record_supplier_collection(self, *, recorded_by, collected_at=None):
+        batch = type(self).objects.select_for_update().get(pk=self.pk)
+        if batch.status != self.Status.REJECTED or batch.supplier_collection_due_at is None:
+            raise ValidationError("A rejected consignment with a collection deadline is required.")
+        if batch.supplier_collected_at is not None:
+            raise ValidationError("Supplier collection has already been recorded.")
+        require_ca_actor(
+            recorded_by,
+            "ca.return_chemical_batch",
+            plant_id=batch.treatment_plant_id,
+        )
+        batch.supplier_collected_at = collected_at or timezone.now()
+        batch.supplier_collection_recorded_by = recorded_by
+        batch.save(update_fields=(
+            "supplier_collected_at",
+            "supplier_collection_recorded_by",
+            "updated_at",
+        ))
+        self.supplier_collected_at = batch.supplier_collected_at
+        self.supplier_collection_recorded_by = recorded_by
+        return batch
+
+    @property
     def has_active_holds(self):
         return self.workflow_holds.filter(
             status=ChemicalBatchHold.Status.OPEN
@@ -697,6 +857,14 @@ class ChemicalBatch(models.Model):
 
     @property
     def available_quantity(self):
+        if self.quantity_received is None:
+            return Decimal("0")
+        if self.status in {self.Status.RECEIVED, self.Status.REJECTED, self.Status.RETURNED}:
+            latest_inspection_status = self.inspections.order_by("-attempt").values_list(
+                "status", flat=True
+            ).first()
+            if latest_inspection_status and latest_inspection_status != ChemicalBatchInspection.Status.PASS:
+                return Decimal("0")
         latest_balance = self.inventory_movements.order_by("-sequence").values_list(
             "quantity_after", flat=True
         ).first()
@@ -711,6 +879,17 @@ class ChemicalBatch(models.Model):
             - Decimal(str(self.quantity_returned or 0)),
         )
 
+    @property
+    def package_quantity_display(self):
+        if not self.package_count:
+            return ""
+        if self.package_weight is None or not self.unit or not self.package_type:
+            return f"{self.package_count} packages"
+        weight = format(Decimal(str(self.package_weight)).quantize(Decimal("0.1")), ".1f")
+        unit_labels = {"kg": "KG", "tonnes": "T", "m3": "M³", "g": "G", "mL": "ML"}
+        unit_label = unit_labels.get(self.unit, self.unit)
+        return f"{self.package_count} × {weight} {unit_label} {self.get_package_type_display().upper()}"
+
     def is_approved(self):
         return self.status == self.Status.APPROVED
 
@@ -723,7 +902,13 @@ class ChemicalBatch(models.Model):
                 condition=Q(status__in=["RECEIVED", "ANALYSED", "APPROVED", "REJECTED", "UTILIZED", "RETURNED"]),
                 name="ca_batch_status_valid",
             ),
-            models.CheckConstraint(condition=Q(quantity_received__gt=0), name="ca_batch_quantity_positive"),
+            models.CheckConstraint(
+                condition=(
+                    Q(quantity_received__isnull=True, status="RECEIVED")
+                    | Q(quantity_received__gt=0)
+                ),
+                name="ca_batch_quantity_positive",
+            ),
             models.CheckConstraint(
                 condition=Q(quantity_utilized__isnull=True) | Q(quantity_utilized__gte=0),
                 name="ca_batch_utilized_nonnegative",
@@ -1188,7 +1373,7 @@ class ChemicalAnalysisRequest(models.Model):
             "method_version": method.version if method else None,
             "method_reference": method.kebs_reference if method else "",
             "method_formula_hash": method.formula_hash if method else "",
-            "method_inputs": method.inputs_structure if method else [],
+            "method_inputs": method.get_input_definitions() if method else [],
             "method_unit": method.unit if method else "",
             "method_rounding_precision": method.rounding_precision if method else None,
             "method_rounding_mode": method.rounding_mode if method else "HALF_UP",
@@ -1220,6 +1405,11 @@ class ChemicalAnalysisRequest(models.Model):
 
         type(self).objects.select_for_update().get(pk=self.pk)
         self.refresh_from_db()
+        if (
+            self.batch_id
+            and not self.batch.inspections.filter(status=ChemicalBatchInspection.Status.PASS).exists()
+        ):
+            raise ValidationError("Analysts cannot be assigned until the Inspection Committee passes the batch.")
         if self.status not in {self.Status.PENDING, self.Status.IN_PROGRESS}:
             raise ValidationError("Analysts can only be assigned while the request is active.")
 
@@ -1364,6 +1554,12 @@ class ChemicalAnalysisRequest(models.Model):
         if not self.pk:
             return get_user_model().objects.none()
 
+        if (
+            self.batch_id
+            and not self.batch.inspections.filter(status=ChemicalBatchInspection.Status.PASS).exists()
+        ):
+            return get_user_model().objects.none()
+
         now = now or timezone.now()
 
         with transaction.atomic():
@@ -1436,6 +1632,13 @@ class ChemicalAnalysisRequest(models.Model):
                     "The selected chemical batch could not be found."
                 )
             else:
+                if (
+                    self._state.adding
+                    and not batch.inspections.filter(status=ChemicalBatchInspection.Status.PASS).exists()
+                ):
+                    errors["batch"] = (
+                        "The Inspection Committee must pass the consignment before an analysis request can be created."
+                    )
                 if (
                     self.status in (
                         self.Status.IN_PROGRESS,
@@ -1525,6 +1728,12 @@ class ChemicalAnalysisRequest(models.Model):
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if (
+            self._state.adding
+            and self.batch_id
+            and not self.batch.inspections.filter(status=ChemicalBatchInspection.Status.PASS).exists()
+        ):
+            raise ValidationError("The Inspection Committee must pass the consignment before an analysis request can be created.")
         if self.pk and not getattr(self, "_allow_status_transition", False):
             persisted_status = type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
             if persisted_status is not None and persisted_status != self.status:
@@ -2105,9 +2314,9 @@ class ChecklistForWaterTreatmentChemicalAnalysis(models.Model):
         default=Grade.NA,
     )
 
-    manufacture_date = models.DateField()
+    manufacture_date = models.DateField(null=True, blank=True)
 
-    expiry_date = models.DateField()
+    expiry_date = models.DateField(null=True, blank=True)
 
     chemical_label_photo = models.ImageField(
         upload_to="ca/chemical-labels/%Y/%m/",
@@ -2117,11 +2326,14 @@ class ChecklistForWaterTreatmentChemicalAnalysis(models.Model):
 
     storage_conditions = models.CharField(
         max_length=255,
+        blank=True,
     )
 
     net_weight = models.DecimalField(
         max_digits=12,
         decimal_places=3,
+        null=True,
+        blank=True,
     )
 
     country_of_origin = CountryField(
@@ -2417,23 +2629,27 @@ class ChecklistForWaterTreatmentChemicalAnalysis(models.Model):
                 "the manufacture date."
             )
 
-        if (
-            self.net_weight is None
-            or self.net_weight <= Decimal("0")
-        ):
+        if self.net_weight is not None and self.net_weight <= Decimal("0"):
             errors["net_weight"] = (
                 "Net weight must be greater than zero."
             )
 
-        if (
-            not isinstance(self.storage_conditions, str)
-            or not self.storage_conditions.strip()
-        ):
+        if self.storage_conditions and not self.storage_conditions.strip():
             errors["storage_conditions"] = (
                 "Storage conditions are required."
             )
 
         if self.completed:
+            if not self.manufacture_date:
+                errors["manufacture_date"] = "A manufacture date is required to complete the checklist."
+            if not self.expiry_date:
+                errors["expiry_date"] = "An expiry date is required to complete the checklist."
+            if self.net_weight is None or self.net_weight <= Decimal("0"):
+                errors["net_weight"] = "Net weight must be greater than zero."
+            if not self.storage_conditions.strip():
+                errors["storage_conditions"] = "Storage conditions are required."
+            if not self.chemical_label_photo:
+                errors["chemical_label_photo"] = "Attach a photo of the chemical container label showing its expiry date."
             if not self.completed_at:
                 errors["completed_at"] = (
                     "A completion time is required for "
@@ -2815,6 +3031,658 @@ class ChecklistForWaterTreatmentChemicalAnalysis(models.Model):
             f"({batch_number})"
         )
 
+CHEMICAL_INSPECTION_VEHICLE_CHECKLIST = (
+    ("vehicle_suitable", "Vehicle is suitable for transporting this chemical"),
+    ("vehicle_clean_dry", "Cargo area is clean, dry and free of residue or strong odours"),
+    ("vehicle_leak_free", "No leaks, spills, water ingress, pests or incompatible cargo"),
+    ("load_secured", "Packages are secured and protected from weather or tampering"),
+    ("delivery_seal_matches", "Where provided, delivery seal is intact and matches the documents"),
+)
+
+CHEMICAL_INSPECTION_CONSIGNMENT_CHECKLIST = (
+    ("package_count_matches", "Package count matches the delivery documents"),
+    ("packaging_intact", "Packages are sealed, intact and free of leakage"),
+    ("labels_match", "Chemical, grade and batch labels match the purchase documents"),
+    ("expiry_valid", "Manufacture and expiry markings are legible and valid"),
+    ("no_contamination", "No visible contamination, damage or foreign material"),
+    ("transport_storage_compliant", "Transport and storage conditions meet requirements"),
+)
+
+CHEMICAL_INSPECTION_CHECKLIST = (
+    *CHEMICAL_INSPECTION_VEHICLE_CHECKLIST,
+    *CHEMICAL_INSPECTION_CONSIGNMENT_CHECKLIST,
+)
+
+CHEMICAL_INSPECTION_OPTIONAL_CHECKLIST = {"delivery_seal_matches"}
+
+
+def validate_inspection_lan_cidr(value):
+    try:
+        ipaddress.ip_network(str(value).strip(), strict=False)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("Enter a valid IPv4 or IPv6 LAN network in CIDR notation.") from exc
+
+
+class ChemicalInspectionPlantNetwork(models.Model):
+    """LAN boundary used to verify committee attendance acknowledgements."""
+
+    treatment_plant = models.OneToOneField(
+        TreatmentPlant,
+        on_delete=models.CASCADE,
+        related_name="chemical_inspection_network",
+    )
+    lan_cidr = models.CharField(
+        max_length=64,
+        blank=True,
+        validators=[validate_inspection_lan_cidr],
+        help_text="Required while IP restriction is enabled. Enter the plant LAN in CIDR notation, for example 192.168.10.0/24.",
+    )
+    ip_restriction_enabled = models.BooleanField(
+        "Require plant LAN",
+        default=True,
+        help_text="When enabled, committee attendance acknowledgements count only from this plant's LAN.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        super().clean()
+        self.lan_cidr = str(self.lan_cidr or "").strip()
+        if self.ip_restriction_enabled and not self.lan_cidr:
+            raise ValidationError({"lan_cidr": "Enter a plant LAN CIDR or turn off IP restriction for this plant."})
+        if self.lan_cidr:
+            validate_inspection_lan_cidr(self.lan_cidr)
+
+    def __str__(self):
+        state = "IP restricted" if self.ip_restriction_enabled else "IP restriction off"
+        return f"{self.treatment_plant} inspection LAN ({state})"
+
+
+class ChemicalInspectionCommitteeMember(models.Model):
+    class Role(models.TextChoices):
+        CHAIRPERSON = "CHAIRPERSON", "Chairperson"
+        SECRETARY = "SECRETARY", "Secretary"
+        MEMBER = "MEMBER", "Member"
+
+    treatment_plant = models.ForeignKey(
+        TreatmentPlant,
+        on_delete=models.PROTECT,
+        related_name="chemical_inspection_committee_members",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="chemical_inspection_appointments",
+    )
+    date_of_appointment = models.DateField()
+    role = models.CharField(
+        "Committee role",
+        max_length=16,
+        choices=Role.choices,
+        default=Role.MEMBER,
+    )
+    appointment_letter = models.ImageField(upload_to="ca/inspection_committee_appointments/")
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = (
+            "treatment_plant__name",
+            "role",
+            "user__last_name",
+            "user__first_name",
+            "user__username",
+            "pk",
+        )
+        constraints = [
+            models.UniqueConstraint(
+                fields=("treatment_plant", "user"),
+                condition=Q(is_active=True),
+                name="ca_committee_active_user_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=("treatment_plant",),
+                condition=Q(is_active=True, role="CHAIRPERSON"),
+                name="ca_committee_chair_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=("treatment_plant",),
+                condition=Q(is_active=True, role="SECRETARY"),
+                name="ca_committee_secretary_uniq",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.user_id and self.treatment_plant_id:
+            if getattr(self.user, "assigned_treatment_plant_id", None) != self.treatment_plant_id:
+                raise ValidationError({"user": "The committee member must be assigned to this treatment plant."})
+
+    def __str__(self):
+        member_name = (
+            self.user.get_full_name().strip() or self.user.get_username()
+            if self.user_id
+            else "Unassigned user"
+        )
+        return f"{member_name} · {self.get_role_display()} · {self.treatment_plant}"
+
+
+class ChemicalInspectionAttendance(models.Model):
+    batch = models.ForeignKey(
+        ChemicalBatch,
+        on_delete=models.CASCADE,
+        related_name="inspection_attendance",
+    )
+    committee_member = models.ForeignKey(
+        ChemicalInspectionCommitteeMember,
+        on_delete=models.PROTECT,
+        related_name="batch_attendance",
+    )
+    acknowledged_at = models.DateTimeField(default=timezone.now)
+    client_ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("acknowledged_at", "pk")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("batch", "committee_member"),
+                name="ca_inspection_attendee_uniq",
+            ),
+        ]
+        indexes = [models.Index(fields=("batch", "acknowledged_at"), name="ca_inspect_attendance_idx")]
+
+    def clean(self):
+        super().clean()
+        if (
+            self.batch_id
+            and self.committee_member_id
+            and self.batch.treatment_plant_id != self.committee_member.treatment_plant_id
+        ):
+            raise ValidationError("Committee attendance must belong to the batch treatment plant.")
+
+    def __str__(self):
+        return f"{self.committee_member} present for {self.batch}"
+
+
+class ChemicalBatchInspection(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending inspection"
+        PASS = "PASS", "Passed"
+        FAIL = "FAIL", "Failed"
+
+    class SupplyChainDecision(models.TextChoices):
+        REINSPECT = "REINSPECT", "Authorize a new inspection"
+        REJECT = "REJECT", "Reject and return to supplier"
+
+    batch = models.ForeignKey(
+        ChemicalBatch,
+        on_delete=models.PROTECT,
+        related_name="inspections",
+    )
+    attempt = models.PositiveSmallIntegerField()
+    package_count = models.PositiveIntegerField(editable=False)
+    sample_count = models.PositiveIntegerField(editable=False)
+    sampling_interval = models.DecimalField(max_digits=18, decimal_places=6, editable=False)
+    random_start = models.PositiveIntegerField(editable=False)
+    declared_package_weight = models.DecimalField(max_digits=18, decimal_places=6)
+    weight_tolerance = models.DecimalField(max_digits=12, decimal_places=3, editable=False)
+    vehicle_registration = models.CharField(max_length=40, blank=True)
+    vehicle_seal_number = models.CharField(max_length=100, blank=True)
+    manufacturer_batch_number = models.CharField(max_length=100, blank=True)
+    manufacture_date = models.DateField(null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
+    observed_storage_conditions = models.CharField(max_length=255, blank=True)
+    observed_package_count = models.PositiveIntegerField(null=True, blank=True)
+    expiry_label_attachment = models.FileField(
+        upload_to="chemical_batch_inspections/expiry_labels/%Y/%m/",
+        blank=True,
+    )
+    batch_number_label_attachment = models.FileField(
+        upload_to="chemical_batch_inspections/batch_labels/%Y/%m/",
+        blank=True,
+    )
+    checklist_results = models.JSONField(default=dict, blank=True)
+    failed_criteria = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING, db_index=True)
+    inspection_notes = models.TextField(blank=True)
+    committee_members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name="chemical_batch_inspections",
+    )
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="completed_chemical_batch_inspections",
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    supply_chain_decision = models.CharField(max_length=12, choices=SupplyChainDecision.choices, blank=True)
+    supply_chain_remarks = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="reviewed_chemical_inspections",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("batch_id", "attempt")
+        constraints = [
+            models.UniqueConstraint(fields=("batch", "attempt"), name="ca_inspection_batch_attempt_uniq"),
+            models.CheckConstraint(condition=Q(attempt__gte=1), name="ca_inspection_attempt_positive"),
+            models.CheckConstraint(condition=Q(sample_count__gte=1), name="ca_inspection_sample_count_positive"),
+            models.CheckConstraint(condition=Q(sampling_interval__gte=1), name="ca_inspection_interval_positive"),
+            models.CheckConstraint(condition=Q(random_start__gte=1), name="ca_inspection_random_start_positive"),
+            models.CheckConstraint(condition=Q(random_start__lte=F("package_count")), name="ca_inspection_random_start_within_batch"),
+        ]
+
+    @classmethod
+    @transaction.atomic
+    def create_attempt(cls, batch):
+        batch = ChemicalBatch.objects.select_for_update().get(pk=batch.pk)
+        if batch.package_count is None or batch.package_count < 1:
+            raise ValidationError("Record the total package count before inspection.")
+        existing = cls.objects.filter(batch=batch).order_by("-attempt").first()
+        if existing is not None:
+            if existing.status == cls.Status.PENDING:
+                return existing
+            if existing.status == cls.Status.PASS:
+                raise ValidationError("A batch that passed inspection cannot be inspected again.")
+            if (
+                not existing.reviewed_at
+                or existing.supply_chain_decision != cls.SupplyChainDecision.REINSPECT
+            ):
+                raise ValidationError("Supply Chain must authorize reinspection before a new attempt is created.")
+        attempt = (existing.attempt if existing else 0) + 1
+        sample_count = max(1, (batch.package_count + 9) // 10)
+        interval = (Decimal(batch.package_count) / Decimal(sample_count)).quantize(Decimal("0.000001"))
+        random_start = secrets.randbelow(batch.package_count) + 1
+        expected_weight = (
+            Decimal(str(batch.package_weight))
+            if batch.package_weight is not None
+            else (
+                Decimal(str(batch.quantity_received)) / Decimal(batch.package_count)
+                if batch.quantity_received is not None
+                else Decimal("0.000001")
+            )
+        ).quantize(Decimal("0.1"))
+        inspection = cls.objects.create(
+            batch=batch,
+            attempt=attempt,
+            package_count=batch.package_count,
+            sample_count=sample_count,
+            sampling_interval=interval,
+            random_start=random_start,
+            declared_package_weight=expected_weight,
+            weight_tolerance=batch.chemical.weight_tolerance,
+        )
+        sample_positions = sorted([
+            ((random_start - 1 + (index * batch.package_count) // sample_count) % batch.package_count) + 1
+            for index in range(sample_count)
+        ])
+        if len(sample_positions) != sample_count or any(position > batch.package_count for position in sample_positions):
+            raise ValidationError("Unable to create a complete systematic random sampling plan for this package count.")
+        ChemicalBatchInspectionSample.objects.bulk_create([
+            ChemicalBatchInspectionSample(
+                inspection=inspection,
+                package_number=package_number,
+                declared_weight=expected_weight,
+            )
+            for package_number in sample_positions
+        ])
+        return inspection
+
+    @property
+    def sampling_passed(self):
+        if self.status == self.Status.PENDING:
+            return None
+        return self.status == self.Status.PASS
+
+    @property
+    def is_complete(self):
+        return self.status in {self.Status.PASS, self.Status.FAIL}
+
+    @transaction.atomic
+    def complete(
+        self,
+        *,
+        checklist_results,
+        measured_weights,
+        declared_package_weight,
+        notes,
+        performed_by,
+        committee_members=None,
+        vehicle_registration="",
+        vehicle_seal_number="",
+        manufacturer_batch_number="",
+        manufacture_date=None,
+        expiry_date=None,
+        observed_storage_conditions="",
+        observed_package_count=None,
+        expiry_label_attachment=None,
+        batch_number_label_attachment=None,
+    ):
+        inspection = type(self).objects.select_for_update().get(pk=self.pk)
+        if inspection.status != self.Status.PENDING or inspection.completed_at:
+            raise ValidationError("This inspection attempt is already complete.")
+        batch = ChemicalBatch.objects.select_for_update().get(pk=inspection.batch_id)
+        inspection.batch = batch
+        if performed_by is None or not getattr(performed_by, "is_active", False):
+            raise ValidationError("An active appointed committee member must submit the inspection.")
+        if batch.package_count != inspection.package_count:
+            raise ValidationError("The consignment package count changed after its sampling plan was created. Regenerate the inspection plan.")
+        from ca.services.inspection_committee import committee_attendance_status
+
+        attendance = committee_attendance_status(inspection.batch)
+        if attendance["total_members"] == 0:
+            raise ValidationError("Appoint an Inspection Committee before inspecting this consignment.")
+        if not attendance["network_configured"]:
+            raise ValidationError("Configure this treatment plant's committee attendance policy before inspecting a consignment.")
+        if not attendance["quorum_met"]:
+            raise ValidationError(
+                f"Inspection requires at least two-thirds of the committee present "
+                f"({attendance['present_count']} of {attendance['total_members']} present; "
+                f"{attendance['required_count']} required)."
+            )
+        present_users = {member.user_id: member.user for member in attendance["present_members"]}
+        if performed_by.pk not in present_users:
+            raise ValidationError("Only a committee member who acknowledged attendance from the plant LAN may submit this inspection.")
+        secretary_present = any(
+            member.user_id == performed_by.pk
+            and member.role == ChemicalInspectionCommitteeMember.Role.SECRETARY
+            for member in attendance["present_members"]
+        )
+        if not secretary_present:
+            raise ValidationError("Only the appointed secretary who acknowledged the inspection receipt alert may submit the checklist.")
+        members = list(present_users.values())
+        checklist_keys = {key for key, _label in CHEMICAL_INSPECTION_CHECKLIST}
+        if set(checklist_results) != checklist_keys or any(
+            value not in ({"PASS", "FAIL", "NOT_APPLICABLE"} if key in CHEMICAL_INSPECTION_OPTIONAL_CHECKLIST else {"PASS", "FAIL"})
+            for key, value in checklist_results.items()
+        ):
+            raise ValidationError("Complete every inspection checklist item.")
+        vehicle_registration_value = str(vehicle_registration or "").strip()
+        if not vehicle_registration_value:
+            raise ValidationError("Record the inspection vehicle registration.")
+        if len(vehicle_registration_value) > 40:
+            raise ValidationError("Vehicle registration must be 40 characters or fewer.")
+        vehicle_seal_number_value = str(vehicle_seal_number or "").strip()
+        if len(vehicle_seal_number_value) > 100:
+            raise ValidationError("Delivery seal number must be 100 characters or fewer.")
+        if not expiry_label_attachment and not inspection.expiry_label_attachment:
+            raise ValidationError("Attach evidence showing the package expiry date.")
+        if not batch_number_label_attachment and not inspection.batch_number_label_attachment:
+            raise ValidationError("Attach evidence showing the manufacturer batch number.")
+        seal_result = checklist_results.get("delivery_seal_matches")
+        if seal_result == "PASS" and not vehicle_seal_number_value:
+            raise ValidationError("Record the delivery seal number before passing the seal check.")
+        if seal_result == "NOT_APPLICABLE" and vehicle_seal_number_value:
+            raise ValidationError("A recorded delivery seal number cannot be marked not applicable.")
+        manufacturer_batch_number_value = str(manufacturer_batch_number or "").strip()
+        if len(manufacturer_batch_number_value) > 100:
+            raise ValidationError("Manufacturer batch number must be 100 characters or fewer.")
+        observed_storage_conditions_value = str(observed_storage_conditions or "").strip()
+        if len(observed_storage_conditions_value) > 255:
+            raise ValidationError("Observed storage conditions must be 255 characters or fewer.")
+        try:
+            observed_package_count_decimal = Decimal(str(observed_package_count))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValidationError("Record the package count observed by the committee.") from exc
+        if (
+            not observed_package_count_decimal.is_finite()
+            or observed_package_count_decimal != observed_package_count_decimal.to_integral_value()
+        ):
+            raise ValidationError("The observed package count must be a whole number.")
+        observed_package_count_value = int(observed_package_count_decimal)
+        if not 1 <= observed_package_count_value <= 2147483647:
+            raise ValidationError("The observed package count is outside the supported range.")
+        try:
+            declared_weight = Decimal(str(declared_package_weight))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValidationError("Enter the declared net weight for one package.") from exc
+        if not declared_weight.is_finite() or declared_weight <= 0:
+            raise ValidationError("Declared package weight must be greater than zero.")
+        if declared_weight != declared_weight.quantize(Decimal("0.1")):
+            raise ValidationError("Declared package weight must be recorded to one decimal place.")
+        if batch.package_weight is not None and declared_weight != Decimal(str(batch.package_weight)):
+            raise ValidationError("Declared package weight must match the package weight captured at receipt.")
+        try:
+            total_verified_quantity = (
+                declared_weight * Decimal(batch.package_count)
+            ).quantize(Decimal("0.000001"))
+        except InvalidOperation as exc:
+            raise ValidationError("The verified consignment quantity exceeds the supported inventory range.") from exc
+        if total_verified_quantity > Decimal("999999999999.999999"):
+            raise ValidationError("The verified consignment quantity exceeds the supported inventory range.")
+        inspection_notes = str(notes or "").strip()
+        samples = list(inspection.samples.select_for_update().order_by("package_number"))
+        if len(samples) != inspection.sample_count or set(measured_weights) != {sample.pk for sample in samples}:
+            raise ValidationError("Record an individual weight for every selected package.")
+        expected_sample_count = max(1, (inspection.package_count + 9) // 10)
+        expected_interval = (
+            Decimal(inspection.package_count) / Decimal(inspection.sample_count)
+        ).quantize(Decimal("0.000001"))
+        expected_positions = sorted([
+            ((inspection.random_start - 1 + (index * inspection.package_count) // inspection.sample_count) % inspection.package_count) + 1
+            for index in range(inspection.sample_count)
+        ])
+        if (
+            inspection.sample_count != expected_sample_count
+            or inspection.sampling_interval != expected_interval
+            or not 1 <= inspection.random_start <= inspection.package_count
+            or len(expected_positions) != inspection.sample_count
+            or [sample.package_number for sample in samples] != expected_positions
+        ):
+            raise ValidationError("The systematic random sampling plan is invalid. Regenerate it before completing inspection.")
+        tolerance = inspection.weight_tolerance
+        all_weights_pass = True
+        for sample in samples:
+            try:
+                measured = Decimal(str(measured_weights[sample.pk]))
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValidationError(f"Enter a valid measured weight for package {sample.package_number}.") from exc
+            if not measured.is_finite() or measured <= 0:
+                raise ValidationError(f"Measured weight for package {sample.package_number} must be greater than zero.")
+            if measured != measured.quantize(Decimal("0.1")):
+                raise ValidationError(
+                    f"Measured weight for package {sample.package_number} must be recorded to one decimal place."
+                )
+            sample.declared_weight = declared_weight
+            sample.measured_weight = measured
+            sample.weight_difference = measured - declared_weight
+            sample.within_tolerance = abs(sample.weight_difference) <= tolerance
+            sample.save(update_fields=("declared_weight", "measured_weight", "weight_difference", "within_tolerance"))
+            all_weights_pass = all_weights_pass and sample.within_tolerance
+
+        failed_criteria = [key for key, result in checklist_results.items() if result == "FAIL"]
+        if observed_package_count_value != inspection.package_count and "package_count_matches" not in failed_criteria:
+            failed_criteria.append("package_count_matches")
+        if not manufacturer_batch_number_value and "labels_match" not in failed_criteria:
+            failed_criteria.append("labels_match")
+        if not observed_storage_conditions_value and "transport_storage_compliant" not in failed_criteria:
+            failed_criteria.append("transport_storage_compliant")
+        today = timezone.localdate()
+        dates_valid = bool(
+            manufacture_date
+            and expiry_date
+            and manufacture_date <= expiry_date
+            and manufacture_date <= today
+            and expiry_date >= today
+        )
+        if not dates_valid and "expiry_valid" not in failed_criteria:
+            failed_criteria.append("expiry_valid")
+        all_checklist_pass = not failed_criteria
+        if (not all_checklist_pass or not all_weights_pass) and not inspection_notes:
+            raise ValidationError("Record a brief reason for the failed checklist or package-weight verification.")
+        inspection.declared_package_weight = declared_weight
+        inspection.vehicle_registration = vehicle_registration_value
+        inspection.vehicle_seal_number = vehicle_seal_number_value
+        inspection.manufacturer_batch_number = manufacturer_batch_number_value
+        inspection.manufacture_date = manufacture_date
+        inspection.expiry_date = expiry_date
+        inspection.observed_storage_conditions = observed_storage_conditions_value
+        inspection.observed_package_count = observed_package_count_value
+        if expiry_label_attachment:
+            inspection.expiry_label_attachment = expiry_label_attachment
+        if batch_number_label_attachment:
+            inspection.batch_number_label_attachment = batch_number_label_attachment
+        inspection.checklist_results = dict(checklist_results)
+        inspection.failed_criteria = failed_criteria
+        inspection.inspection_notes = inspection_notes
+        inspection.status = self.Status.PASS if all_checklist_pass and all_weights_pass else self.Status.FAIL
+        inspection.completed_by = performed_by
+        inspection.completed_at = timezone.now()
+        inspection._allow_inspection_completion = True
+        try:
+            inspection.save(update_fields=(
+                "declared_package_weight", "vehicle_registration", "vehicle_seal_number",
+                "manufacturer_batch_number", "manufacture_date", "expiry_date",
+                "observed_storage_conditions",
+                "observed_package_count", "expiry_label_attachment", "batch_number_label_attachment",
+                "checklist_results", "failed_criteria", "inspection_notes",
+                "status", "completed_by", "completed_at", "updated_at",
+            ))
+        finally:
+            inspection.__dict__.pop("_allow_inspection_completion", None)
+        inspection.committee_members.set(members)
+        has_receipt_movement = batch.inventory_movements.filter(
+            movement_type=ChemicalInventoryMovement.MovementType.RECEIPT
+        ).exists()
+        if not has_receipt_movement:
+            batch.quantity_received = total_verified_quantity
+            batch._allow_verified_quantity_update = True
+            try:
+                batch.save(update_fields=("quantity_received", "updated_at"))
+            finally:
+                batch.__dict__.pop("_allow_verified_quantity_update", None)
+        if inspection.status == self.Status.PASS and not has_receipt_movement:
+            ChemicalInventoryMovement.record(
+                batch=batch,
+                movement_type=ChemicalInventoryMovement.MovementType.RECEIPT,
+                quantity=batch.quantity_received,
+                actor=performed_by,
+                idempotency_key=f"batch:{batch.pk}:receipt",
+                notes=f"Committee inspection verified {inspection.package_count} packages against delivery note {batch.delivery_note_number}.",
+                inspection=inspection,
+            )
+        return inspection
+
+    @transaction.atomic
+    def record_supply_chain_decision(self, *, decision, remarks, reviewed_by):
+        inspection = type(self).objects.select_for_update().get(pk=self.pk)
+        if inspection.status != self.Status.FAIL:
+            raise ValidationError("Supply Chain review is only available for a failed inspection.")
+        if inspection.reviewed_at:
+            raise ValidationError("Supply Chain has already reviewed this inspection.")
+        if reviewed_by is None or not getattr(reviewed_by, "is_active", False) or not (
+            getattr(reviewed_by, "is_superuser", False)
+            or reviewed_by.has_perm("ca.reject_chemical_batch")
+        ):
+            raise ValidationError("An authorized Supply Chain reviewer is required.")
+        if (
+            not getattr(reviewed_by, "is_superuser", False)
+            and getattr(reviewed_by, "assigned_treatment_plant_id", None)
+            != inspection.batch.treatment_plant_id
+        ):
+            raise ValidationError("You cannot review an inspection outside your treatment-plant scope.")
+        if decision not in self.SupplyChainDecision.values:
+            raise ValidationError("Choose whether to authorize a new inspection or reject the batch.")
+        note = str(remarks or "").strip()
+        if not note:
+            raise ValidationError("Record the Supply Chain decision and reason.")
+        inspection.supply_chain_decision = decision
+        inspection.supply_chain_remarks = note
+        inspection.reviewed_by = reviewed_by
+        inspection.reviewed_at = timezone.now()
+        inspection.save(update_fields=("supply_chain_decision", "supply_chain_remarks", "reviewed_by", "reviewed_at", "updated_at"))
+        return inspection
+
+    def __str__(self):
+        return f"{self.batch.sample_id} inspection attempt {self.attempt} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "batch_id", "attempt", "package_count", "sample_count", "sampling_interval",
+                "random_start", "declared_package_weight", "weight_tolerance", "vehicle_registration",
+                "vehicle_seal_number", "manufacturer_batch_number", "manufacture_date", "expiry_date",
+                "observed_storage_conditions",
+                "observed_package_count", "expiry_label_attachment", "batch_number_label_attachment",
+                "checklist_results",
+                "failed_criteria", "status", "inspection_notes", "completed_by_id", "completed_at",
+            ).first()
+            if previous is None:
+                raise ValidationError("This inspection attempt no longer exists.")
+            if previous["completed_at"]:
+                immutable = (
+                    "batch_id", "attempt", "package_count", "sample_count", "sampling_interval",
+                    "random_start", "declared_package_weight", "weight_tolerance", "vehicle_registration",
+                    "vehicle_seal_number", "manufacturer_batch_number", "manufacture_date", "expiry_date",
+                    "observed_storage_conditions",
+                    "observed_package_count", "expiry_label_attachment", "batch_number_label_attachment",
+                    "checklist_results",
+                    "failed_criteria", "status", "inspection_notes", "completed_by_id", "completed_at",
+                )
+                if any(getattr(self, field) != previous[field] for field in immutable):
+                    raise ValidationError("Completed inspection results are immutable.")
+            if previous["status"] != self.status and not getattr(self, "_allow_inspection_completion", False):
+                raise ValidationError("Inspection status can change only when the committee completes the attempt.")
+        return super().save(*args, **kwargs)
+
+    @property
+    def failed_criteria_labels(self):
+        labels = dict(CHEMICAL_INSPECTION_CHECKLIST)
+        return [labels[key] for key in self.failed_criteria if key in labels]
+
+
+class ChemicalBatchInspectionSample(models.Model):
+    inspection = models.ForeignKey(ChemicalBatchInspection, on_delete=models.PROTECT, related_name="samples")
+    package_number = models.PositiveIntegerField()
+    declared_weight = models.DecimalField(max_digits=18, decimal_places=6)
+    measured_weight = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    weight_difference = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True, editable=False)
+    within_tolerance = models.BooleanField(null=True, blank=True, editable=False)
+
+    class Meta:
+        ordering = ("package_number",)
+        constraints = [
+            models.UniqueConstraint(fields=("inspection", "package_number"), name="ca_inspection_sample_package_uniq"),
+            models.CheckConstraint(condition=Q(package_number__gte=1), name="ca_inspection_package_positive"),
+            models.CheckConstraint(condition=Q(declared_weight__gt=0), name="ca_inspection_declared_weight_positive"),
+            models.CheckConstraint(condition=Q(measured_weight__isnull=True) | Q(measured_weight__gt=0), name="ca_inspection_measured_weight_positive"),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.inspection_id and self.package_number > self.inspection.package_count:
+            raise ValidationError({"package_number": "The sampled package number exceeds the consignment package count."})
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            previous = type(self).objects.filter(pk=self.pk).values(
+                "inspection_id", "package_number", "declared_weight", "measured_weight"
+            ).first()
+            if previous is None:
+                raise ValidationError("This sampled package record no longer exists.")
+            if self.inspection.completed_at and any(
+                getattr(self, field) != previous[field]
+                for field in ("inspection_id", "package_number", "declared_weight", "measured_weight")
+            ):
+                raise ValidationError("Package measurements are immutable after the inspection is completed.")
+        if self.measured_weight is not None:
+            self.weight_difference = self.measured_weight - self.declared_weight
+            tolerance = self.inspection.weight_tolerance
+            self.within_tolerance = abs(self.weight_difference) <= tolerance
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
 class ChemicalAnalysisProcess(Process):
     class WorkflowStatus(models.TextChoices):
         CREATED = "CREATED", "Created"
@@ -3130,20 +3998,21 @@ class ChemicalAnalysisProcess(Process):
     @property
     def pending_inputs(self):
         if not self.batch_id:
-            return ChemicalAnalysisInput.objects.none()
+            return BatchTestResult.objects.none()
 
         return (
-            ChemicalAnalysisInput.objects
+            BatchTestResult.objects
             .filter(
-                test_result__batch_id=self.batch_id
+                batch_id=self.batch_id
             )
             .filter(
-                Q(calculated_value__isnull=True)
-                | Q(inputs={})
+                Q(value__isnull=True)
+                | Q(method_inputs={})
             )
+            .distinct()
             .select_related(
-                "test_result",
-                "test_result__parameter",
+                "parameter",
+                "parameter__method",
             )
         )
 
@@ -3235,6 +4104,8 @@ class ChemicalAnalysisProcess(Process):
         if not self.analysis_request_id:
             return False
         if self.batch_id and self.batch.has_active_holds:
+            return False
+        if self.batch_id and not self.batch.inspections.filter(status=ChemicalBatchInspection.Status.PASS).exists():
             return False
 
         checklist = (
@@ -3382,6 +4253,13 @@ class ChemicalAnalysisProcess(Process):
                 and self.batch_id
                 and self.batch.status == ChemicalBatch.Status.RECEIVED
             )
+            auto_inspection_request = (
+                target_status == self.WorkflowStatus.REQUESTED
+                and old_status == self.WorkflowStatus.RECEIVED
+                and self.analysis_request_id
+                and self.batch_id
+                and self.batch.inspections.filter(status=ChemicalBatchInspection.Status.PASS).exists()
+            )
             auto_checklist_sync = (
                 target_status == self.WorkflowStatus.CHECKLIST
                 and old_status in {
@@ -3392,7 +4270,7 @@ class ChemicalAnalysisProcess(Process):
                 and self.analysis_request_id
                 and self.analysis_request.checklists.filter(completed=True).exists()
             )
-            if not (auto_assignment or auto_receipt_sync or auto_checklist_sync):
+            if not (auto_assignment or auto_receipt_sync or auto_inspection_request or auto_checklist_sync):
                 raise ValidationError("This automatic workflow status synchronization is not valid for the saved batch state.")
         if not auto and (performed_by is None or not getattr(performed_by, "is_active", False)):
             raise ValidationError("An active user is required to advance the chemical workflow.")
@@ -3415,6 +4293,18 @@ class ChemicalAnalysisProcess(Process):
             raise ValidationError("You do not have permission to advance the workflow to this stage.")
         if performed_by is not None:
             self._assert_actor_plant_scope(performed_by)
+        inspection_required_statuses = {
+            self.WorkflowStatus.REQUESTED,
+            self.WorkflowStatus.ASSIGNED,
+            self.WorkflowStatus.CHECKLIST,
+            self.WorkflowStatus.ANALYSIS,
+        }
+        if (
+            target_status in inspection_required_statuses
+            and self.batch_id
+            and not self.batch.inspections.filter(status=ChemicalBatchInspection.Status.PASS).exists()
+        ):
+            raise ValidationError("A passing Inspection Committee inspection is required before analysis workflow tasks can proceed.")
         if self.batch_id and self.batch.has_active_holds and target_status not in {
             self.WorkflowStatus.RECEIVED,
             self.WorkflowStatus.ASSIGNED,
@@ -3832,7 +4722,10 @@ class ChemicalAnalysisProcess(Process):
             raise ValidationError("A rejection reason is required.")
         if performed_by is None or not getattr(performed_by, "is_active", False):
             raise ValidationError("An active user is required to reject this batch.")
-        if permission not in {"ca.reject_chemical_batch", "ca.resolve_chemical_batch_hold"}:
+        if permission not in {
+            "ca.reject_chemical_batch",
+            "ca.resolve_chemical_batch_hold",
+        }:
             raise ValidationError("Unsupported permission for chemical batch rejection.")
         if not (performed_by.is_superuser or performed_by.has_perm(permission)):
             raise ValidationError("You do not have permission to reject this batch.")
@@ -4143,6 +5036,7 @@ class BatchTestResult(models.Model):
     instrument_snapshot = models.JSONField(default=dict, blank=True, editable=False)
     specification_snapshot = models.JSONField(default=dict, blank=True, editable=False)
     method_snapshot = models.JSONField(default=dict, blank=True, editable=False)
+    method_inputs = models.JSONField(default=dict, blank=True, editable=False)
     quality_flags = models.JSONField(default=list, blank=True)
     revision_number = models.PositiveIntegerField(default=1, editable=False)
     revision_reason = models.CharField(max_length=500, blank=True)
@@ -4185,6 +5079,15 @@ class BatchTestResult(models.Model):
             parameter = self.parameter
             if parameter.chemical_id != self.batch.chemical_id:
                 errors["parameter"] = "The parameter must belong to the batch chemical."
+            method = parameter.method if parameter.method_id else None
+            if self.method_inputs:
+                if method is None:
+                    errors["method_inputs"] = "Method inputs require an analysis method on the selected parameter."
+                else:
+                    try:
+                        ChemicalAnalysisInput.validate_values(method, self.method_inputs)
+                    except ValidationError as exc:
+                        errors["method_inputs"] = exc.messages
             try:
                 analysis_request = self.batch.analysis_request
             except ChemicalAnalysisRequest.DoesNotExist:
@@ -4326,7 +5229,7 @@ class BatchTestResult(models.Model):
                     "version": method.version,
                     "reference": method.kebs_reference,
                     "formula": method.formula,
-                    "inputs_structure": method.inputs_structure,
+                    "inputs_structure": method.get_input_definitions(),
                     "unit": method.unit,
                     "rounding_precision": method.rounding_precision,
                     "rounding_mode": method.rounding_mode,
@@ -4345,7 +5248,7 @@ class BatchTestResult(models.Model):
                 "batch_id", "parameter_id", "value", "textual_result", "status", "analyst_id", "instrument_id", "inventory_equipment_id", "tested_at",
                 "instrument_calibration_id", "reference_standard_name", "reference_standard_lot", "reagent_lot_numbers",
                 "expanded_uncertainty", "uncertainty_coverage_factor",
-                "instrument_snapshot", "specification_snapshot", "method_snapshot", "quality_flags",
+                "instrument_snapshot", "specification_snapshot", "method_snapshot", "method_inputs", "quality_flags",
             ).first()
             if previous:
                 if (
@@ -4377,14 +5280,13 @@ class BatchTestResult(models.Model):
                         "expanded_uncertainty", "uncertainty_coverage_factor",
                     )
                 )
+                if previous["status"] is not None and previous["method_inputs"] != self.method_inputs:
+                    changed = True
                 if changed:
                     if not self.revision_reason.strip():
                         raise ValidationError({
                             "revision_reason": "A reason is required to amend an existing result."
                         })
-                    previous_inputs = ChemicalAnalysisInput.objects.filter(
-                        test_result_id=self.pk
-                    ).values("inputs", "calculated_value", "method_snapshot").first()
                     BatchTestResultRevision.objects.create(
                         result_id=self.pk,
                         batch_id=self.batch_id,
@@ -4409,13 +5311,9 @@ class BatchTestResult(models.Model):
                             "method": previous["method_snapshot"],
                             "quality_flags": previous["quality_flags"],
                             "tested_at": previous["tested_at"].isoformat() if previous["tested_at"] else None,
-                            "method_inputs": previous_inputs["inputs"] if previous_inputs else {},
-                            "calculated_value": (
-                                format(previous_inputs["calculated_value"], "f")
-                                if previous_inputs and previous_inputs["calculated_value"] is not None
-                                else None
-                            ),
-                            "input_method_snapshot": previous_inputs["method_snapshot"] if previous_inputs else {},
+                            "method_inputs": previous["method_inputs"] or {},
+                            "calculated_value": format(previous["value"], "f") if previous["value"] is not None else None,
+                            "input_method_snapshot": previous["method_snapshot"] or {},
                         },
                         actor=self.analyst,
                     )
@@ -4425,7 +5323,7 @@ class BatchTestResult(models.Model):
                         kwargs["update_fields"] = set(update_fields) | {
                             "revision_number", "revision_reason", "tested_at", "quality_flags", "status", "instrument_snapshot", "inventory_equipment",
                             "instrument_calibration", "reference_standard_name", "reference_standard_lot", "reagent_lot_numbers",
-                            "expanded_uncertainty", "uncertainty_coverage_factor",
+                            "expanded_uncertainty", "uncertainty_coverage_factor", "method_inputs",
                         }
         self.full_clean()
         if self.parameter_id:
@@ -4480,496 +5378,148 @@ class BatchTestResult(models.Model):
         raise ValidationError("Recorded chemical analysis results cannot be deleted; use a documented amendment or retest.")
 
 class ChemicalAnalysisInput(models.Model):
-    test_result = models.OneToOneField(
-        "BatchTestResult",
+    """One method-defined measurement field, owned by its analysis method."""
+
+    INPUT_TYPE_CHOICES = (
+        ("number", "Number"),
+        ("decimal", "Decimal"),
+        ("float", "Float"),
+        ("integer", "Integer"),
+        ("int", "Integer"),
+        ("boolean", "Boolean"),
+        ("bool", "Boolean"),
+        ("choice", "Choice"),
+        ("select", "Select"),
+        ("text", "Text"),
+        ("string", "String"),
+    )
+
+    method = models.ForeignKey(
+        "analysis_methods.ChemicalAnalysisMethod",
         on_delete=models.CASCADE,
-        related_name="inputs",
+        related_name="analysis_inputs",
     )
-
-    inputs = models.JSONField(
-        default=dict,
-        blank=False,
-        help_text=(
-            "Input values required by the analysis method, "
-            "for example: "
-            "{'mass1': 5.0, 'mass2': 5.2, 'mass3': 5.1, 'volume': 10.0}"
-        ),
-    )
-
-    calculated_value = models.DecimalField(
-        max_digits=26,
-        decimal_places=12,
-        null=True,
-        blank=True,
-    )
-    method_snapshot = models.JSONField(default=dict, blank=True, editable=False)
+    name = models.CharField(max_length=100)
+    label = models.CharField(max_length=180, blank=True)
+    input_type = models.CharField(max_length=20, choices=INPUT_TYPE_CHOICES, default="number")
+    unit = models.CharField(max_length=50, blank=True)
+    help_text = models.TextField(blank=True)
+    required = models.BooleanField(default=True)
+    min_value = models.DecimalField(max_digits=24, decimal_places=12, null=True, blank=True)
+    max_value = models.DecimalField(max_digits=24, decimal_places=12, null=True, blank=True)
+    choices = models.JSONField(default=list, blank=True)
+    position = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ["-pk"]
+        ordering = ("method__method", "position", "pk")
+        constraints = [
+            models.UniqueConstraint(fields=("method", "name"), name="ca_method_input_name_uniq"),
+        ]
 
     def __str__(self):
-        return f"Inputs for TestResult #{self.test_result_id}"
-
-    @property
-    def test_parameter(self):
-        test_result = self._state.fields_cache.get("test_result")
-        if test_result is None and self.test_result_id:
-            test_result = self.test_result
-        return getattr(test_result, "parameter", None)
-
-    @property
-    def analysis_method(self):
-        parameter = self.test_parameter
-
-        if parameter is None:
-            return None
-
-        return parameter.method
-
-    @property
-    def required_input_fields(self):
-        method = self.analysis_method
-
-        if method is None:
-            return []
-
-        fields = method.get_input_fields()
-
-        if fields is None:
-            return []
-
-        if isinstance(fields, str):
-            fields = [
-                field.strip()
-                for field in fields.split(",")
-                if field.strip()
-            ]
-
-        try:
-            fields = list(fields)
-        except TypeError as exc:
-            raise ValidationError(
-                "The analysis method returned an invalid "
-                "input-field definition."
-            ) from exc
-
-        normalized = []
-
-        for field in fields:
-            if not isinstance(field, str):
-                raise ValidationError(
-                    "Analysis method input-field names must be strings."
-                )
-
-            field = field.strip()
-
-            if not field:
-                continue
-
-            if not field.isidentifier():
-                raise ValidationError(
-                    f"Invalid analysis input field name: '{field}'."
-                )
-
-            if field in {"math", "__builtins__"}:
-                raise ValidationError(
-                    f"Reserved input field name is not allowed: '{field}'."
-                )
-
-            if field not in normalized:
-                normalized.append(field)
-
-        return normalized
-
-    @property
-    def formula(self):
-        method = self.analysis_method
-
-        if method is None:
-            return None
-
-        return getattr(method, "formula", None)
-
-    @property
-    def rounding_precision(self):
-        method = self.analysis_method
-
-        if method is None:
-            return None
-
-        precision = getattr(
-            method,
-            "rounding_precision",
-            None,
-        )
-
-        if precision is None:
-            return None
-
-        try:
-            precision = int(precision)
-        except (TypeError, ValueError) as exc:
-            raise ValidationError(
-                "The analysis method rounding precision "
-                "must be an integer."
-            ) from exc
-
-        if precision < 0 or precision > 15:
-            raise ValidationError(
-                "The analysis method rounding precision "
-                "must be between 0 and 15."
-            )
-
-        return precision
-
-    @property
-    def rounding_mode(self):
-        method = self.analysis_method
-        return getattr(method, "rounding_mode", "HALF_UP") if method is not None else "HALF_UP"
+        return f"{self.method}: {self.label or self.name}"
 
     def clean(self):
         super().clean()
-
         errors = {}
-
-        if not self.test_result_id:
-            errors["test_result"] = (
-                "A test result is required."
-            )
-
-        if not isinstance(self.inputs, dict):
-            errors["inputs"] = (
-                "Analysis inputs must be provided as a JSON object."
-            )
-
+        if not isinstance(self.name, str) or self.name != self.name.strip() or not self.name.isidentifier():
+            errors["name"] = "Use a valid Python identifier for the method input name."
+        elif self.name in {"math", "__builtins__"}:
+            errors["name"] = "This name is reserved for formula evaluation."
+        if self.min_value is not None and self.max_value is not None and self.min_value > self.max_value:
+            errors["max_value"] = "The maximum must be greater than or equal to the minimum."
+        if self.input_type in {"choice", "select"} and not isinstance(self.choices, (list, tuple)):
+            errors["choices"] = "Choices must be provided as a list."
         if errors:
             raise ValidationError(errors)
 
-        if self.test_result_id:
-            try:
-                test_result = (
-                    BatchTestResult.objects
-                    .select_related(
-                        "parameter",
-                        "parameter__method",
-                    )
-                    .get(pk=self.test_result_id)
-                )
-            except BatchTestResult.DoesNotExist as exc:
-                errors["test_result"] = (
-                    "The selected test result does not exist."
-                )
-            else:
-                if test_result.parameter_id is None:
-                    errors["test_result"] = (
-                        "The test result must have an associated "
-                        "parameter."
-                    )
-
-                elif test_result.parameter.method_id is None:
-                    errors["test_result"] = (
-                        "The selected parameter does not have "
-                        "an analysis method."
-                    )
-
-        if errors:
-            raise ValidationError(errors)
-
-        self._validate_inputs()
-
-    def _validate_inputs(self):
-        if not isinstance(self.inputs, dict):
-            raise ValidationError(
-                {
-                    "inputs": (
-                        "Analysis inputs must be provided "
-                        "as a JSON object."
-                    )
-                }
-            )
-
-        required_fields = self.required_input_fields
-
-        if not required_fields:
-            if self.formula:
-                raise ValidationError(
-                    "The analysis method defines a formula "
-                    "but no input fields."
-                )
-
-            return
-
-        missing = [
-            field
-            for field in required_fields
-            if field not in self.inputs
-        ]
-
-        if missing:
-            raise ValidationError(
-                {
-                    "inputs": (
-                        "Missing required analysis input(s): "
-                        + ", ".join(missing)
-                    )
-                }
-            )
-
-        invalid = []
-
-        for field in required_fields:
-            value = self.inputs.get(field)
-
-            if value is None or (
-                isinstance(value, str)
-                and not value.strip()
-            ):
-                invalid.append(
-                    f"{field} must contain a numeric value"
-                )
-                continue
-
-            try:
-                numeric_value = Decimal(str(value))
-            except (InvalidOperation, TypeError, ValueError):
-                invalid.append(
-                    f"{field} must contain a numeric value"
-                )
-                continue
-
-            if not numeric_value.is_finite():
-                invalid.append(
-                    f"{field} must contain a finite numeric value"
-                )
-                continue
-
-            method = self.analysis_method
-            definitions = method.get_input_definitions() if method is not None else []
-            definition = next((item for item in definitions if item.get("name") == field), {})
-            minimum = definition.get("min_value")
-            maximum = definition.get("max_value")
-            try:
-                if minimum is not None and numeric_value < Decimal(str(minimum)):
-                    invalid.append(f"{field} is below its configured minimum")
-                if maximum is not None and numeric_value > Decimal(str(maximum)):
-                    invalid.append(f"{field} exceeds its configured maximum")
-            except (InvalidOperation, TypeError, ValueError):
-                invalid.append(f"{field} has invalid configured range limits")
-
-        if invalid:
-            raise ValidationError(
-                {"inputs": invalid}
-            )
-
-    def _build_safe_context(self):
-        self._validate_inputs()
-
-        context = {
-            "math": math,
+    def as_definition(self):
+        return {
+            "name": self.name,
+            "label": self.label or self.name.replace("_", " ").title(),
+            "unit": self.unit,
+            "help_text": self.help_text,
+            "required": self.required,
+            "type": self.input_type,
+            "min_value": str(self.min_value) if self.min_value is not None else None,
+            "max_value": str(self.max_value) if self.max_value is not None else None,
+            "choices": self.choices or [],
         }
 
-        for field in self.required_input_fields:
-            try:
-                value = Decimal(str(self.inputs[field]))
-            except (
-                TypeError,
-                ValueError,
-                KeyError,
-                InvalidOperation,
-            ) as exc:
-                raise ValidationError(
-                    {
-                        "inputs": (
-                            f"Invalid numeric value for input "
-                            f"'{field}'."
-                        )
-                    }
-                ) from exc
+    @staticmethod
+    def validate_values(method, values):
+        if not isinstance(values, dict):
+            raise ValidationError("Method input values must be a JSON object.")
+        definitions = method.get_input_definitions()
+        by_name = {item["name"]: item for item in definitions if item.get("name")}
+        unknown = sorted(set(values) - set(by_name))
+        if unknown:
+            raise ValidationError("Unknown method input(s): " + ", ".join(unknown))
 
-            if not value.is_finite():
-                raise ValidationError(
-                    {
-                        "inputs": (
-                            f"Input '{field}' must contain "
-                            "a finite number."
-                        )
-                    }
-                )
-
-            context[field] = value
-
-        return context
-
-    def _validate_formula(self):
-        formula = self.formula
-
-        if formula is None:
-            return None
-
-        if not isinstance(formula, str):
-            raise ValidationError(
-                "The analysis method formula must be a string."
-            )
-
-        formula = formula.strip()
-
-        if not formula:
-            raise ValidationError(
-                "The analysis method formula cannot be empty."
-            )
-
-        validate_formula_expression(
-            formula,
-            allow_math_attr=True,
-        )
-
-        tree = ast.parse(
-            formula,
-            mode="eval",
-        )
-
-        allowed_names = set(
-            self.required_input_fields
-        )
-        allowed_names.add("math")
-
-        unknown_names = sorted(
-            {
-                node.id
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Name)
-                and node.id not in allowed_names
+        formula_fields = set()
+        formula = (method.formula or "").strip()
+        if formula:
+            validate_formula_expression(formula, allow_math_attr=True)
+            formula_fields = {
+                node.id for node in ast.walk(ast.parse(formula, mode="eval"))
+                if isinstance(node, ast.Name) and node.id != "math"
             }
-        )
+        required = {
+            name for name, definition in by_name.items()
+            if definition.get("required", True)
+        } | formula_fields
+        missing = sorted(required - set(values))
+        if missing:
+            raise ValidationError("Missing required method input(s): " + ", ".join(missing))
 
-        if unknown_names:
-            raise ValidationError(
-                "The analysis formula references undefined "
-                "input variable(s): "
-                + ", ".join(unknown_names)
-            )
-
-        return formula
-
-    def calculate(self):
-        method = self.analysis_method
-
-        if method is None:
-            self.calculated_value = None
-            return None
-
-        formula = self._validate_formula()
-
-        if not formula:
-            self.calculated_value = None
-            return None
-
-        context = self._build_safe_context()
-
-        try:
-            result = safe_eval_formula(
-                formula,
-                context,
-            )
-        except (
-            ArithmeticError,
-            TypeError,
-            ValueError,
-            ZeroDivisionError,
-            OverflowError,
-        ) as exc:
-            raise ValidationError(
-                f"Formula evaluation error: {exc}"
-            ) from exc
-        except Exception as exc:
-            raise ValidationError(
-                f"Formula evaluation failed: {exc}"
-            ) from exc
-
-        precision = self.rounding_precision
-
-        if precision is not None:
-            from decimal import ROUND_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP
-
-            mode_map = {
-                "HALF_UP": ROUND_HALF_UP,
-                "HALF_EVEN": ROUND_HALF_EVEN,
-                "DOWN": ROUND_DOWN,
-                "UP": ROUND_UP,
-            }
-            quantum = Decimal(1).scaleb(-precision)
-            result = result.quantize(quantum, rounding=mode_map.get(self.rounding_mode, ROUND_HALF_UP))
-
-        self.calculated_value = result
-
-        return result
-
-    def recalculate(self):
-        self.calculated_value = self.calculate()
-        if self.pk:
-            self.save(update_fields={"calculated_value"})
-        return self.calculated_value
-
-    def save(self, *args, **kwargs):
-        input_values_changed = False
-        if not self.pk and not self.method_snapshot:
-            method = self.analysis_method
-            if method is not None:
-                self.method_snapshot = {
-                    "id": str(method.pk),
-                    "name": method.method,
-                    "version": method.version,
-                    "reference": method.kebs_reference,
-                    "formula": method.formula,
-                    "inputs_structure": method.inputs_structure,
-                    "unit": method.unit,
-                    "rounding_precision": method.rounding_precision,
-                    "rounding_mode": method.rounding_mode,
-                    "formula_hash": method.formula_hash,
-                }
-        elif self.pk:
-            previous = type(self).objects.filter(pk=self.pk).values(
-                "test_result_id", "inputs", "calculated_value", "method_snapshot"
-            ).first()
-            if previous:
-                if previous["test_result_id"] != self.test_result_id:
-                    raise ValidationError("Method inputs cannot be moved to another test result.")
-                if previous["method_snapshot"] and previous["method_snapshot"] != self.method_snapshot:
-                    raise ValidationError("The analysis method snapshot for a recorded input is immutable.")
-                if previous["inputs"] != self.inputs:
-                    if not getattr(self, "_allow_retest_update", False):
-                        raise ValidationError("Recorded method inputs are immutable; use the retest workflow to correct them.")
-                    prior_revision = BatchTestResultRevision.objects.filter(
-                        result_id=self.test_result_id,
-                        revision_number=self.test_result.revision_number - 1,
-                    ).order_by("-pk").first()
-                    if (
-                        prior_revision is None
-                        or (prior_revision.snapshot or {}).get("method_inputs", {}) != previous["inputs"]
-                    ):
-                        raise ValidationError("Method inputs can only be changed when the previous values were captured in the retest audit trail.")
-                    input_values_changed = True
-        self.full_clean()
-        self.calculate()
-
-        if self.test_result_id and self.calculated_value != self.test_result.value:
-            raise ValidationError({
-                "calculated_value": "The recorded result must equal the value reproduced by its saved method inputs."
-            })
-
-        if self.pk:
-            previous_value = type(self).objects.filter(pk=self.pk).values_list(
-                "calculated_value", flat=True
-            ).first()
-            if previous_value != self.calculated_value and not input_values_changed:
-                raise ValidationError("Recalculation changed a finalized method result; perform a documented retest instead.")
-
-        super().save(
-            *args,
-            **kwargs,
-        )
-
-
+        invalid = []
+        numeric_types = {"number", "decimal", "float", "integer", "int"}
+        for name, value in values.items():
+            definition = by_name[name]
+            input_type = str(definition.get("type", "number") or "number").lower()
+            required_value = name in required
+            if value is None or (isinstance(value, str) and not value.strip()):
+                if required_value:
+                    invalid.append(f"{name} is required")
+                continue
+            if input_type in numeric_types:
+                try:
+                    number = Decimal(str(value))
+                except (InvalidOperation, TypeError, ValueError):
+                    invalid.append(f"{name} must be numeric")
+                    continue
+                if not number.is_finite():
+                    invalid.append(f"{name} must be finite")
+                    continue
+                if input_type in {"integer", "int"} and number != number.to_integral_value():
+                    invalid.append(f"{name} must be a whole number")
+                    continue
+                try:
+                    minimum, maximum = definition.get("min_value"), definition.get("max_value")
+                    if minimum is not None and number < Decimal(str(minimum)):
+                        invalid.append(f"{name} is below its configured minimum")
+                    if maximum is not None and number > Decimal(str(maximum)):
+                        invalid.append(f"{name} exceeds its configured maximum")
+                except (InvalidOperation, TypeError, ValueError):
+                    invalid.append(f"{name} has invalid configured range limits")
+            elif name in formula_fields:
+                invalid.append(f"{name} is used in the formula and must be numeric")
+            elif input_type in {"boolean", "bool"}:
+                if not isinstance(value, bool):
+                    invalid.append(f"{name} must be true or false")
+            elif input_type in {"choice", "select"}:
+                choices = definition.get("choices") or ()
+                allowed = {str(item[0] if isinstance(item, (list, tuple)) else item) for item in choices}
+                if str(value) not in allowed:
+                    invalid.append(f"{name} is not one of the configured choices")
+            elif input_type in {"text", "string"}:
+                if not isinstance(value, str):
+                    invalid.append(f"{name} must be text")
+            else:
+                invalid.append(f"{name} has unsupported input type '{input_type}'")
+        if invalid:
+            raise ValidationError({"inputs": invalid})
+        return values
 
 
 class ChemicalCoA(models.Model):
@@ -5426,7 +5976,6 @@ class ChemicalCoA(models.Model):
             consensus_value = (result.textual_result or "").startswith(
                 ("Interlaboratory ", "Qualitative interlaboratory comparison")
             )
-            input_record = getattr(result, "inputs", None)
 
             chemical_name = ""
             parameter_name = "Unspecified Parameter"
@@ -5483,18 +6032,16 @@ class ChemicalCoA(models.Model):
                         "revision_number": result.revision_number,
                         "specification_snapshot": result.specification_snapshot or {},
                         "method_snapshot": result.method_snapshot or {},
-                        "method_inputs": {} if consensus_value else getattr(input_record, "inputs", {}),
+                        "method_inputs": {} if consensus_value else (result.method_inputs or {}),
                         "calculated_value": (
-                            format(input_record.calculated_value, "f")
+                            format(result.value, "f")
                             if self.hash_version >= 5
                             and not consensus_value
-                            and input_record is not None
-                            and getattr(input_record, "calculated_value", None) is not None
+                            and result.value is not None
                             else (
-                                float(input_record.calculated_value)
+                                float(result.value)
                                 if not consensus_value
-                                and input_record is not None
-                                and getattr(input_record, "calculated_value", None) is not None
+                                and result.value is not None
                                 else None
                             )
                         ),
@@ -7416,7 +7963,7 @@ class ChemicalInventoryMovement(models.Model):
 
     @classmethod
     @transaction.atomic
-    def record(cls, *, batch, movement_type, quantity, actor=None, idempotency_key, notes=""):
+    def record(cls, *, batch, movement_type, quantity, actor=None, idempotency_key, notes="", inspection=None):
         locked_batch = ChemicalBatch.objects.select_for_update().get(pk=batch.pk)
         if not idempotency_key or not str(idempotency_key).strip():
             raise ValidationError("An idempotency key is required for inventory movements.")
@@ -7438,7 +7985,20 @@ class ChemicalInventoryMovement(models.Model):
             cls.MovementType.RETURN: "ca.return_chemical_batch",
             cls.MovementType.ADJUSTMENT: "ca.change_chemicalbatch",
         }[movement_type]
-        require_ca_actor(actor, required_permission, plant_id=locked_batch.treatment_plant_id)
+        inspection_receipt = bool(
+            movement_type == cls.MovementType.RECEIPT
+            and inspection is not None
+            and inspection.batch_id == locked_batch.pk
+            and inspection.status == ChemicalBatchInspection.Status.PASS
+            and inspection.completed_by_id == getattr(actor, "pk", None)
+            and inspection.completed_at is not None
+        )
+        if inspection_receipt:
+            # A passed, quorum-authorized committee inspection is the authority
+            # for posting the now-verified opening stock quantity.
+            require_ca_actor(actor)
+        else:
+            require_ca_actor(actor, required_permission, plant_id=locked_batch.treatment_plant_id)
         existing = cls.objects.filter(idempotency_key=idempotency_key).first()
         if existing:
             if (
@@ -7592,8 +8152,11 @@ class ChemicalWorkflowAlert(models.Model):
         return self.acknowledged_at is not None
 
     @transaction.atomic
-    def acknowledge(self, *, actor):
-        alert = type(self).objects.select_for_update().select_related(
+    def acknowledge(self, *, actor, request=None):
+        # Lock only the workflow alert row. Locking the joined, nullable batch
+        # and analysis-request relations makes PostgreSQL reject this query
+        # with "FOR UPDATE cannot be applied to the nullable side of an outer join".
+        alert = type(self).objects.select_for_update(of=("self",)).select_related(
             "batch", "analysis_request"
         ).get(pk=self.pk)
         if alert.alert_type == "ca_interlab_referral":
@@ -7612,7 +8175,13 @@ class ChemicalWorkflowAlert(models.Model):
                 else None
             )
         require_ca_actor(actor, plant_id=plant_id)
-        if alert.alert_type == "ca_analysis_assignment":
+        if alert.alert_type == "ca_inspection_committee_receipt":
+            if actor.pk != alert.recipient_id:
+                raise PermissionDenied("Only the appointed committee member who received this alert may acknowledge it.")
+            from ca.services.inspection_committee import acknowledge_committee_presence
+
+            acknowledge_committee_presence(alert=alert, user=actor, request=request)
+        elif alert.alert_type == "ca_analysis_assignment":
             if not alert.analysis_request_id or not alert.analysis_request.is_assigned_analyst(actor):
                 raise PermissionDenied("Only an analyst assigned to this request may acknowledge it.")
         elif alert.alert_type in {"ca_assignment_pending", "ca_assignment_escalation"}:

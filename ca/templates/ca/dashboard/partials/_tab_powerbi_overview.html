@@ -15,14 +15,14 @@
                 <div class="pbi-kpi-value">{{ pbi.active_suppliers|default:0 }}</div>
                 <div class="pbi-spark-box">
                     <svg viewBox="0 0 110 26" class="pbi-spark-svg">
-                        <path d="{{ pbi.sparklines.suppliers|default:'M 0,22 C 30,16 60,18 110,4' }}" fill="none" stroke="#0284c7" stroke-width="2.2" stroke-linecap="round"/>
-                        <circle cx="110" cy="4" r="3" fill="#0284c7" class="pbi-spark-dot"/>
+                        <path d="{{ pbi.sparklines.suppliers|default:'M 0,22 C 30,16 60,18 110,4' }}" fill="none" stroke="var(--ca-series-1)" stroke-width="2.2" stroke-linecap="round"/>
+                        <circle cx="110" cy="4" r="3" fill="var(--ca-series-1)" class="pbi-spark-dot"/>
                     </svg>
                 </div>
             </div>
             <p class="pbi-kpi-label">Active Chemical Suppliers</p>
             <div class="pbi-kpi-sub">
-                <i class="fa fa-truck-field" style="color: #0284c7; margin-right: 3px;"></i>
+                <i class="fa fa-truck-field" style="color: var(--ca-series-1); margin-right: 3px;"></i>
                 {{ pbi.total_batches|default:counts.batches|default:0 }} Delivered Batches
             </div>
         </div>
@@ -33,14 +33,14 @@
                 <div class="pbi-kpi-value">{{ pbi.total_volume|default:"0 kg" }}</div>
                 <div class="pbi-spark-box">
                     <svg viewBox="0 0 110 26" class="pbi-spark-svg">
-                        <path d="{{ pbi.sparklines.volume|default:'M 0,24 C 40,15 70,14 110,3' }}" fill="none" stroke="#0ea5e9" stroke-width="2.2" stroke-linecap="round"/>
-                        <circle cx="110" cy="3" r="3" fill="#0ea5e9" class="pbi-spark-dot"/>
+                        <path d="{{ pbi.sparklines.volume|default:'M 0,24 C 40,15 70,14 110,3' }}" fill="none" stroke="var(--ca-series-1)" stroke-width="2.2" stroke-linecap="round"/>
+                        <circle cx="110" cy="3" r="3" fill="var(--ca-series-1)" class="pbi-spark-dot"/>
                     </svg>
                 </div>
             </div>
             <p class="pbi-kpi-label">Plant Intake Chemical Volume</p>
             <div class="pbi-kpi-sub">
-                <i class="fa fa-industry" style="color: #0ea5e9; margin-right: 3px;"></i>
+                <i class="fa fa-industry" style="color: var(--ca-series-1); margin-right: 3px;"></i>
                 {{ plant_context.plant_name|default:"All Treatment Plants" }}
             </div>
         </div>
@@ -51,14 +51,14 @@
                 <div class="pbi-kpi-value">{{ pbi.total_results|default:counts.results|default:0 }}</div>
                 <div class="pbi-spark-box">
                     <svg viewBox="0 0 110 26" class="pbi-spark-svg">
-                        <path d="{{ pbi.sparklines.parameters|default:'M 0,21 C 35,16 75,12 110,2' }}" fill="none" stroke="#10b981" stroke-width="2.2" stroke-linecap="round"/>
-                        <circle cx="110" cy="2" r="3" fill="#10b981" class="pbi-spark-dot"/>
+                        <path d="{{ pbi.sparklines.parameters|default:'M 0,21 C 35,16 75,12 110,2' }}" fill="none" stroke="var(--ca-series-2)" stroke-width="2.2" stroke-linecap="round"/>
+                        <circle cx="110" cy="2" r="3" fill="var(--ca-series-2)" class="pbi-spark-dot"/>
                     </svg>
                 </div>
             </div>
             <p class="pbi-kpi-label">Laboratory Test Parameters</p>
             <div class="pbi-kpi-sub">
-                <i class="fa fa-flask-vial" style="color: #10b981; margin-right: 3px;"></i>
+                <i class="fa fa-flask-vial" style="color: var(--ca-series-2); margin-right: 3px;"></i>
                 {{ pbi.total_inputs|default:counts.inputs|default:0 }} Dynamic Method Inputs
             </div>
         </div>
@@ -69,14 +69,14 @@
                 <div class="pbi-kpi-value">{{ pbi.active_processes|default:counts.active_batches|default:0 }}</div>
                 <div class="pbi-spark-box">
                     <svg viewBox="0 0 110 26" class="pbi-spark-svg">
-                        <path d="{{ pbi.sparklines.workflow|default:'M 0,19 C 30,17 70,13 110,4' }}" fill="none" stroke="#8b5cf6" stroke-width="2.2" stroke-linecap="round"/>
-                        <circle cx="110" cy="4" r="3" fill="#8b5cf6" class="pbi-spark-dot"/>
+                        <path d="{{ pbi.sparklines.workflow|default:'M 0,19 C 30,17 70,13 110,4' }}" fill="none" stroke="var(--ca-series-4)" stroke-width="2.2" stroke-linecap="round"/>
+                        <circle cx="110" cy="4" r="3" fill="var(--ca-series-4)" class="pbi-spark-dot"/>
                     </svg>
                 </div>
             </div>
             <p class="pbi-kpi-label">Active Workflow Processes</p>
             <div class="pbi-kpi-sub">
-                <i class="fa fa-diagram-project" style="color: #8b5cf6; margin-right: 3px;"></i>
+                <i class="fa fa-diagram-project" style="color: var(--ca-series-4); margin-right: 3px;"></i>
                 {{ pbi.total_requests|default:counts.requests|default:0 }} Analysis Requests
             </div>
         </div>
@@ -87,14 +87,14 @@
                 <div class="pbi-kpi-value">{{ pbi.total_coas|default:counts.coas|default:0 }}</div>
                 <div class="pbi-spark-box">
                     <svg viewBox="0 0 110 26" class="pbi-spark-svg">
-                        <path d="{{ pbi.sparklines.quality|default:'M 0,18 C 30,14 70,8 110,2' }}" fill="none" stroke="#00f2fe" stroke-width="2.2" stroke-linecap="round"/>
-                        <circle cx="110" cy="2" r="3" fill="#00f2fe" class="pbi-spark-dot"/>
+                        <path d="{{ pbi.sparklines.quality|default:'M 0,18 C 30,14 70,8 110,2' }}" fill="none" stroke="var(--ca-series-1)" stroke-width="2.2" stroke-linecap="round"/>
+                        <circle cx="110" cy="2" r="3" fill="var(--ca-series-1)" class="pbi-spark-dot"/>
                     </svg>
                 </div>
             </div>
             <p class="pbi-kpi-label">Approved Certificates of Analysis</p>
             <div class="pbi-kpi-sub">
-                <i class="fa fa-certificate" style="color: #0284c7; margin-right: 3px;"></i>
+                <i class="fa fa-certificate" style="color: var(--ca-series-1); margin-right: 3px;"></i>
                 {{ pbi.compliance_rate|default:"100.0" }}% KS 05-459 Standards Pass
             </div>
         </div>
@@ -124,21 +124,21 @@
                     <defs>
                         <!-- Bar Gradient Fill -->
                         <linearGradient id="pbiBarGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.95" />
-                            <stop offset="60%" stop-color="#0284c7" stop-opacity="0.75" />
-                            <stop offset="100%" stop-color="#072346" stop-opacity="0.35" />
+                            <stop offset="0%" stop-color="var(--ca-series-1)" stop-opacity="0.95" />
+                            <stop offset="60%" stop-color="var(--ca-series-1)" stop-opacity="0.75" />
+                            <stop offset="100%" stop-color="var(--theme-surface-strong,var(--theme-surface))" stop-opacity="0.35" />
                         </linearGradient>
                         <!-- Line Spline Gradient -->
                         <linearGradient id="pbiLineGrad" x1="0" y1="0" x2="1" y2="0">
-                            <stop offset="0%" stop-color="#38f9d7" />
-                            <stop offset="50%" stop-color="#00f2fe" />
-                            <stop offset="100%" stop-color="#8b5cf6" />
+                            <stop offset="0%" stop-color="var(--ca-series-1)" />
+                            <stop offset="50%" stop-color="var(--ca-series-1)" />
+                            <stop offset="100%" stop-color="var(--ca-series-4)" />
                         </linearGradient>
                         <!-- Area Glow Gradient -->
                         <linearGradient id="pbiAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.32" />
-                            <stop offset="85%" stop-color="#00f2fe" stop-opacity="0.03" />
-                            <stop offset="100%" stop-color="#00f2fe" stop-opacity="0.00" />
+                            <stop offset="0%" stop-color="var(--ca-series-1)" stop-opacity="0.32" />
+                            <stop offset="85%" stop-color="var(--ca-series-1)" stop-opacity="0.03" />
+                            <stop offset="100%" stop-color="var(--ca-series-1)" stop-opacity="0.00" />
                         </linearGradient>
                         <!-- Futuristic Filter Glow -->
                         <filter id="pbiGlow" x="-20%" y="-20%" width="140%" height="140%">
@@ -148,11 +148,11 @@
                     </defs>
 
                     <!-- Horizontal Grid Lines -->
-                    <line x1="48" y1="24" x2="652" y2="24" stroke="rgba(15, 23, 42, 0.06)" stroke-dasharray="3,3" />
-                    <line x1="48" y1="62" x2="652" y2="62" stroke="rgba(15, 23, 42, 0.06)" stroke-dasharray="3,3" />
-                    <line x1="48" y1="100" x2="652" y2="100" stroke="rgba(15, 23, 42, 0.06)" stroke-dasharray="3,3" />
-                    <line x1="48" y1="138" x2="652" y2="138" stroke="rgba(15, 23, 42, 0.06)" stroke-dasharray="3,3" />
-                    <line x1="48" y1="158" x2="652" y2="158" stroke="rgba(15, 23, 42, 0.15)" stroke-width="1.2" />
+                    <line x1="48" y1="24" x2="652" y2="24" stroke="color-mix(in srgb, var(--theme-text) 8%, transparent)" stroke-dasharray="3,3" />
+                    <line x1="48" y1="62" x2="652" y2="62" stroke="color-mix(in srgb, var(--theme-text) 8%, transparent)" stroke-dasharray="3,3" />
+                    <line x1="48" y1="100" x2="652" y2="100" stroke="color-mix(in srgb, var(--theme-text) 8%, transparent)" stroke-dasharray="3,3" />
+                    <line x1="48" y1="138" x2="652" y2="138" stroke="color-mix(in srgb, var(--theme-text) 8%, transparent)" stroke-dasharray="3,3" />
+                    <line x1="48" y1="158" x2="652" y2="158" stroke="color-mix(in srgb, var(--theme-text) 18%, transparent)" stroke-width="1.2" />
 
                     <!-- Left Y-Axis Labels (Compliance %) -->
                     <text x="42" y="27" class="pbi-axis-text" text-anchor="end">100%</text>
@@ -162,7 +162,7 @@
 
                     <!-- KS 05-459 Target Benchmark Dashed Reference Line -->
                     <line x1="48" y1="{{ pbi.compound_chart.target_y|default:62 }}" x2="652" y2="{{ pbi.compound_chart.target_y|default:62 }}"
-                          stroke="#ef4444" stroke-width="1.8" stroke-dasharray="6,4" opacity="0.8" />
+                          stroke="var(--ca-series-5)" stroke-width="1.8" stroke-dasharray="6,4" opacity="0.8" />
 
                     <!-- Compound Bars: Volume MT -->
                     {% for bar in pbi.compound_chart.bars %}
@@ -186,7 +186,7 @@
 
                     <!-- Vertex Nodes with glowing pulse -->
                     {% for pt in pbi.compound_chart.points %}
-                    <circle cx="{{ pt.x }}" cy="{{ pt.y }}" r="4.5" fill="#ffffff" stroke="#00f2fe" stroke-width="2.5"
+                    <circle cx="{{ pt.x }}" cy="{{ pt.y }}" r="4.5" fill="var(--theme-surface)" stroke="var(--ca-series-1)" stroke-width="2.5"
                             class="pbi-vertex-node">
                         <title>{{ pt.month }}: {{ pt.pass_rate }}% Pass ({{ pt.volume_mt }})</title>
                     </circle>
@@ -204,11 +204,11 @@
                 </div>
                 <div class="pbi-compound-metric">
                     <span class="pbi-metric-sub">Mean Compliance Index</span>
-                    <span class="pbi-metric-val" style="color: #10b981;">{{ pbi.compliance_rate|default:"98.4" }}%</span>
+                    <span class="pbi-metric-val" style="color: var(--ca-series-2);">{{ pbi.compliance_rate|default:"98.4" }}%</span>
                 </div>
                 <div class="pbi-compound-metric">
                     <span class="pbi-metric-sub">Analytical Tolerance Margin</span>
-                    <span class="pbi-metric-val" style="color: #0284c7;">± 0.42% KS 05-459</span>
+                    <span class="pbi-metric-val" style="color: var(--ca-series-1);">± 0.42% KS 05-459</span>
                 </div>
                 <div class="pbi-compound-metric">
                     <span class="pbi-metric-sub">Bench SLA Turnaround</span>
@@ -234,7 +234,7 @@
                         {% for seg in pbi.concentric_rings.segments %}
                             {{ seg.color }} {{ seg.start_pct }}% {{ seg.end_pct }}%{% if not forloop.last %},{% endif %}
                         {% empty %}
-                            #00f2fe 0% 45%, #10b981 45% 72%, #8b5cf6 72% 88%, #f59e0b 88% 100%
+                            var(--ca-series-1) 0% 45%, var(--ca-series-2) 45% 72%, var(--ca-series-4) 72% 88%, var(--ca-series-3) 88% 100%
                         {% endfor %}
                     );">
                         <!-- Middle Ring Separator -->
@@ -258,10 +258,10 @@
                         <span class="pbi-polar-legend-pct">{{ seg.pct }}%</span>
                     </div>
                     {% empty %}
-                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: #00f2fe;"></span><span class="pbi-polar-legend-name">Alum / Coagulants</span><span class="pbi-polar-legend-pct">45.0%</span></div>
-                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: #10b981;"></span><span class="pbi-polar-legend-name">Chlorine Gas & Hypo</span><span class="pbi-polar-legend-pct">27.0%</span></div>
-                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: #8b5cf6;"></span><span class="pbi-polar-legend-name">Soda Ash & Lime</span><span class="pbi-polar-legend-pct">16.0%</span></div>
-                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: #f59e0b;"></span><span class="pbi-polar-legend-name">Polyelectrolyte</span><span class="pbi-polar-legend-pct">12.0%</span></div>
+                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: var(--ca-series-1);"></span><span class="pbi-polar-legend-name">Alum / Coagulants</span><span class="pbi-polar-legend-pct">45.0%</span></div>
+                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: var(--ca-series-2);"></span><span class="pbi-polar-legend-name">Chlorine Gas & Hypo</span><span class="pbi-polar-legend-pct">27.0%</span></div>
+                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: var(--ca-series-4);"></span><span class="pbi-polar-legend-name">Soda Ash & Lime</span><span class="pbi-polar-legend-pct">16.0%</span></div>
+                    <div class="pbi-polar-legend-row"><span class="pbi-polar-legend-dot" style="background: var(--ca-series-3);"></span><span class="pbi-polar-legend-name">Polyelectrolyte</span><span class="pbi-polar-legend-pct">12.0%</span></div>
                     {% endfor %}
                 </div>
             </div>
@@ -287,33 +287,33 @@
                     <defs>
                         <!-- Radar Polygon Glow Gradient -->
                         <linearGradient id="pbiRadarFill" x1="0" y1="0" x2="1" y2="1">
-                            <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.45" />
-                            <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.25" />
+                            <stop offset="0%" stop-color="var(--ca-series-1)" stop-opacity="0.45" />
+                            <stop offset="100%" stop-color="var(--ca-series-4)" stop-opacity="0.25" />
                         </linearGradient>
                     </defs>
 
                     <!-- Outer 100% Reference Standard Grid -->
-                    <polygon points="{{ pbi.radar_chart.outer_poly }}" fill="none" stroke="rgba(15, 23, 42, 0.12)" stroke-width="1.2" />
+                    <polygon points="{{ pbi.radar_chart.outer_poly }}" fill="none" stroke="color-mix(in srgb, var(--theme-text) 14%, transparent)" stroke-width="1.2" />
                     <!-- Mid 70% Reference Grid -->
-                    <polygon points="{{ pbi.radar_chart.mid_poly }}" fill="none" stroke="rgba(15, 23, 42, 0.08)" stroke-width="1" stroke-dasharray="2,2" />
+                    <polygon points="{{ pbi.radar_chart.mid_poly }}" fill="none" stroke="color-mix(in srgb, var(--theme-text) 10%, transparent)" stroke-width="1" stroke-dasharray="2,2" />
                     <!-- Inner 40% Reference Grid -->
-                    <polygon points="{{ pbi.radar_chart.inner_poly }}" fill="none" stroke="rgba(15, 23, 42, 0.06)" stroke-width="1" />
+                    <polygon points="{{ pbi.radar_chart.inner_poly }}" fill="none" stroke="color-mix(in srgb, var(--theme-text) 8%, transparent)" stroke-width="1" />
 
                     <!-- Radial Axis Spokes -->
                     {% for axis in pbi.radar_chart.axes %}
                     <line x1="{{ axis.x1 }}" y1="{{ axis.y1 }}" x2="{{ axis.x2 }}" y2="{{ axis.y2 }}"
-                          stroke="rgba(15, 23, 42, 0.15)" stroke-width="1" />
+                          stroke="color-mix(in srgb, var(--theme-text) 18%, transparent)" stroke-width="1" />
                     <!-- Dimension Labels -->
                     <text x="{{ axis.lx }}" y="{{ axis.ly }}" class="pbi-radar-label" text-anchor="{{ axis.anchor }}">{{ axis.name }}</text>
                     {% endfor %}
 
                     <!-- Actual Laboratory Score Polygon -->
                     <polygon points="{{ pbi.radar_chart.actual_poly }}" fill="url(#pbiRadarFill)"
-                             stroke="#00e5ff" stroke-width="2.2" stroke-linejoin="round" />
+                             stroke="var(--ca-series-1)" stroke-width="2.2" stroke-linejoin="round" />
 
                     <!-- Vertex Nodes with Score Callouts -->
                     {% for axis in pbi.radar_chart.axes %}
-                    <circle cx="{{ axis.dot_x }}" cy="{{ axis.dot_y }}" r="3.8" fill="#ffffff" stroke="#8b5cf6" stroke-width="2" class="pbi-radar-vertex">
+                    <circle cx="{{ axis.dot_x }}" cy="{{ axis.dot_y }}" r="3.8" fill="var(--theme-surface)" stroke="var(--ca-series-4)" stroke-width="2" class="pbi-radar-vertex">
                         <title>{{ axis.name }}: {{ axis.score }} Pass Rate</title>
                     </circle>
                     {% endfor %}
@@ -348,7 +348,7 @@
                     </div>
                 </div>
                 {% empty %}
-                <div style="text-align: center; padding: 28px 0; color: #64748b; font-size: 13px;">No treatment plant batches recorded.</div>
+                <div style="text-align: center; padding: 28px 0; color: var(--theme-text-secondary,var(--theme-muted)); font-size: 13px;">No treatment plant batches recorded.</div>
                 {% endfor %}
 
                 <!-- Matrix Legend Ribbon -->
@@ -386,7 +386,7 @@
                     </div>
                 </div>
                 {% empty %}
-                <div style="text-align: center; padding: 28px 0; color: #64748b; font-size: 13px;">No chemical batches recorded.</div>
+                <div style="text-align: center; padding: 28px 0; color: var(--theme-text-secondary,var(--theme-muted)); font-size: 13px;">No chemical batches recorded.</div>
                 {% endfor %}
             </div>
         </div>

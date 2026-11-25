@@ -199,6 +199,7 @@ docker-compose.override.yml
 
 # Secrets
 secrets/
+**/secrets.yaml
 *.pem
 *.key
 *.crt

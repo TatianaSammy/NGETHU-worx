@@ -52,9 +52,9 @@ The secret manifest deletions are staged in the nested `qad` repository; all oth
 
 The same file defines async handlers and async `perform_create`/`perform_update` hooks on standard DRF ViewSets (`lines 62-80, 98-117, 148-152`). Verify these against the synchronous DRF dispatch path; move the actions to supported synchronous handlers or a deliberately async-compatible API layer, and add endpoint tests.
 
-### P1: Service worker can retain private data on shared browsers
+### Resolved: Service worker offline data retention
 
-`core/static/core/js/sw.js:40-57` caches same-origin HTML and dynamic API responses, then serves cached responses when the network fails. The worker has root scope (`core/static/core/js/fullscreen.js:9-15`). On shared operator workstations, this can expose a previous user's cached data after an account switch or while offline. Cache only versioned public static assets; never cache authenticated pages, API responses, or account-specific content. Also avoid deleting every other origin cache during activation (`sw.js:12-15`).
+The PWA now uses a network-only service worker. It does not cache or replay requests, and activation removes legacy QAD caches. The app requires an active connection.
 
 ### P1/P2: Redis eviction can drop queued work
 
@@ -69,7 +69,7 @@ Nginx's `/health/` handler returns `200` directly (`nginx/conf.d/default.conf:29
 - Kubernetes web uses `qad-backend:stable` (`k8s/web.yaml`), while Celery Beat uses `qad-backend:latest` (`k8s/beat-deployment.yaml`). Pin all workloads to the same immutable build digest so web and scheduled tasks cannot run different application versions.
 - Compose sets `DJANGO_DEBUG=False` (`docker-compose.yml:20`), but Django reads `DEBUG` (`qad/settings.py:85`). The Dockerfile and Kubernetes ConfigMap set `DEBUG` correctly, but the Compose variable name is misleading and does not override `DEBUG` if supplied by `.env`. Standardize on one setting name and reject debug mode in production.
 - PgBouncer uses the floating `latest` tag (`docker-compose.yml:172`). Pin a tested image version or digest.
-- The database setting falls back to a local SQLite file when `DATABASE_URL` is absent (`qad/settings.py:199-221`). Make the SQLite fallback development-only and fail startup in production if a PostgreSQL URL is missing.
+- The database setting now requires a valid PostgreSQL `DATABASE_URL` in every environment and fails startup when it is missing or uses another database scheme.
 
 ## UI and UX review
 

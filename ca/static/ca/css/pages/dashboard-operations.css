@@ -1,14 +1,14 @@
 .ca-intelligence {
-    --grid: #dfe4ea;
-    --surface: #ffffff;
-    --surface-alt: #f6f8fa;
-    --text: #18202a;
-    --muted: #687382;
-    --border: #d8dee6;
-    --positive: #237a57;
-    --negative: #b53a3a;
-    --warning: #a66a00;
-    --info: #2868a6;
+    --grid: var(--theme-border, #dfe4ea);
+    --surface: var(--theme-surface, #ffffff);
+    --surface-alt: var(--theme-surface-muted, #f6f8fa);
+    --text: var(--theme-text, #18202a);
+    --muted: var(--theme-text-secondary, var(--theme-muted, #687382));
+    --border: var(--theme-border, #d8dee6);
+    --positive: var(--color-success, #237a57);
+    --negative: var(--color-danger, #b53a3a);
+    --warning: var(--color-warning, #a66a00);
+    --info: var(--theme-accent, #2868a6);
     display: grid;
     gap: 14px;
     padding: 0;
@@ -81,9 +81,9 @@
 }
 
 .ai-btn-primary {
-    background: var(--text);
-    border-color: var(--text);
-    color: #fff;
+    background: var(--theme-accent, var(--text));
+    border-color: var(--theme-accent, var(--text));
+    color: var(--theme-on-accent, #fff);
 }
 
 .ai-export-menu {
@@ -293,22 +293,22 @@
 }
 
 .ai-badge-danger {
-    border-color: #e4baba;
+    border-color: color-mix(in srgb, var(--negative) 38%, var(--border));
     color: var(--negative);
 }
 
 .ai-badge-warning {
-    border-color: #e7d09b;
+    border-color: color-mix(in srgb, var(--warning) 38%, var(--border));
     color: var(--warning);
 }
 
 .ai-badge-success {
-    border-color: #afd4c3;
+    border-color: color-mix(in srgb, var(--positive) 38%, var(--border));
     color: var(--positive);
 }
 
 .ai-badge-info {
-    border-color: #b8cfe6;
+    border-color: color-mix(in srgb, var(--info) 38%, var(--border));
     color: var(--info);
 }
 

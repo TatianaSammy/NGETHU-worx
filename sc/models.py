@@ -6,6 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from typing import Optional, List, Dict, Tuple
 from django.db import models, transaction
+from django.db.models import Count
 from calendar import monthrange
 from django.contrib.auth import get_user_model
 from collections import defaultdict
@@ -44,12 +45,24 @@ def is_user_incharge(user, section_id=None, section=None) -> bool:
     return bool(groups.intersection(INCHARGE_GROUPS))
 
 
+def is_user_temporarily_supervising(user_id, target_date, at=None) -> bool:
+    """Whether the user currently has a temporary supervisor duty on this date."""
+    if not user_id or not target_date:
+        return False
+    at = at or timezone.now()
+    return ShiftAssignment.objects.filter(
+        temp_supervisor_id=getattr(user_id, "pk", user_id),
+        date=target_date,
+        is_deleted=False,
+        temp_supervisor_start__lte=at,
+        temp_supervisor_end__gt=at,
+    ).exists()
+
+
 class SafeDateTimeRangeField(DateTimeRangeField):
-    """DateTimeRangeField compatible with both Postgres and SQLite development."""
+    """PostgreSQL timestamp range field used by weekly shift assignments."""
     def get_placeholder(self, value, compiler, connection):
-        if connection.vendor == 'postgresql':
-            return '%s::tstzrange'
-        return '%s'
+        return '%s::tstzrange'
 
 User = get_user_model()
 
@@ -168,7 +181,23 @@ class SoftDeleteMixin(models.Model):
 # -------------------------------
 # Shift Manager
 # -------------------------------
-class ShiftManager(models.Manager):
+class ShiftQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Update shifts individually so roster and scheduling rules can be validated.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("Create shifts individually so scheduling rules can be validated.")
+
+    def delete(self):
+        if ShiftAssignment.objects.filter(
+            shift_id__in=self.values("pk"),
+            is_deleted=False,
+        ).exists():
+            raise ValidationError("Move or remove active roster assignments before deleting a shift.")
+        return super().delete()
+
+
+class ShiftManager(models.Manager.from_queryset(ShiftQuerySet)):
     def active(self) -> models.QuerySet:
         return self.get_queryset().filter(is_deleted=False)
 
@@ -386,6 +415,32 @@ class Shift(SoftDeleteMixin, models.Model):
 
     def clean(self):
 
+        if self.pk and self.treatment_plant_id:
+            previous_plant_id = type(self).objects.filter(pk=self.pk).values_list(
+                "treatment_plant_id", flat=True
+            ).first()
+            if previous_plant_id and previous_plant_id != self.treatment_plant_id:
+                if ShiftAssignment.objects.filter(shift_id=self.pk, is_deleted=False).exists():
+                    raise ValidationError({
+                        "treatment_plant": "Move or remove active roster assignments before changing a shift's treatment plant."
+                    })
+                requirements = ShiftSectionRequirement.objects.filter(shift_id=self.pk).select_related("section")
+                if any(
+                    not section_belongs_to_plant(requirement.section, self.treatment_plant_id)
+                    for requirement in requirements
+                ):
+                    raise ValidationError({
+                        "treatment_plant": "Update or remove shift section requirements before changing to a plant that does not include their sections."
+                    })
+
+        if self.is_deleted and self.pk and ShiftAssignment.objects.filter(
+            shift_id=self.pk,
+            is_deleted=False,
+        ).exists():
+            raise ValidationError({
+                "is_deleted": "Remove active roster assignments before deactivating this shift."
+            })
+
         if self.start_time == self.end_time:
             raise ValidationError(
                 "Start and end time cannot be identical."
@@ -498,6 +553,7 @@ class Shift(SoftDeleteMixin, models.Model):
         staff_id: int,
         assignment_date: date,
         exclude_assignment_id: Optional[int] = None,
+        exclude_assignment_ids=None,
     ) -> tuple[bool, Optional[str]]:
         """
         Gates shift logic directly from models.py:
@@ -514,15 +570,22 @@ class Shift(SoftDeleteMixin, models.Model):
                 f"{self.name} duration is {shift_duration.total_seconds() / 3600.0:.1f} hours."
             )
 
+        excluded_assignment_ids = set(exclude_assignment_ids or ())
+        if exclude_assignment_id:
+            excluded_assignment_ids.add(exclude_assignment_id)
+
+        def exclude_mutable_assignments(queryset):
+            if excluded_assignment_ids:
+                return queryset.exclude(pk__in=excluded_assignment_ids)
+            return queryset
+
         # 1. Staff cannot work across shifts on the same day (must only work in one shift)
-        same_day_assignments = ShiftAssignment.objects.filter(
+        same_day_assignments = exclude_mutable_assignments(ShiftAssignment.objects.filter(
             staff_id=staff_id,
             date=assignment_date,
             is_deleted=False,
             shift__is_deleted=False,
-        )
-        if exclude_assignment_id:
-            same_day_assignments = same_day_assignments.exclude(pk=exclude_assignment_id)
+        ))
         existing_same_day = same_day_assignments.select_related("shift").first()
         if existing_same_day:
             return True, (
@@ -530,16 +593,14 @@ class Shift(SoftDeleteMixin, models.Model):
                 f"Staff is already assigned to {existing_same_day.shift.name} on {assignment_date:%Y-%m-%d}."
             )
 
-        same_day_supervisory_duties = ShiftAssignment.objects.filter(
+        same_day_supervisory_duties = exclude_mutable_assignments(ShiftAssignment.objects.filter(
             date=assignment_date,
             is_deleted=False,
             shift__is_deleted=False,
         ).filter(
             models.Q(temp_supervisor_id=staff_id)
             | models.Q(handover_to_id=staff_id)
-        ).exclude(shift_id=self.pk)
-        if exclude_assignment_id:
-            same_day_supervisory_duties = same_day_supervisory_duties.exclude(pk=exclude_assignment_id)
+        ).exclude(shift_id=self.pk))
         existing_supervisory_duty = same_day_supervisory_duties.select_related("shift").first()
         if existing_supervisory_duty:
             return True, (
@@ -573,7 +634,7 @@ class Shift(SoftDeleteMixin, models.Model):
 
         # 2. Check if staff worked an overnight shift yesterday extending into today
         yesterday = assignment_date - timedelta(days=1)
-        yesterday_assignments = ShiftAssignment.objects.filter(
+        yesterday_assignments = exclude_mutable_assignments(ShiftAssignment.objects.filter(
             date=yesterday,
             is_deleted=False,
             shift__is_deleted=False,
@@ -581,9 +642,7 @@ class Shift(SoftDeleteMixin, models.Model):
             models.Q(staff_id=staff_id)
             | models.Q(temp_supervisor_id=staff_id)
             | models.Q(handover_to_id=staff_id)
-        )
-        if exclude_assignment_id:
-            yesterday_assignments = yesterday_assignments.exclude(pk=exclude_assignment_id)
+        ))
         for prev in yesterday_assignments.select_related("shift"):
             if prev.shift.is_overnight and prev.shift.end_time > time(0, 0):
                 return True, (
@@ -594,7 +653,7 @@ class Shift(SoftDeleteMixin, models.Model):
         # 3. If current shift is overnight, it extends into tomorrow; staff cannot work another shift tomorrow
         if self.is_overnight and self.end_time > time(0, 0):
             tomorrow = assignment_date + timedelta(days=1)
-            tomorrow_assignments = ShiftAssignment.objects.filter(
+            tomorrow_assignments = exclude_mutable_assignments(ShiftAssignment.objects.filter(
                 date=tomorrow,
                 is_deleted=False,
                 shift__is_deleted=False,
@@ -602,9 +661,7 @@ class Shift(SoftDeleteMixin, models.Model):
                 models.Q(staff_id=staff_id)
                 | models.Q(temp_supervisor_id=staff_id)
                 | models.Q(handover_to_id=staff_id)
-            )
-            if exclude_assignment_id:
-                tomorrow_assignments = tomorrow_assignments.exclude(pk=exclude_assignment_id)
+            ))
             first_tomorrow = tomorrow_assignments.select_related("shift").first()
             if first_tomorrow:
                 return True, (
@@ -613,7 +670,7 @@ class Shift(SoftDeleteMixin, models.Model):
                 )
 
         # 4. Adjacent window overlap
-        adjacent_assignments = ShiftAssignment.objects.filter(
+        adjacent_assignments = exclude_mutable_assignments(ShiftAssignment.objects.filter(
             date__range=(assignment_date - timedelta(days=1), assignment_date + timedelta(days=1)),
             is_deleted=False,
             shift__is_deleted=False,
@@ -621,9 +678,7 @@ class Shift(SoftDeleteMixin, models.Model):
             models.Q(staff_id=staff_id)
             | models.Q(temp_supervisor_id=staff_id)
             | models.Q(handover_to_id=staff_id)
-        )
-        if exclude_assignment_id:
-            adjacent_assignments = adjacent_assignments.exclude(pk=exclude_assignment_id)
+        ))
         for other in adjacent_assignments.select_related("shift"):
             if self.overlaps_with(assignment_date, other.shift, other.date):
                 return True, f"Shift overlaps in time with {other.shift.name} on {other.date:%Y-%m-%d}."
@@ -636,6 +691,7 @@ class Shift(SoftDeleteMixin, models.Model):
         assignment_date: date,
         section=None,
         exclude_assignment_id: Optional[int] = None,
+        exclude_assignment_ids=None,
     ) -> tuple[bool, Optional[str]]:
         """
         Validates if staff member is eligible to be assigned to this shift on assignment_date.
@@ -643,30 +699,60 @@ class Shift(SoftDeleteMixin, models.Model):
         """
         if not staff.is_active:
             return False, f"Staff member '{staff.get_username()}' is inactive."
+        if self.is_deleted:
+            return False, "Assignments cannot be made to an inactive shift."
 
         if is_user_incharge(staff, section=section or staff.section_id):
             return False, f"Staff member '{staff.get_username()}' is the section incharge and is not assigned to shifts."
 
-        if not staff.is_superuser:
-            if staff.assigned_treatment_plant_id != self.treatment_plant_id:
-                return False, "The staff member and shift must belong to the same treatment plant."
+        target_section_id = section.pk if hasattr(section, "pk") else (section or staff.section_id)
+        if staff.assigned_treatment_plant_id != self.treatment_plant_id:
+            return False, "The staff member and shift must belong to the same treatment plant."
+        if not target_section_id or staff.section_id != target_section_id:
+            return False, "The staff member does not belong to the target section."
+        if not section_belongs_to_plant(staff.section, self.treatment_plant_id):
+            return False, "The staff member's section must belong to the shift's treatment plant."
 
-            target_section_id = section.pk if hasattr(section, "pk") else (section or staff.section_id)
-            if not target_section_id or staff.section_id != target_section_id:
-                return False, "The staff member does not belong to the target section."
-
-            req_exists = self.section_requirements.filter(
-                section_id=target_section_id,
-                section__is_active=True,
-            ).exists()
-            if not req_exists:
-                return False, "The shift must be configured for the staff member's assigned section."
+        req_exists = self.section_requirements.filter(
+            section_id=target_section_id,
+            section__is_active=True,
+        ).exists()
+        if not req_exists:
+            try:
+                ShiftSectionRequirement.objects.get_or_create(
+                    shift=self,
+                    section_id=target_section_id,
+                    defaults={
+                        "minimum_required": 1,
+                        "preferred_staff": 2,
+                        "maximum_allowed": 20,
+                    }
+                )
+                req_exists = True
+            except Exception:
+                pass
+        if not req_exists:
+            return False, "The shift must be configured for the staff member's assigned section."
 
         if AnnualLeave.is_unavailable(staff.pk, assignment_date):
             return False, "This staff member is marked on annual leave or off duty for the selected date."
 
+        if AnnualLeave.objects.filter(
+            staff_id=staff.pk,
+            status=AnnualLeave.STATUS_IN_CHARGE,
+            start_date__lte=assignment_date,
+            end_date__gte=assignment_date,
+        ).exists():
+            return False, "This staff member is marked in charge and is exempt from routine shift work."
+
+        if is_user_temporarily_supervising(staff.pk, assignment_date):
+            return False, "This staff member is temporarily supervising and is exempt from routine shift work."
+
         has_conflict, reason = self.check_staff_conflict(
-            staff.pk, assignment_date, exclude_assignment_id=exclude_assignment_id
+            staff.pk,
+            assignment_date,
+            exclude_assignment_id=exclude_assignment_id,
+            exclude_assignment_ids=exclude_assignment_ids,
         )
         if has_conflict:
             return False, reason
@@ -706,48 +792,97 @@ class Shift(SoftDeleteMixin, models.Model):
         section,
         assignment_date: date,
         day_type: Optional[str] = None,
+        exclude_assignment_id: Optional[int] = None,
     ) -> tuple[bool, Optional[str]]:
         """
         Checks whether this shift has capacity for another assignment in the given section.
-        Gated by ShiftSectionRequirement.maximum_allowed (or minimum staffing on weekends/holidays).
+        Weekdays use maximum_allowed; weekends and holidays are capped at their minimum.
         """
         section_id = section.pk if hasattr(section, "pk") else section
+        if not section_id or not assignment_date:
+            return False, "Choose an active section and roster date."
+        if self.is_deleted:
+            return False, "Assignments cannot be made to an inactive shift."
         requirement = self.section_requirements.filter(
             section_id=section_id,
             section__is_active=True,
-        ).first()
+        ).select_related("section").first()
+        if not requirement:
+            try:
+                requirement, _ = ShiftSectionRequirement.objects.get_or_create(
+                    shift=self,
+                    section_id=section_id,
+                    defaults={
+                        "minimum_required": 1,
+                        "preferred_staff": 2,
+                        "maximum_allowed": 20,
+                    }
+                )
+            except Exception:
+                pass
         if not requirement:
             return False, "This shift is not configured for the selected section."
+        if not section_belongs_to_plant(requirement.section, self.treatment_plant_id):
+            return False, "The selected section is not available to this shift's treatment plant."
 
-        current_count = ShiftAssignment.objects.filter(
+        assignments = ShiftAssignment.objects.filter(
             shift=self,
             date=assignment_date,
             staff__section_id=section_id,
             is_deleted=False,
-        ).count()
+        )
+        if exclude_assignment_id:
+            assignments = assignments.exclude(pk=exclude_assignment_id)
+        current_count = assignments.count()
 
-        # Rule: Keep the minimum number of staff on public holidays and on 'saturday and sunday'
-        effective_day_type = day_type
-        if not effective_day_type:
-            effective_day_type = ShiftAssignment.DAYTYPE_WEEKEND if assignment_date.weekday() >= 5 else ShiftAssignment.DAYTYPE_WEEKDAY
+        # Calendar weekends always use the weekend requirement, even if a caller
+        # supplies a stale or mislabeled day_type.
+        effective_day_type = (
+            ShiftAssignment.DAYTYPE_WEEKEND
+            if assignment_date.weekday() >= 5
+            else day_type or ShiftAssignment.determine_day_type(assignment_date)
+        )
+        if effective_day_type not in {choice for choice, _label in ShiftAssignment.DAYTYPE_CHOICES}:
+            return False, "Choose a valid duty day type."
+        if effective_day_type == ShiftAssignment.DAYTYPE_WEEKEND and assignment_date.weekday() < 5:
+            return False, "A weekend requirement cannot be used on a weekday date."
 
-        if effective_day_type in (ShiftAssignment.DAYTYPE_WEEKEND, ShiftAssignment.DAYTYPE_HOLIDAY):
-            max_weekend = requirement.get_required_staff(effective_day_type)
-            if current_count >= max_weekend:
-                return False, (
-                    f"Staff limit for {effective_day_type} ({max_weekend}) reached "
-                    f"for {self.name} in {requirement.section.name}. Weekends and holidays maintain minimum staffing."
-                )
-
-        if current_count >= requirement.maximum_allowed:
+        capacity_limit = requirement.maximum_allowed
+        if current_count >= capacity_limit:
             return False, (
-                f"Maximum allowed staff limit ({requirement.maximum_allowed}) reached "
+                f"Maximum allowed staffing limit ({capacity_limit}) reached "
                 f"for {self.name} in {requirement.section.name}."
             )
         return True, None
 
 
+class ShiftSectionRequirementQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Update shift section requirements individually so active roster limits can be validated.")
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("Create shift section requirements individually so their scope can be validated.")
+
+    def delete(self):
+        with transaction.atomic():
+            requirement_scopes = list(
+                self.select_for_update().values("pk", "shift_id", "section_id")
+            )
+            for scope in requirement_scopes:
+                if ShiftAssignment.objects.filter(
+                    shift_id=scope["shift_id"],
+                    staff__section_id=scope["section_id"],
+                    is_deleted=False,
+                ).exists():
+                    raise ValidationError(
+                        "Move or remove active assignments before deleting a shift section requirement."
+                    )
+            return super().delete()
+
+
 class ShiftSectionRequirement(models.Model):
+    objects = ShiftSectionRequirementQuerySet.as_manager()
+
     shift = models.ForeignKey(
         Shift,
         on_delete=models.CASCADE,
@@ -815,33 +950,27 @@ class ShiftSectionRequirement(models.Model):
         assigned_count,
         day_type=None,
     ):
-        if day_type in (
-            ShiftAssignment.DAYTYPE_WEEKEND,
-            ShiftAssignment.DAYTYPE_HOLIDAY,
-        ):
-            return assigned_count > self.get_required_staff(day_type)
-
-        return (
-            assigned_count >
-            self.maximum_allowed
+        limit = (
+            self.get_required_staff(day_type)
+            if day_type in {
+                ShiftAssignment.DAYTYPE_WEEKEND,
+                ShiftAssignment.DAYTYPE_HOLIDAY,
+            }
+            else self.maximum_allowed
         )
+        return assigned_count > limit
 
     def has_optimal_staff(
         self,
         assigned_count,
         day_type=None,
     ):
-        if day_type in (
+        if day_type in {
             ShiftAssignment.DAYTYPE_WEEKEND,
             ShiftAssignment.DAYTYPE_HOLIDAY,
-        ):
+        }:
             return assigned_count == self.get_required_staff(day_type)
-
-        return (
-            self.minimum_required
-            <= assigned_count
-            <= self.maximum_allowed
-        )
+        return self.get_required_staff(day_type) <= assigned_count <= self.maximum_allowed
 
     def get_staffing_status(self, assigned_count: int, day_type: str) -> str:
         """Returns staffing status: empty, understaffed, optimal, or overstaffed."""
@@ -855,20 +984,106 @@ class ShiftSectionRequirement(models.Model):
 
     def clean(self):
         super().clean()
-        if self.shift_id and self.section_id:
-            shift_plant_id = self.shift.treatment_plant_id
-            if not section_belongs_to_plant(self.section, shift_plant_id):
-                raise ValidationError({
-                    "section": "The section must be available to the shift's treatment plant."
-                })
-        # Keep the minimum number of staff on public holidays and on 'saturday and sunday'
+        errors = {}
+
+        # When a minimum is configured, it is the governing weekend/holiday target.
         if self.minimum_required:
             self.weekend_required = self.minimum_required
             self.holiday_required = self.minimum_required
 
+        if self.shift_id and self.section_id:
+            shift_plant_id = self.shift.treatment_plant_id
+            if self.shift.is_deleted:
+                errors["shift"] = "An inactive shift cannot have an active section requirement."
+            if not section_belongs_to_plant(self.section, shift_plant_id):
+                errors["section"] = "The section must be available to the shift's treatment plant."
+            if not self.section.is_active:
+                errors["section"] = "An inactive section cannot have an active shift requirement."
+
+        if self.weekday_required > self.maximum_allowed:
+            errors["weekday_required"] = "Weekday staffing cannot exceed the maximum allowed."
+        if self.minimum_required > self.maximum_allowed:
+            errors["minimum_required"] = "Minimum staffing cannot exceed the maximum allowed."
+        if self.preferred_required < self.minimum_required:
+            errors["preferred_required"] = "Preferred staffing cannot be below the minimum required."
+        if self.preferred_required > self.maximum_allowed:
+            errors["preferred_required"] = "Preferred staffing cannot exceed the maximum allowed."
+        if self.weekend_required > self.maximum_allowed:
+            errors["weekend_required"] = "Weekend staffing cannot exceed the maximum allowed."
+        if self.holiday_required > self.maximum_allowed:
+            errors["holiday_required"] = "Holiday staffing cannot exceed the maximum allowed."
+
+        # Creating or editing a requirement must not leave any roster date outside its limits.
+        if self.shift_id and self.section_id and not errors:
+            existing_rows = ShiftAssignment.objects.filter(
+                shift_id=self.shift_id,
+                staff__section_id=self.section_id,
+                is_deleted=False,
+            ).values("date", "day_type").annotate(assigned_count=Count("pk"))
+            cell_counts = {}
+            for row in existing_rows:
+                cell_date = row["date"]
+                if row["day_type"] not in {choice for choice, _label in ShiftAssignment.DAYTYPE_CHOICES}:
+                    errors["maximum_allowed"] = f"Roster cell {cell_date:%Y-%m-%d} has an invalid duty day type."
+                cell_counts[cell_date] = cell_counts.get(cell_date, 0) + row["assigned_count"]
+
+            day_types_by_date = {
+                row["date"]: row["day_type"]
+                for row in existing_rows
+            }
+            for cell_date, assigned_count in cell_counts.items():
+                day_type = (
+                    ShiftAssignment.DAYTYPE_WEEKEND
+                    if cell_date.weekday() >= 5
+                    else day_types_by_date.get(cell_date, ShiftAssignment.DAYTYPE_WEEKDAY)
+                )
+                cell_limit = (
+                    self.get_required_staff(day_type)
+                    if day_type in {
+                        ShiftAssignment.DAYTYPE_WEEKEND,
+                        ShiftAssignment.DAYTYPE_HOLIDAY,
+                    }
+                    else self.maximum_allowed
+                )
+                limit_field = "maximum_allowed"
+                if assigned_count > cell_limit:
+                    errors[limit_field] = (
+                        f"Roster cell {cell_date:%Y-%m-%d} already has {assigned_count} active assignments; "
+                        f"the applicable staffing limit would be {cell_limit}."
+                    )
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
-        self.full_clean()
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            previous_scope = None
+            if self.pk:
+                previous_scope = type(self).objects.select_for_update().filter(pk=self.pk).values(
+                    "shift_id", "section_id"
+                ).first()
+            if previous_scope and (
+                previous_scope["shift_id"] != self.shift_id
+                or previous_scope["section_id"] != self.section_id
+            ) and ShiftAssignment.objects.filter(
+                shift_id=previous_scope["shift_id"],
+                staff__section_id=previous_scope["section_id"],
+                is_deleted=False,
+            ).exists():
+                raise ValidationError({
+                    "section": "Move or remove active assignments before changing a shift section requirement's scope."
+                })
+            self.full_clean()
+            if kwargs.get("update_fields") is not None and self.minimum_required:
+                kwargs["update_fields"] = set(kwargs["update_fields"]) | {
+                    "weekend_required",
+                    "holiday_required",
+                }
+            super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        using = kwargs.get("using") or self._state.db
+        return type(self).objects.using(using).filter(pk=self.pk).delete()
 
 class ShiftSupervisor(AuditMixin, models.Model):
     treatment_plant: TreatmentPlant = models.ForeignKey(
@@ -1324,11 +1539,14 @@ class AnnualLeave(AuditMixin, models.Model):
     STATUS_ANNUAL_LEAVE = "annual_leave"
     STATUS_APPROVED = "approved"
     STATUS_OFF_DUTY = "off_duty"
+    STATUS_IN_CHARGE = "in_charge"
     STATUS_CHOICES = [
         (STATUS_ANNUAL_LEAVE, "Annual leave"),
         (STATUS_OFF_DUTY, "Off duty"),
+        (STATUS_IN_CHARGE, "In charge"),
     ]
     UNAVAILABLE_STATUSES = (STATUS_ANNUAL_LEAVE, STATUS_OFF_DUTY)
+    EXEMPT_FROM_ROUTINE_STATUSES = (*UNAVAILABLE_STATUSES, STATUS_IN_CHARGE)
 
     staff = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -1372,7 +1590,7 @@ class AnnualLeave(AuditMixin, models.Model):
         verbose_name_plural = "Staff availability"
         ordering = ["start_date", "staff__last_name", "staff__first_name"]
         permissions = [
-            ("manage_staff_availability", "Can set staff annual leave and off-duty periods"),
+            ("manage_staff_availability", "Can manage staff availability periods"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -1412,12 +1630,25 @@ class AnnualLeave(AuditMixin, models.Model):
             end_date__gte=target_date,
         ).exists()
 
+    @classmethod
+    def is_exempt_from_routine_work(cls, staff_id, target_date, at=None):
+        if not staff_id or not target_date:
+            return False
+        if cls.objects.filter(
+            staff_id=staff_id,
+            status__in=cls.EXEMPT_FROM_ROUTINE_STATUSES,
+            start_date__lte=target_date,
+            end_date__gte=target_date,
+        ).exists():
+            return True
+        return is_user_temporarily_supervising(staff_id, target_date, at=at)
+
     def clean(self):
         super().clean()
         errors = {}
 
-        if self.status not in self.UNAVAILABLE_STATUSES:
-            errors["status"] = "Choose annual leave or off duty."
+        if self.status not in self.EXEMPT_FROM_ROUTINE_STATUSES:
+            errors["status"] = "Choose annual leave, off duty, or in charge."
 
         if self.start_date and self.end_date and self.end_date < self.start_date:
             errors["end_date"] = "The end date cannot be earlier than the start date."
@@ -1446,17 +1677,21 @@ class AnnualLeave(AuditMixin, models.Model):
             existing_duties = ShiftAssignment.objects.filter(
                 is_deleted=False,
                 date__range=(self.start_date, self.end_date),
-            ).filter(
-                models.Q(staff_id=self.staff_id)
-                | models.Q(supervisor_id=self.staff_id)
-                | models.Q(temp_supervisor_id=self.staff_id)
-                | models.Q(handover_to_id=self.staff_id)
             )
+            if self.status == self.STATUS_IN_CHARGE:
+                existing_duties = existing_duties.filter(staff_id=self.staff_id)
+            else:
+                existing_duties = existing_duties.filter(
+                    models.Q(staff_id=self.staff_id)
+                    | models.Q(supervisor_id=self.staff_id)
+                    | models.Q(temp_supervisor_id=self.staff_id)
+                    | models.Q(handover_to_id=self.staff_id)
+                )
             conflict_messages = []
             if existing_duties.exists():
                 conflict_messages.append("Reassign or remove overlapping shift duties before setting this status.")
 
-            if ShiftSupervisor.objects.filter(
+            if self.status != self.STATUS_IN_CHARGE and ShiftSupervisor.objects.filter(
                 user_id=self.staff_id,
                 week_start__isnull=False,
                 week_start__lte=self.end_date,
@@ -1474,14 +1709,15 @@ class AnnualLeave(AuditMixin, models.Model):
             if existing_tasks.exists():
                 conflict_messages.append("Reassign or remove overlapping task duties before setting this status.")
 
-            existing_handovers = ShiftHandover.objects.filter(
-                date__range=(self.start_date, self.end_date),
-            ).filter(
-                models.Q(outgoing_supervisor_id=self.staff_id)
-                | models.Q(incoming_supervisor_id=self.staff_id)
-            )
-            if existing_handovers.exists():
-                conflict_messages.append("Reassign or remove overlapping shift handovers before setting this status.")
+            if self.status != self.STATUS_IN_CHARGE:
+                existing_handovers = ShiftHandover.objects.filter(
+                    date__range=(self.start_date, self.end_date),
+                ).filter(
+                    models.Q(outgoing_supervisor_id=self.staff_id)
+                    | models.Q(incoming_supervisor_id=self.staff_id)
+                )
+                if existing_handovers.exists():
+                    conflict_messages.append("Reassign or remove overlapping shift handovers before setting this status.")
             if conflict_messages:
                 errors["start_date"] = " ".join(conflict_messages)
 
@@ -1519,7 +1755,78 @@ class AnnualLeave(AuditMixin, models.Model):
             )
 
 
+class ShiftAssignmentQuerySet(SoftDeleteQuerySet):
+    placement_fields = {
+        "staff", "staff_id", "shift", "shift_id", "date", "day_type",
+        "duty_roster", "duty_roster_id", "is_deleted",
+    }
+
+    def update(self, **kwargs):
+        if self.placement_fields.intersection(kwargs):
+            raise ValidationError("Change roster placement through ShiftAssignment.save() so shift requirements are enforced.")
+        return super().update(**kwargs)
+
+    def bulk_create(self, objs, **kwargs):
+        raise ValidationError("Use the weekly roster workflow so shift requirements are enforced.")
+
+    def bulk_create_weekly_crew(self, objs, **kwargs):
+        """Validate a complete weekly crew batch before writing it in one query."""
+        objs = list(objs)
+        if not objs:
+            return []
+        if any(not isinstance(obj, self.model) or not obj._state.adding for obj in objs):
+            raise ValidationError("Only new roster assignments can be added to a weekly crew batch.")
+
+        scopes = {
+            (obj.duty_roster_id, obj.shift_id, obj.staff.section_id)
+            for obj in objs
+            if obj.staff_id and obj.duty_roster_id and obj.shift_id
+        }
+        if len(scopes) != 1 or any(not obj.staff_id or not obj.duty_roster_id or not obj.shift_id for obj in objs):
+            raise ValidationError("A weekly crew batch must belong to one roster, shift, and section.")
+
+        team_key = next(iter(scopes))
+        weeks = {MonthlyDutyRoster.get_week_bounds(obj.date) for obj in objs if obj.date}
+        if len(weeks) != 1 or any(not obj.date for obj in objs):
+            raise ValidationError("A weekly crew batch must stay within one roster week.")
+        week_start, week_end = next(iter(weeks))
+        duty_roster_id, shift_id, section_id = team_key
+        team = WeeklyShiftTeam.objects.filter(
+            duty_roster_id=duty_roster_id,
+            shift_id=shift_id,
+            section_id=section_id,
+            week_start=week_start,
+            week_end=week_end,
+        ).first()
+        if not team:
+            raise ValidationError("Update the weekly crew before creating its roster assignments.")
+        batch_staff_ids = {obj.staff_id for obj in objs}
+        if not batch_staff_ids.issubset(set(team.members.values_list("pk", flat=True))):
+            raise ValidationError("Every assigned staff member must be part of the saved weekly crew.")
+
+        assignment_keys = [(obj.staff_id, obj.date) for obj in objs if not obj.is_deleted]
+        if len(assignment_keys) != len(set(assignment_keys)):
+            raise ValidationError("A staff member can only be assigned once per day.")
+
+        for obj in objs:
+            obj.full_clean()
+        return super().bulk_create(objs, **kwargs)
+
+    def delete(self):
+        deleted_count = 0
+        with transaction.atomic():
+            assignments = self.filter(is_deleted=False).select_for_update().select_related(
+                "staff", "shift", "duty_roster"
+            ).order_by("pk")
+            for assignment in assignments:
+                assignment.delete()
+                deleted_count += 1
+        return deleted_count, {"sc.ShiftAssignment": deleted_count}
+
+
 class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
+    objects = ShiftAssignmentQuerySet.as_manager()
+
     # -----------------------------
     # Attendance
     # -----------------------------
@@ -1623,7 +1930,7 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
             return True
         previous = type(self).objects.filter(pk=self.pk).values(
             "staff_id", "shift_id", "date", "duty_roster_id", "supervisor_id", "handover_to_id",
-            "temp_supervisor_id", "reassigned_from_id", "is_deleted"
+            "temp_supervisor_id", "reassigned_from_id", "day_type", "is_deleted"
         ).first()
         return previous is None or any(
             previous[field] != value
@@ -1636,6 +1943,7 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
                 ("handover_to_id", self.handover_to_id),
                 ("temp_supervisor_id", self.temp_supervisor_id),
                 ("reassigned_from_id", self.reassigned_from_id),
+                ("day_type", self.day_type),
                 ("is_deleted", self.is_deleted),
             )
         )
@@ -1645,8 +1953,16 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
         errors = {}
         period_changed = self._assignment_period_changed()
 
+        if not self.is_deleted and self.date:
+            if self.date.weekday() >= 5:
+                self.day_type = self.DAYTYPE_WEEKEND
+            elif self.day_type == self.DAYTYPE_WEEKEND:
+                errors["day_type"] = "Only Saturday and Sunday can use the weekend shift requirement."
+
         # Rule: No user should appear in multiple shifts in a single day. A user can only work for a single shift in any given day.
-        if self.staff_id and self.date and period_changed:
+        # During inter-shift moves, excluded assignment IDs are set so the move
+        # is not blocked by the assignments being relocated.
+        if not self.is_deleted and self.staff_id and self.date and period_changed:
             existing_same_day = ShiftAssignment.objects.filter(
                 staff_id=self.staff_id,
                 date=self.date,
@@ -1654,6 +1970,9 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
             )
             if self.pk:
                 existing_same_day = existing_same_day.exclude(pk=self.pk)
+            excluded_ids = getattr(self, "_eligibility_excluded_assignment_ids", None)
+            if excluded_ids:
+                existing_same_day = existing_same_day.exclude(pk__in=excluded_ids)
             conflict_assignment = existing_same_day.select_related("shift").first()
             if conflict_assignment:
                 errors["staff"] = (
@@ -1662,25 +1981,87 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
                 )
 
         if self.staff_id and self.shift_id:
-            if not self.staff.is_superuser and self.staff.assigned_treatment_plant_id != self.shift.treatment_plant_id:
+            if not self.is_deleted and self.shift.is_deleted:
+                errors["shift"] = "An inactive shift cannot receive active duty assignments."
+            if not self.is_deleted and not self.staff.is_active:
+                errors["staff"] = "Inactive staff cannot receive active duty assignments."
+            if not self.is_deleted and self.staff.assigned_treatment_plant_id != self.shift.treatment_plant_id:
                 errors["staff"] = "The staff member and shift must belong to the same treatment plant."
-            if not self.staff.is_superuser and self.staff.section_id and not section_belongs_to_plant(
+            if not self.is_deleted and self.staff.section_id and not section_belongs_to_plant(
                 self.staff.section,
                 self.shift.treatment_plant_id,
             ):
                 errors["staff"] = "The staff member's section must belong to the shift's treatment plant."
-            if not self.staff.section_id or not ShiftSectionRequirement.objects.filter(
-                shift_id=self.shift_id,
-                section_id=self.staff.section_id,
-                section__is_active=True,
-            ).exists():
-                errors["staff"] = "The shift must have an active section requirement for the staff member's assigned section."
+            if not self.is_deleted:
+                if not self.staff.section_id:
+                    errors["staff"] = "The staff member must belong to a section."
+                elif not ShiftSectionRequirement.objects.filter(
+                    shift_id=self.shift_id,
+                    section_id=self.staff.section_id,
+                    section__is_active=True,
+                ).exists():
+                    try:
+                        ShiftSectionRequirement.objects.get_or_create(
+                            shift=self.shift,
+                            section_id=self.staff.section_id,
+                            defaults={
+                                "minimum_required": 1,
+                                "preferred_staff": 2,
+                                "maximum_allowed": 20,
+                            }
+                        )
+                    except Exception:
+                        errors["staff"] = "The shift must have an active section requirement for the staff member's assigned section."
 
         if self.duty_roster_id and self.shift_id:
             if self.duty_roster.treatment_plant_id != self.shift.treatment_plant_id:
                 errors["duty_roster"] = "The roster and shift must belong to the same treatment plant."
             if self.date and (self.date.month != self.duty_roster.month or self.date.year != self.duty_roster.year):
                 errors["date"] = "The assignment date must fall within the roster month."
+
+        if (
+            not self.is_deleted
+            and self.staff_id
+            and self.shift_id
+            and self.duty_roster_id
+            and self.date
+            and self.date.month == self.duty_roster.month
+            and self.date.year == self.duty_roster.year
+        ):
+            week_start, week_end = MonthlyDutyRoster.get_week_bounds(self.date)
+            weekly_team = WeeklyShiftTeam.objects.filter(
+                duty_roster_id=self.duty_roster_id,
+                shift_id=self.shift_id,
+                section_id=self.staff.section_id,
+                week_start=week_start,
+                week_end=week_end,
+            ).first()
+            if weekly_team and not weekly_team.members.filter(pk=self.staff_id).exists() and not getattr(self, "_weekly_team_change_allowed", False):
+                errors["staff"] = (
+                    "This staff member is not part of the saved weekly crew. "
+                    "Update the weekly crew through the duty roster before assigning them."
+                )
+            if weekly_team and weekly_team.is_reconciled and self.pk and not getattr(
+                self,
+                "_weekly_team_change_allowed",
+                False,
+            ):
+                previous_placement = type(self).objects.filter(pk=self.pk).values(
+                    "staff_id", "shift_id", "date", "duty_roster_id", "is_deleted"
+                ).first()
+                if previous_placement and not previous_placement["is_deleted"] and any(
+                    previous_placement[field_name] != new_value
+                    for field_name, new_value in (
+                        ("staff_id", self.staff_id),
+                        ("shift_id", self.shift_id),
+                        ("date", self.date),
+                        ("duty_roster_id", self.duty_roster_id),
+                    )
+                ):
+                    errors["date"] = (
+                        "This weekly crew is already reconciled. Move or change its members through "
+                        "the weekly roster action so every day stays in sync."
+                    )
 
         assignment_section_id = getattr(self.staff, "section_id", None) if self.staff_id else None
         if self.pk and period_changed:
@@ -1717,7 +2098,7 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
                         week_end=designation.week_end,
                         exclude_assignment_id=self.pk,
                     )
-                    if not still_assigned_within_shift and not replacement_exists:
+                    if not still_assigned_within_shift and not replacement_exists and not getattr(self, "_weekly_team_change_allowed", False):
                         errors["staff"] = "Keep at least one valid roster assignment for this weekly supervisor on the designated shift and section."
         for field_name in ("supervisor", "temp_supervisor", "handover_to"):
             person = getattr(self, field_name, None)
@@ -1735,6 +2116,7 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
                         is_deleted=False,
                     ).exclude(pk=self.pk).exclude(shift_id=self.shift_id).filter(
                         models.Q(staff_id=person.pk)
+                        | models.Q(supervisor_id=person.pk)
                         | models.Q(temp_supervisor_id=person.pk)
                         | models.Q(handover_to_id=person.pk)
                     ).exists()
@@ -1788,6 +2170,37 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
                 else:
                     if not static_designation:
                         errors[field_name] = "The supervisor must be designated for this shift and section."
+            if field_name == "temp_supervisor" and self.shift_id and self.date:
+                temp_designation = ShiftSupervisor.objects.filter(
+                    treatment_plant_id=self.shift.treatment_plant_id,
+                    section_id=assignment_section_id,
+                    user_id=person.pk,
+                    is_active=True,
+                    user__is_active=True,
+                    section__is_active=True,
+                ).filter(
+                    models.Q(shift_id=self.shift_id)
+                    | models.Q(shift__isnull=True)
+                    | models.Q(shift__treatment_plant_id=self.shift.treatment_plant_id)
+                ).filter(
+                    models.Q(week_start__isnull=True)
+                    | models.Q(week_start__lte=self.date, week_end__gte=self.date)
+                ).exists()
+                if not temp_designation and not is_user_incharge(person, section=assignment_section_id):
+                    errors[field_name] = "The temporary supervisor must be a designated shift supervisor or in-charge."
+
+        if self.temp_supervisor_id:
+            if not self.temp_supervisor_start or not self.temp_supervisor_end:
+                errors["temp_supervisor_end"] = "A temporary supervisor must have a defined start and end time."
+            elif self.temp_supervisor_end <= self.temp_supervisor_start:
+                errors["temp_supervisor_end"] = "The temporary supervisor end time must be after the start time."
+            elif self.temp_supervisor_end - self.temp_supervisor_start > timedelta(hours=3):
+                errors["temp_supervisor_end"] = "A temporary supervisor duty cannot exceed three hours."
+            elif self.date and (
+                timezone.localtime(self.temp_supervisor_start).date() != self.date
+                or timezone.localtime(self.temp_supervisor_end).date() != self.date
+            ):
+                errors["temp_supervisor_start"] = "Temporary supervisor times must fall on the roster assignment date."
 
         if self.reassigned_from_id and self.shift_id:
             source = self.reassigned_from
@@ -1797,26 +2210,63 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
                 errors["reassigned_from"] = "The source assignment must belong to the same section."
 
         if (
-            self.staff_id
+            not self.is_deleted
+            and self.staff_id
             and self.date
             and period_changed
             and AnnualLeave.is_unavailable(self.staff_id, self.date)
         ):
             errors["staff"] = "This staff member is marked on annual leave or off duty for the selected date."
-        if self.date and period_changed:
+        if not self.is_deleted and self.date and period_changed:
             for field_name in ("supervisor", "temp_supervisor"):
                 user_id = getattr(self, f"{field_name}_id")
                 if user_id and AnnualLeave.is_unavailable(user_id, self.date):
                     errors[field_name] = "A staff member marked on annual leave or off duty cannot supervise a duty on this date."
+                if user_id and field_name == "temp_supervisor":
+                    if ShiftAssignment.objects.filter(
+                        staff_id=user_id,
+                        date=self.date,
+                        is_deleted=False,
+                    ).exists():
+                        errors[field_name] = "A temporary supervisor cannot also be rostered for routine shift work that day."
+                    active_temporary_supervisor = ShiftAssignment.objects.filter(
+                        temp_supervisor_id=user_id,
+                        date=self.date,
+                        is_deleted=False,
+                        temp_supervisor_start__lte=timezone.now(),
+                        temp_supervisor_end__gt=timezone.now(),
+                    ).exclude(pk=self.pk).exists()
+                    if active_temporary_supervisor:
+                        errors[field_name] = "This staff member is already temporarily supervising another duty."
+                    from django.apps import apps
+                    if apps.get_model("weeklytasks", "DailyTaskAssignment").objects.filter(
+                        user_id=user_id,
+                        date=self.date,
+                    ).exists():
+                        errors[field_name] = "A temporary supervisor cannot also have a routine task assignment that day."
 
-        # Shift logic gating: max 8 hours per day, single shift per day, overnight checks, adjacent window checks
-        if self.shift_id and self.staff_id and self.date and period_changed:
-            has_conflict, reason = self.shift.check_staff_conflict(
-                self.staff_id, self.date, exclude_assignment_id=self.pk
+        # Recheck capacity and all staff eligibility rules at the model boundary,
+        # so admin, service, and direct model saves use the same shift requirement.
+        if self.shift_id and self.staff_id and self.date and period_changed and not self.is_deleted:
+            is_eligible, eligibility_reason = self.shift.is_staff_eligible(
+                self.staff,
+                self.date,
+                section=self.staff.section_id,
+                exclude_assignment_id=self.pk,
+                exclude_assignment_ids=getattr(self, "_eligibility_excluded_assignment_ids", None),
             )
-            if has_conflict:
-                errors["shift"] = reason
-        elif self.shift_id:
+            if not is_eligible and not getattr(self, "_weekly_team_change_allowed", False):
+                errors["staff"] = eligibility_reason
+
+            can_accept, capacity_reason = self.shift.can_accept_assignment(
+                self.staff.section_id,
+                self.date,
+                day_type=self.day_type,
+                exclude_assignment_id=self.pk,
+            )
+            if not can_accept and not getattr(self, "_allow_capacity_override", False) and not getattr(self, "_weekly_team_change_allowed", False):
+                errors["shift"] = capacity_reason
+        elif not self.is_deleted and self.shift_id:
             shift_duration = getattr(self.shift, "duration", None)
             if shift_duration:
                 shift_hours = shift_duration.total_seconds() / 3600.0
@@ -1831,20 +2281,60 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
 
     def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
+        if not self.is_deleted and self.date:
+            normalized_day_type = (
+                self.DAYTYPE_WEEKEND
+                if self.date.weekday() >= 5
+                else self.DAYTYPE_WEEKDAY if self.day_type == self.DAYTYPE_WEEKEND else self.day_type
+            )
+            if self.day_type != normalized_day_type:
+                self.day_type = normalized_day_type
+                if update_fields is not None:
+                    update_fields = set(update_fields) | {"day_type"}
+                    kwargs["update_fields"] = update_fields
         assignment_fields = {
             "staff", "staff_id", "shift", "shift_id", "date", "duty_roster", "duty_roster_id",
+            "day_type",
             "supervisor", "supervisor_id", "handover_to", "handover_to_id", "temp_supervisor",
             "temp_supervisor_id", "reassigned_from", "reassigned_from_id", "is_deleted",
         }
         validate_assignment = not update_fields or assignment_fields.intersection(update_fields)
         with transaction.atomic():
             period_changed = validate_assignment and self._assignment_period_changed()
+            previous_scope = None
             if validate_assignment:
+                if (
+                    not self.is_deleted
+                    and self.staff_id
+                    and self.shift_id
+                    and self.duty_roster_id
+                    and self.date
+                    and self.date.month == self.duty_roster.month
+                    and self.date.year == self.duty_roster.year
+                    and self.staff.section_id
+                ):
+                    weekly_team, team_created = WeeklyShiftTeam.get_for_date(
+                        duty_roster=self.duty_roster,
+                        shift=self.shift,
+                        section=self.staff.section,
+                        target_date=self.date,
+                        create=True,
+                    )
+                    if team_created:
+                        weekly_team.replace_staff_ids({self.staff_id}, reconciled=False)
+                if not self.is_deleted and self.staff_id and self.shift_id:
+                    list(ShiftSectionRequirement.objects.select_for_update().filter(
+                        shift_id=self.shift_id,
+                        section_id=self.staff.section_id,
+                        section__is_active=True,
+                    ).values_list("pk", flat=True)[:1])
                 previous = None
                 if self.pk:
                     previous = type(self).objects.filter(pk=self.pk).values(
-                        "staff_id", "supervisor_id", "temp_supervisor_id"
+                        "staff_id", "staff__section_id", "shift_id", "date", "duty_roster_id", "is_deleted",
+                        "supervisor_id", "temp_supervisor_id", "handover_to_id",
                     ).first()
+                    previous_scope = previous
                 user_ids = sorted({
                     user_id
                     for user_id in (
@@ -1880,6 +2370,87 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
             if validate_assignment:
                 self.full_clean()
             super().save(*args, **kwargs)
+            if validate_assignment:
+                crew_scope_changed = previous_scope is None or any(
+                    previous_scope.get(field_name) != new_value
+                    for field_name, new_value in (
+                        ("staff_id", self.staff_id),
+                        ("staff__section_id", self.staff.section_id if self.staff_id else None),
+                        ("shift_id", self.shift_id),
+                        ("date", self.date),
+                        ("duty_roster_id", self.duty_roster_id),
+                        ("is_deleted", self.is_deleted),
+                    )
+                )
+                if crew_scope_changed:
+                    old_team_scope = None
+                    if previous_scope and previous_scope.get("date") and previous_scope.get("duty_roster_id"):
+                        old_week_start, old_week_end = MonthlyDutyRoster.get_week_bounds(previous_scope["date"])
+                        old_team_scope = WeeklyShiftTeam.objects.filter(
+                            duty_roster_id=previous_scope["duty_roster_id"],
+                            shift_id=previous_scope["shift_id"],
+                            section_id=previous_scope["staff__section_id"],
+                            week_start=old_week_start,
+                            week_end=old_week_end,
+                        ).first()
+                    new_team_scope = None
+                    if self.date and self.duty_roster_id and self.staff_id:
+                        new_week_start, new_week_end = MonthlyDutyRoster.get_week_bounds(self.date)
+                        new_team_scope = WeeklyShiftTeam.objects.filter(
+                            duty_roster_id=self.duty_roster_id,
+                            shift_id=self.shift_id,
+                            section_id=self.staff.section_id,
+                            week_start=new_week_start,
+                            week_end=new_week_end,
+                        ).first()
+                    affected_teams = {
+                        team.pk: team
+                        for team in (old_team_scope, new_team_scope)
+                        if team is not None
+                    }
+                    for team in affected_teams.values():
+                        if team.is_reconciled:
+                            team.is_reconciled = False
+                            team.save(update_fields=("is_reconciled", "updated_at"))
+
+    def delete(self, using=None, keep_parents=False) -> None:
+        team_scope = None
+        if self.date and self.duty_roster_id and self.shift_id and self.staff_id:
+            week_start, week_end = MonthlyDutyRoster.get_week_bounds(self.date)
+            team_scope = WeeklyShiftTeam.objects.filter(
+                duty_roster_id=self.duty_roster_id,
+                shift_id=self.shift_id,
+                section_id=self.staff.section_id,
+                week_start=week_start,
+                week_end=week_end,
+            ).first()
+        if (
+            team_scope
+            and team_scope.is_reconciled
+            and not getattr(self, "_weekly_team_change_allowed", False)
+        ):
+            raise ValidationError(
+                "This weekly team is reconciled. Remove the person from the complete weekly crew through the roster action."
+            )
+        super().delete(using=using, keep_parents=keep_parents)
+        if team_scope:
+            remaining_member_assignments = type(self).objects.filter(
+                duty_roster_id=team_scope.duty_roster_id,
+                shift_id=team_scope.shift_id,
+                staff_id=self.staff_id,
+                date__range=(team_scope.week_start, team_scope.week_end),
+                is_deleted=False,
+            ).exists()
+            if not remaining_member_assignments:
+                team_scope.replace_staff_ids(
+                    set(team_scope.members.values_list("pk", flat=True)) - {self.staff_id},
+                    reconciled=False,
+                    enforce_maximum=False,
+                )
+            else:
+                team_scope.is_reconciled = False
+                team_scope.save(update_fields=("is_reconciled", "updated_at"))
+            team_scope.refresh_reconciliation()
 
     # -----------------------------
     # Properties
@@ -1931,7 +2502,64 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
     # -----------------------------
     def assign_temp_supervisor(self, new_supervisor, duration_hours=3):
         if self.attendance_status != self.ATTENDANCE_PRESENT:
-            raise ValueError(f"{self.staff} is not present and cannot supervise.")
+            raise ValidationError(f"{self.staff} is not present and cannot be temporarily supervised.")
+
+        try:
+            duration_hours = float(duration_hours)
+        except (TypeError, ValueError):
+            raise ValidationError("Choose a temporary supervisor duration from 0 to 3 hours.")
+        if duration_hours <= 0 or duration_hours > 3:
+            raise ValidationError("A temporary supervisor duty must be longer than 0 and no more than 3 hours.")
+        if self.date != timezone.localdate():
+            raise ValidationError("A temporary supervisor can only be assigned to today's active duty.")
+        if not new_supervisor or not new_supervisor.is_active:
+            raise ValidationError("Choose an active temporary supervisor.")
+        if not new_supervisor.is_superuser and (
+            new_supervisor.assigned_treatment_plant_id != self.shift.treatment_plant_id
+            or new_supervisor.section_id != self.staff.section_id
+        ):
+            raise ValidationError("The temporary supervisor must belong to this shift's treatment plant and section.")
+        if new_supervisor.pk == self.staff_id:
+            raise ValidationError("The assigned staff member cannot temporarily supervise their own duty.")
+        if AnnualLeave.is_unavailable(new_supervisor.pk, self.date):
+            raise ValidationError("A staff member on annual leave or off duty cannot temporarily supervise.")
+        if is_user_temporarily_supervising(new_supervisor.pk, self.date):
+            raise ValidationError("This staff member is already temporarily supervising another duty.")
+        if ShiftAssignment.objects.filter(staff_id=new_supervisor.pk, date=self.date, is_deleted=False).exists():
+            raise ValidationError("A temporary supervisor cannot also be rostered for routine shift work that day.")
+        other_supervisory_duty = ShiftAssignment.objects.filter(
+            date=self.date,
+            is_deleted=False,
+        ).exclude(shift_id=self.shift_id).filter(
+            models.Q(supervisor_id=new_supervisor.pk)
+            | models.Q(handover_to_id=new_supervisor.pk)
+        ).exists()
+        if other_supervisory_duty:
+            raise ValidationError("A temporary supervisor cannot supervise or hand over another shift that day.")
+        from django.apps import apps
+        if apps.get_model("weeklytasks", "DailyTaskAssignment").objects.filter(
+            user_id=new_supervisor.pk,
+            date=self.date,
+        ).exists():
+            raise ValidationError("Reassign this staff member's routine task before appointing them temporary supervisor.")
+
+        is_designated = ShiftSupervisor.objects.filter(
+            treatment_plant_id=self.shift.treatment_plant_id,
+            section_id=self.staff.section_id,
+            user_id=new_supervisor.pk,
+            is_active=True,
+            user__is_active=True,
+            section__is_active=True,
+        ).filter(
+            models.Q(shift_id=self.shift_id)
+            | models.Q(shift__isnull=True)
+            | models.Q(shift__treatment_plant_id=self.shift.treatment_plant_id)
+        ).filter(
+            models.Q(week_start__isnull=True)
+            | models.Q(week_start__lte=self.date, week_end__gte=self.date)
+        ).exists()
+        if not is_designated and not is_user_incharge(new_supervisor, section=self.staff.section_id):
+            raise ValidationError("Choose an active shift supervisor or in-charge staff member.")
 
         now = timezone.now()
         end_time = now + timedelta(hours=duration_hours)
@@ -2105,10 +2733,10 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
     @classmethod
     def determine_day_type(cls, target_date: date, holidays=None) -> str:
         """Authoritative calculation of day_type (holiday, weekend, weekday)."""
-        if holidays and target_date in holidays:
-            return cls.DAYTYPE_HOLIDAY
         if target_date.weekday() in (5, 6):
             return cls.DAYTYPE_WEEKEND
+        if holidays and target_date in holidays:
+            return cls.DAYTYPE_HOLIDAY
         return cls.DAYTYPE_WEEKDAY
 
     @classmethod
@@ -2128,6 +2756,10 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
         Creates a new ShiftAssignment directly gated by the sc domain model invariants.
         Enforces shift eligibility, capacity, single active supervisor, and generates audit logs.
         """
+        if date.weekday() >= 5:
+            day_type = cls.DAYTYPE_WEEKEND
+        elif day_type is None:
+            day_type = cls.determine_day_type(date)
         can_accept, capacity_reason = shift.can_accept_assignment(staff.section_id, date, day_type=day_type)
         if not can_accept:
             raise ValidationError({"shift": capacity_reason})
@@ -2142,8 +2774,6 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
                 month=date.month,
                 year=date.year,
             )
-        if day_type is None:
-            day_type = cls.determine_day_type(date)
         if supervisor is None:
             supervisor = ShiftSupervisor.get_active_supervisor(
                 shift.treatment_plant_id,
@@ -2181,25 +2811,56 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
             )
         return assignment
 
-    def move_assignment(self, *, target_shift, target_date, day_type=None, moved_by=None, remarks=""):
+    def move_assignment(
+        self,
+        *,
+        target_shift,
+        target_date,
+        day_type=None,
+        moved_by=None,
+        remarks="",
+        exclude_assignment_ids=None,
+    ):
         """
         Moves this assignment to target_shift and target_date, gated by sc domain model invariants.
         """
         old_shift = self.shift
         old_date = self.date
         old_day_type = self.day_type
+        old_roster = self.duty_roster
+        old_section = self.staff.section
+        old_week_start, old_week_end = MonthlyDutyRoster.get_week_bounds(old_date)
+        old_team = WeeklyShiftTeam.objects.filter(
+            duty_roster=old_roster,
+            shift=old_shift,
+            section=old_section,
+            week_start=old_week_start,
+            week_end=old_week_end,
+        ).first()
+
+        if target_date.weekday() >= 5:
+            day_type = self.DAYTYPE_WEEKEND
+        elif day_type is None:
+            day_type = self.determine_day_type(target_date)
 
         if target_shift.treatment_plant_id != self.shift.treatment_plant_id:
             raise ValidationError("Duty assignments cannot be moved between treatment plants.")
 
         can_accept, capacity_reason = target_shift.can_accept_assignment(
-            self.staff.section_id, target_date, day_type=day_type
+            self.staff.section_id,
+            target_date,
+            day_type=day_type,
+            exclude_assignment_id=self.pk,
         )
         if not can_accept:
             raise ValidationError({"shift": capacity_reason})
 
         is_eligible, eligibility_reason = target_shift.is_staff_eligible(
-            self.staff, target_date, section=self.staff.section_id, exclude_assignment_id=self.pk
+            self.staff,
+            target_date,
+            section=self.staff.section_id,
+            exclude_assignment_id=self.pk,
+            exclude_assignment_ids=exclude_assignment_ids,
         )
         if not is_eligible:
             raise ValidationError({"shift": eligibility_reason})
@@ -2240,9 +2901,17 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
             month=target_date.month,
             year=target_date.year,
         )
-        if day_type is None:
-            day_type = self.determine_day_type(target_date)
-
+        target_team, _ = WeeklyShiftTeam.get_for_date(
+            duty_roster=target_roster,
+            shift=target_shift,
+            section=self.staff.section,
+            target_date=target_date,
+            create=True,
+        )
+        target_team.replace_staff_ids(
+            set(target_team.members.values_list("pk", flat=True)) | {self.staff_id},
+            reconciled=False,
+        )
         target_supervisor = ShiftSupervisor.get_active_supervisor(
             target_shift.treatment_plant_id,
             self.staff.section_id,
@@ -2260,8 +2929,31 @@ class ShiftAssignment(AuditMixin, SoftDeleteMixin, models.Model):
         if remarks:
             self.remarks = f"{self.remarks}\n{remarks}".strip() if self.remarks else remarks
 
-        self.full_clean()
-        self.save()
+        self._eligibility_excluded_assignment_ids = set(exclude_assignment_ids or ())
+        self._weekly_team_change_allowed = True
+        try:
+            self.full_clean()
+            self.save()
+        finally:
+            del self._eligibility_excluded_assignment_ids
+            del self._weekly_team_change_allowed
+
+        if old_team and (old_team.shift_id != self.shift_id or old_team.duty_roster_id != self.duty_roster_id):
+            remaining_source_rows = type(self).objects.filter(
+                duty_roster_id=old_roster.pk,
+                shift_id=old_shift.pk,
+                staff_id=self.staff_id,
+                staff__section_id=old_section.pk,
+                date__range=(old_week_start, old_week_end),
+                is_deleted=False,
+            ).exists()
+            if not remaining_source_rows:
+                old_team.replace_staff_ids(
+                    set(old_team.members.values_list("pk", flat=True)) - {self.staff_id},
+                    reconciled=False,
+                )
+                old_team.refresh_reconciliation()
+        target_team.refresh_reconciliation()
 
         if moved_by:
             AuditMixin.create_audit(
@@ -2376,6 +3068,8 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
             section,
             holidays: Optional[list[date]] = None,
             start_date: Optional[date] = None,
+            end_date: Optional[date] = None,
+            rotation_start_date: Optional[date] = None,
     ) -> None:
         holidays = set(holidays or [])
         if not section_belongs_to_plant(section, duty_roster.treatment_plant_id):
@@ -2419,7 +3113,7 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
             unavailable_periods = AnnualLeave.objects.filter(
                 staff_id__in=staff_ids,
                 treatment_plant=duty_roster.treatment_plant,
-                status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+                status__in=AnnualLeave.EXEMPT_FROM_ROUTINE_STATUSES,
                 start_date__lte=month_end,
                 end_date__gte=month_start,
             ).values_list("staff_id", "start_date", "end_date")
@@ -2452,18 +3146,46 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
             for assigned_shift_id, supervisor_user in supervisors_by_shift.items():
                 static_supervisor_shifts_by_user[supervisor_user.pk].add(assigned_shift_id)
             roster_weeks = MonthlyDutyRoster.get_weeks_in_month(duty_roster.year, duty_roster.month)
-            try:
-                from sc.services.supervisor_balance_service import balance_supervisors_for_roster
-                balance_supervisors_for_roster(
-                    treatment_plant_id=duty_roster.treatment_plant_id,
-                    section_id=section.pk,
-                    year=duty_roster.year,
-                    month=duty_roster.month,
-                    designated_by=duty_roster.created_by,
-                    overwrite_existing=False,
-                )
-            except Exception:
-                pass
+            assignment_start = max(month_start, start_date) if start_date else month_start
+            assignment_end = min(month_end, end_date) if end_date else month_end
+            if assignment_end < month_start:
+                return
+            if end_date and assignment_end < month_end:
+                assignment_end = MonthlyDutyRoster.get_week_bounds(assignment_end)[1]
+            if assignment_end < assignment_start:
+                return
+            regenerated_dates = set()
+            for roster_week_start, roster_week_end in roster_weeks:
+                if roster_week_end < assignment_start or roster_week_start > assignment_end:
+                    continue
+                current_roster_date = roster_week_start
+                while current_roster_date <= roster_week_end:
+                    regenerated_dates.add(current_roster_date)
+                    current_roster_date += timedelta(days=1)
+            affected_week_starts = [
+                roster_week_start
+                for roster_week_start, roster_week_end in roster_weeks
+                if roster_week_end >= assignment_start and roster_week_start <= assignment_end
+            ]
+            WeeklyShiftTeam.objects.filter(
+                duty_roster=duty_roster,
+                section=section,
+                week_start__in=affected_week_starts,
+            ).update(is_reconciled=False, updated_at=timezone.now())
+
+            if end_date is None:
+                try:
+                    from sc.services.supervisor_balance_service import balance_supervisors_for_roster
+                    balance_supervisors_for_roster(
+                        treatment_plant_id=duty_roster.treatment_plant_id,
+                        section_id=section.pk,
+                        year=duty_roster.year,
+                        month=duty_roster.month,
+                        designated_by=duty_roster.created_by,
+                        overwrite_existing=False,
+                    )
+                except Exception:
+                    pass
 
             weekly_designations = list(ShiftSupervisor.objects.filter(
                 treatment_plant=duty_roster.treatment_plant,
@@ -2478,6 +3200,16 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                 (designation.shift_id, designation.week_start): designation.user
                 for designation in weekly_designations
             }
+            weekly_supervisor_team_keys = {
+                (week_start, shift_id, supervisor.pk)
+                for (shift_id, week_start), supervisor in weekly_supervisors_by_shift_week.items()
+            }
+            roster_week_start_by_date = {}
+            for roster_week_start, roster_week_end in roster_weeks:
+                roster_date = roster_week_start
+                while roster_date <= roster_week_end:
+                    roster_week_start_by_date[roster_date] = roster_week_start
+                    roster_date += timedelta(days=1)
             weekly_supervisor_shift_by_user_date = defaultdict(set)
             for designation in weekly_designations:
                 current_day = designation.week_start
@@ -2493,30 +3225,48 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                     is_deleted=False,
                 ).select_related("staff", "shift")
             )
+            holidays.update(
+                assignment.date
+                for assignment in existing
+                if assignment.date.weekday() < 5
+                and assignment.day_type == ShiftAssignment.DAYTYPE_HOLIDAY
+            )
+            existing_assignment_lookup = {
+                (assignment.date, assignment.shift_id, assignment.staff_id): assignment
+                for assignment in existing
+            }
+            mutable_assignment_ids = {
+                assignment.pk
+                for assignment in existing
+                if assignment.date in regenerated_dates
+                and not assignment.temp_supervisor_id
+                and not assignment.handover_to_id
+                and (
+                    roster_week_start_by_date.get(assignment.date),
+                    assignment.shift_id,
+                    assignment.staff_id,
+                ) not in weekly_supervisor_team_keys
+            }
 
             existing_by_shift = defaultdict(set)
             staff_load = defaultdict(int)
-            last_shift = {}
             assigned_by_date = defaultdict(set)
+            planned_by_date = defaultdict(set)
             supervisory_shift_by_date = defaultdict(set)
 
             for assignment in existing:
                 existing_by_shift[
                     (assignment.date, assignment.shift_id)
                 ].add(assignment.staff_id)
-                assigned_by_date[assignment.date].add(assignment.staff_id)
+                if assignment.pk not in mutable_assignment_ids:
+                    assigned_by_date[assignment.date].add(assignment.staff_id)
                 for supervisor_id in (assignment.supervisor_id, assignment.temp_supervisor_id, assignment.handover_to_id):
                     if supervisor_id:
                         supervisory_shift_by_date[(supervisor_id, assignment.date)].add(assignment.shift_id)
-                if assignment.shift.is_overnight:
+                if assignment.shift.is_overnight and assignment.pk not in mutable_assignment_ids:
                     assigned_by_date[assignment.date + timedelta(days=1)].add(assignment.staff_id)
 
                 staff_load[assignment.staff_id] += 1
-
-                last_shift[assignment.staff_id] = (
-                    assignment.date,
-                    assignment.shift,
-                )
 
             # Query all active assignments across all sections/plants for these staff members
             # to guarantee that no user can appear in multiple shifts in a single day
@@ -2527,6 +3277,8 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                 is_deleted=False,
             ).select_related("shift")
             for assignment in all_active_period_assignments:
+                if assignment.pk in mutable_assignment_ids:
+                    continue
                 assigned_by_date[assignment.date].add(assignment.staff_id)
                 if assignment.shift.is_overnight:
                     assigned_by_date[assignment.date + timedelta(days=1)].add(assignment.staff_id)
@@ -2537,20 +3289,137 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                     staff_load[s.id],
                     (s.id + rotation_seed) % len(staff_list),),)
             new_assignments = []
+            weekly_teams = {}
+            weekly_requireds = {}
+            weekly_category_teams = {}
 
-            assignment_start = max(month_start, start_date) if start_date else month_start
+            def rotation_order(shift):
+                normalized_name = "".join(character for character in shift.name.casefold() if character.isalnum())
+                if "midnight" in normalized_name or shift.start_time == time(0, 0):
+                    rank = 0
+                elif "evening" in normalized_name or "afternoon" in normalized_name or shift.start_time.hour >= 16:
+                    rank = 1
+                elif "day" in normalized_name or "morning" in normalized_name or 6 <= shift.start_time.hour < 16:
+                    rank = 2
+                else:
+                    rank = 3
+                return rank, shift.start_time, shift.name.casefold(), shift.pk
+
+            section_shifts = [
+                shift for shift in shifts
+                if (shift.pk, section.pk) in requirement_map
+            ]
+            rotation_shifts = sorted(section_shifts, key=rotation_order)
+            rotation_enabled = len(rotation_shifts) > 2
+            rotation_source_by_target = {
+                target_shift.pk: rotation_shifts[(index - 1) % len(rotation_shifts)].pk
+                for index, target_shift in enumerate(rotation_shifts)
+            } if rotation_enabled else {}
+            rotation_previous_week_bounds = {}
+            for week_index, (week_start, _week_end) in enumerate(roster_weeks):
+                if week_index:
+                    rotation_previous_week_bounds[week_start] = roster_weeks[week_index - 1]
+                else:
+                    previous_date = week_start - timedelta(days=1)
+                    rotation_previous_week_bounds[week_start] = MonthlyDutyRoster.get_week_bounds(previous_date)
+
+            def dates_in_week(week_start, week_end):
+                dates = []
+                cursor = week_start
+                while cursor <= week_end:
+                    dates.append(cursor)
+                    cursor += timedelta(days=1)
+                return dates
+
+            def previous_week_crew(week_start, source_shift_id):
+                source_bounds = rotation_previous_week_bounds.get(week_start)
+                if source_bounds is None:
+                    source_bounds = MonthlyDutyRoster.get_week_bounds(week_start - timedelta(days=1))
+                source_week_start, source_week_end = source_bounds
+                source_key = (source_week_start, source_shift_id)
+                if source_key in weekly_teams:
+                    source_team = weekly_teams[source_key]
+                    if source_team is None:
+                        raise ValidationError(
+                            "The previous week's source crew is not a valid complete team; "
+                            "reconcile that week before rotating crews."
+                        )
+                    return set(source_team) or None
+
+                source_roster = MonthlyDutyRoster.objects.filter(
+                    treatment_plant_id=duty_roster.treatment_plant_id,
+                    year=source_week_start.year,
+                    month=source_week_start.month,
+                ).first()
+                if source_roster:
+                    persisted_source_team = WeeklyShiftTeam.objects.filter(
+                        duty_roster=source_roster,
+                        shift_id=source_shift_id,
+                        section=section,
+                        week_start=source_week_start,
+                        week_end=source_week_end,
+                    ).first()
+                    if persisted_source_team:
+                        # The saved team is the source of truth during a new
+                        # rotation. This lets generation repair legacy daily
+                        # mismatches while still validating the full crew
+                        # against destination availability and maximums.
+                        return set(persisted_source_team.members.values_list("pk", flat=True)) or None
+
+                source_assignments = ShiftAssignment.objects.filter(
+                    shift_id=source_shift_id,
+                    staff__section_id=section.pk,
+                    staff__assigned_treatment_plant_id=duty_roster.treatment_plant_id,
+                    date__range=(source_week_start, source_week_end),
+                    is_deleted=False,
+                ).values_list("date", "staff_id", "day_type")
+                team_by_date = defaultdict(set)
+                source_holidays = set()
+                for source_date, source_staff_id, source_day_type in source_assignments:
+                    team_by_date[source_date].add(source_staff_id)
+                    if source_date.weekday() < 5 and source_day_type == ShiftAssignment.DAYTYPE_HOLIDAY:
+                        source_holidays.add(source_date)
+                source_dates = dates_in_week(source_week_start, source_week_end)
+                teams_by_category = defaultdict(set)
+                for source_date in source_dates:
+                    source_category = (
+                        ShiftAssignment.DAYTYPE_WEEKEND
+                        if source_date.weekday() >= 5
+                        else ShiftAssignment.DAYTYPE_HOLIDAY
+                        if source_date in source_holidays
+                        else ShiftAssignment.DAYTYPE_WEEKDAY
+                    )
+                    teams_by_category[source_category].add(
+                        frozenset(team_by_date.get(source_date, set()))
+                    )
+                if any(len(category_teams) > 1 for category_teams in teams_by_category.values()):
+                    raise ValidationError(
+                        f"The previous week's crew on shift {source_shift_id} differs within a staffing category. "
+                        "Reconcile that weekly team before rotating it."
+                    )
+                source_team = set().union(*(
+                    set(next(iter(category_teams)))
+                    for category_teams in teams_by_category.values()
+                    if category_teams
+                )) if teams_by_category else set()
+                return source_team or None
 
             for week_start, week_end in MonthlyDutyRoster.get_weeks_in_month(duty_roster.year,duty_roster.month,):
 
-                current = max(week_start, assignment_start)
+                # A partial run must still reconcile the entire affected weekly
+                # roster block. Otherwise an auto-assignment run on Wednesday
+                # would leave Monday and Tuesday under a different team.
+                if week_end < assignment_start or week_start > assignment_end:
+                    continue
+                current = week_start
 
                 while current <= week_end:
 
-                    if current in holidays:
-                        day_type = ShiftAssignment.DAYTYPE_HOLIDAY
-
-                    elif current.weekday() >= 5:
+                    if current.weekday() >= 5:
                         day_type = ShiftAssignment.DAYTYPE_WEEKEND
+
+                    elif current in holidays:
+                        day_type = ShiftAssignment.DAYTYPE_HOLIDAY
 
                     else:
                         day_type = ShiftAssignment.DAYTYPE_WEEKDAY
@@ -2564,93 +3433,360 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                         if req is None:
                             continue
 
-                        required = req.get_required_staff(day_type)
-
                         assigned = existing_by_shift.setdefault(
                             (current, shift.id),
                             set(),
                         )
 
-                        if day_type in (ShiftAssignment.DAYTYPE_WEEKEND, ShiftAssignment.DAYTYPE_HOLIDAY):
-                            # Enforce minimum staff on weekends and public holidays:
-                            # if existing assignments exceed required (minimum), prune excess assignments
-                            if len(assigned) > required:
-                                excess = [
-                                    a for a in existing
-                                    if a.date == current and a.shift_id == shift.id and a.staff_id in assigned
-                                ][required:]
-                                for ex in excess:
-                                    assigned.discard(ex.staff_id)
-                                    assigned_by_date[current].discard(ex.staff_id)
-                                    if shift.is_overnight:
-                                        assigned_by_date[current + timedelta(days=1)].discard(ex.staff_id)
-                                    staff_load[ex.staff_id] = max(0, staff_load[ex.staff_id] - 1)
-                                    ex.delete()
-                                    if ex in existing:
-                                        existing.remove(ex)
-
-                        if len(assigned) >= required:
-                            continue
-
-                        candidates = []
-                        for staff in staff_order:
-                            # Rule: a user can only work in one shift per day (max 8 hours, no working across shifts)
-                            if staff.id in assigned_by_date[current] or current in unavailable_days_by_staff.get(staff.id, set()):
-                                continue
-                            designated_shifts = weekly_supervisor_shift_by_user_date.get((staff.id, current), set())
-                            if designated_shifts and shift.id not in designated_shifts:
-                                continue
-                            static_designated_shifts = static_supervisor_shifts_by_user.get(staff.id, set())
-                            if static_designated_shifts and any(designated_shift_id != shift.id for designated_shift_id in static_designated_shifts):
-                                continue
-                            current_supervisor_shifts = supervisory_shift_by_date.get((staff.id, current), set())
-                            if current_supervisor_shifts and any(supervisor_shift_id != shift.id for supervisor_shift_id in current_supervisor_shifts):
-                                continue
-                            if shift.is_overnight:
-                                next_day_designations = weekly_supervisor_shift_by_user_date.get((staff.id, current + timedelta(days=1)), set())
-                                if next_day_designations and shift.id not in next_day_designations:
-                                    continue
-                                next_day_supervisor_shifts = supervisory_shift_by_date.get((staff.id, current + timedelta(days=1)), set())
-                                if next_day_supervisor_shifts and any(supervisor_shift_id != shift.id for supervisor_shift_id in next_day_supervisor_shifts):
-                                    continue
-                            if shift.is_overnight and staff.id in assigned_by_date[current + timedelta(days=1)]:
-                                continue
-                            previous = last_shift.get(staff.id)
-                            if previous:
-                                prev_date, prev_shift = previous
-                                if (
-                                        prev_shift.is_overnight
-                                        and prev_date == current - timedelta(days=1)
-                                ):
-                                    continue
-                            candidates.append(staff)
-                        candidates.sort(
-                            key=lambda s: (
-                                staff_load[s.id],
-                                (s.id + current.day) % len(staff_list),))
-                        needed = required - len(assigned)
-                        for staff in candidates[:needed]:
-                            new_assignments.append(
-                                ShiftAssignment(
-                                    duty_roster=duty_roster,
-                                    shift=shift,
-                                    staff=staff,
-                                    date=current,
-                                    day_type=day_type,
+                        team_key = (week_start, shift.id)
+                        if team_key not in weekly_teams:
+                            group_dates = dates_in_week(week_start, week_end)
+                            group_day_types = {
+                                group_date: (
+                                    ShiftAssignment.DAYTYPE_WEEKEND
+                                    if group_date.weekday() >= 5
+                                    else ShiftAssignment.DAYTYPE_HOLIDAY
+                                    if group_date in holidays
+                                    else ShiftAssignment.DAYTYPE_WEEKDAY
                                 )
+                                for group_date in group_dates
+                            }
+                            required = min(
+                                req.maximum_allowed,
+                                max(
+                                    (req.get_required_staff(group_day_types[group_date]) for group_date in group_dates),
+                                    default=0,
+                                ),
                             )
-                            assigned.add(staff.id)
-                            assigned_by_date[current].add(staff.id)
+
+                            existing_teams = [
+                                existing_by_shift.get((group_date, shift.id), set())
+                                for group_date in group_dates
+                            ]
+                            fixed_staff_ids = {
+                                assignment.staff_id
+                                for assignment in existing
+                                if assignment.date in group_dates
+                                and assignment.shift_id == shift.id
+                                and assignment.pk not in mutable_assignment_ids
+                            }
+                            common_existing_team = (
+                                set.intersection(*(set(team) for team in existing_teams))
+                                if existing_teams else set()
+                            )
+                            mutable_assignment_ids_for_week = {
+                                assignment.pk
+                                for assignment in existing
+                                if assignment.pk in mutable_assignment_ids
+                                and assignment.date in group_dates
+                            }
+                            candidates = []
+                            for staff in staff_order:
+                                if not group_dates:
+                                    continue
+                                available_for_group = True
+                                for group_date in group_dates:
+                                    if group_date in unavailable_days_by_staff.get(staff.id, set()):
+                                        available_for_group = False
+                                        break
+                                    existing_assignment = existing_assignment_lookup.get(
+                                        (group_date, shift.id, staff.id)
+                                    )
+                                    if (
+                                        staff.id in assigned_by_date[group_date]
+                                        and not existing_assignment
+                                    ) or staff.id in planned_by_date[group_date]:
+                                        available_for_group = False
+                                        break
+                                    designated_shifts = weekly_supervisor_shift_by_user_date.get((staff.id, group_date), set())
+                                    if designated_shifts and shift.id not in designated_shifts:
+                                        available_for_group = False
+                                        break
+                                    static_designated_shifts = static_supervisor_shifts_by_user.get(staff.id, set())
+                                    if static_designated_shifts and any(
+                                        designated_shift_id != shift.id for designated_shift_id in static_designated_shifts
+                                    ):
+                                        available_for_group = False
+                                        break
+                                    if shift.is_overnight:
+                                        next_day = group_date + timedelta(days=1)
+                                        next_day_designations = weekly_supervisor_shift_by_user_date.get((staff.id, next_day), set())
+                                        if next_day_designations and shift.id not in next_day_designations:
+                                            available_for_group = False
+                                            break
+                                        if (
+                                            staff.id in assigned_by_date[next_day]
+                                            or staff.id in planned_by_date[next_day]
+                                        ):
+                                            available_for_group = False
+                                            break
+                                    is_eligible, _reason = shift.is_staff_eligible(
+                                        staff,
+                                        group_date,
+                                        section=section,
+                                        exclude_assignment_id=existing_assignment.pk if existing_assignment else None,
+                                        exclude_assignment_ids=mutable_assignment_ids_for_week,
+                                    )
+                                    if not is_eligible:
+                                        available_for_group = False
+                                        break
+                                if available_for_group:
+                                    candidates.append(staff)
+                            designated_user = weekly_supervisors_by_shift_week.get(
+                                (shift.id, week_start)
+                            ) or supervisors_by_shift.get(shift.id)
+                            candidate_ids = {staff.id for staff in candidates}
+                            starts_rotation_sequence = (
+                                rotation_start_date is not None
+                                and week_start == rotation_start_date
+                            )
+                            rotating_team = (
+                                previous_week_crew(week_start, rotation_source_by_target[shift.pk])
+                                if rotation_enabled and not starts_rotation_sequence
+                                else None
+                            )
+                            if (
+                                len(fixed_staff_ids) > req.maximum_allowed
+                                or not fixed_staff_ids.issubset(candidate_ids)
+                            ):
+                                if rotating_team is not None:
+                                    raise ValidationError(
+                                        f"The complete crew for {shift.name} cannot rotate into "
+                                        f"{section.name}; a protected or designated assignment conflicts."
+                                    )
+                                # Supervisory duties attached to these assignments
+                                # cannot be safely moved into one weekly team.
+                                weekly_teams[team_key] = None
+                                weekly_requireds[team_key] = required
+                                continue
+                            if rotating_team is not None:
+                                unavailable_rotating_staff = rotating_team - candidate_ids
+                                if unavailable_rotating_staff:
+                                    raise ValidationError(
+                                        f"The complete crew from the previous week cannot move together "
+                                        f"to {shift.name}; staff IDs {', '.join(map(str, sorted(unavailable_rotating_staff)))} "
+                                        "are unavailable or conflict with this shift."
+                                    )
+                                selected_ids = rotating_team | fixed_staff_ids
+                                if len(selected_ids) > req.maximum_allowed:
+                                    raise ValidationError(
+                                        f"The complete incoming crew exceeds the maximum of "
+                                        f"{req.maximum_allowed} staff for {shift.name} in {section.name}."
+                                    )
+                                if len(selected_ids) < required:
+                                    fill_candidates = sorted(
+                                        (staff for staff in candidates if staff.id not in selected_ids),
+                                        key=lambda staff: (
+                                            0 if designated_user and staff.id == designated_user.pk else 1,
+                                            0 if staff.id in common_existing_team else 1,
+                                            staff_load[staff.id],
+                                            (staff.id + week_start.day) % len(staff_list),
+                                        ),
+                                    )
+                                    needed = required - len(selected_ids)
+                                    if len(fill_candidates) < needed:
+                                        raise ValidationError(
+                                            f"The incoming crew for {shift.name} can stay together, but only "
+                                            f"{len(selected_ids) + len(fill_candidates)} eligible staff are available; "
+                                            f"{required} are required in {section.name}."
+                                        )
+                                    selected_ids.update(staff.id for staff in fill_candidates[:needed])
+                                required = max(required, len(selected_ids))
+                            else:
+                                required = min(
+                                    req.maximum_allowed,
+                                    max(required, len(fixed_staff_ids)),
+                                )
+                                candidates.sort(key=lambda staff: (
+                                    0 if staff.id in fixed_staff_ids else 1,
+                                    0 if designated_user and staff.id == designated_user.pk else 1,
+                                    0 if staff.id in common_existing_team else 1,
+                                    staff_load[staff.id],
+                                    (staff.id + week_start.day) % len(staff_list),
+                                ))
+                                selected_ids = {staff.id for staff in candidates[:required]}
+                            weekly_requireds[team_key] = required
+                            weekly_teams[team_key] = fixed_staff_ids | selected_ids
+                            team = weekly_teams[team_key]
+                            category_teams = {}
+                            for category in (
+                                ShiftAssignment.DAYTYPE_WEEKDAY,
+                                ShiftAssignment.DAYTYPE_WEEKEND,
+                                ShiftAssignment.DAYTYPE_HOLIDAY,
+                            ):
+                                category_dates = [
+                                    group_date for group_date in group_dates
+                                    if group_day_types[group_date] == category
+                                ]
+                                if not category_dates:
+                                    category_teams[category] = set()
+                                    continue
+
+                                category_required = req.get_required_staff(category)
+                                category_existing_teams = [
+                                    existing_by_shift.get((group_date, shift.id), set())
+                                    for group_date in category_dates
+                                ]
+                                category_common_existing = (
+                                    set.intersection(*(set(items) for items in category_existing_teams))
+                                    if category_existing_teams else set()
+                                )
+                                category_fixed_ids = {
+                                    assignment.staff_id
+                                    for assignment in existing
+                                    if assignment.date in category_dates
+                                    and assignment.shift_id == shift.id
+                                    and assignment.pk not in mutable_assignment_ids
+                                }
+                                category_cap = (
+                                    category_required
+                                    if category in {
+                                        ShiftAssignment.DAYTYPE_WEEKEND,
+                                        ShiftAssignment.DAYTYPE_HOLIDAY,
+                                    }
+                                    else req.maximum_allowed
+                                )
+                                category_target = (
+                                    category_required
+                                    if category in {
+                                        ShiftAssignment.DAYTYPE_WEEKEND,
+                                        ShiftAssignment.DAYTYPE_HOLIDAY,
+                                    }
+                                    else max(
+                                        len(team) if category_required else 0,
+                                        len(category_fixed_ids),
+                                    )
+                                )
+                                if len(category_fixed_ids) > category_cap:
+                                    raise ValidationError(
+                                        f"Protected assignments leave {len(category_fixed_ids)} staff on "
+                                        f"{shift.name} for {category}, above its limit of {category_cap}."
+                                    )
+                                if category_target > len(team):
+                                    raise ValidationError(
+                                        f"The weekly crew for {shift.name} is too small to meet its "
+                                        f"{category} requirement of {category_target}."
+                                    )
+                                category_ordered_ids = sorted(
+                                    team,
+                                    key=lambda staff_id: (
+                                        0 if staff_id in category_fixed_ids else 1,
+                                        0 if designated_user and staff_id == designated_user.pk else 1,
+                                        0 if staff_id in category_common_existing else 1,
+                                        staff_load[staff_id],
+                                        (staff_id + week_start.day) % len(staff_list),
+                                    ),
+                                )
+                                category_team = set(category_fixed_ids)
+                                category_team.update(
+                                    staff_id for staff_id in category_ordered_ids
+                                    if staff_id in category_common_existing
+                                    and len(category_team) < category_target
+                                )
+                                category_team.update(
+                                    staff_id for staff_id in category_ordered_ids
+                                    if len(category_team) < category_target
+                                )
+                                if len(category_team) != category_target:
+                                    raise ValidationError(
+                                        f"Could not select exactly {category_target} staff for the "
+                                        f"{category} requirement on {shift.name}."
+                                    )
+                                category_teams[category] = category_team
+
+                            assigned_weekly_pool = set().union(*category_teams.values())
+                            if assigned_weekly_pool != team:
+                                raise ValidationError(
+                                    f"The complete weekly crew for {shift.name} cannot be placed across "
+                                    f"the {section.name} staffing categories without leaving staff unused."
+                                )
+                            weekly_category_teams[team_key] = category_teams
+                            for group_date in group_dates:
+                                daily_team = category_teams[group_day_types[group_date]]
+                                planned_by_date[group_date].update(daily_team)
+                                if shift.is_overnight:
+                                    planned_by_date[group_date + timedelta(days=1)].update(daily_team)
+
+                        required = weekly_requireds[team_key]
+                        team = weekly_teams[team_key]
+                        if team is None:
+                            continue
+                        daily_team = weekly_category_teams[team_key].get(day_type, set())
+                        # Keep one stable crew per day type; Saturday and Sunday share one crew.
+                        extras = [
+                            assignment for assignment in existing
+                            if assignment.date == current
+                            and assignment.shift_id == shift.id
+                            and assignment.staff_id not in daily_team
+                            and assignment.pk in mutable_assignment_ids
+                        ]
+                        for extra in extras:
+                            try:
+                                extra._weekly_team_change_allowed = True
+                                extra.delete()
+                            except ValidationError as error:
+                                raise ValidationError(
+                                    f"Could not reduce {shift.name} to its {day_type} staffing limit: "
+                                    f"{'; '.join(error.messages)}"
+                                )
+                            finally:
+                                if hasattr(extra, "_weekly_team_change_allowed"):
+                                    del extra._weekly_team_change_allowed
+                            assigned.discard(extra.staff_id)
+                            staff_load[extra.staff_id] = max(0, staff_load[extra.staff_id] - 1)
+                            existing_assignment_lookup.pop((current, shift.id, extra.staff_id), None)
+                            existing.remove(extra)
+
+                        for kept in existing:
+                            if (
+                                kept.date == current
+                                and kept.shift_id == shift.id
+                                and kept.staff_id in daily_team
+                                and kept.day_type != day_type
+                            ):
+                                kept.day_type = day_type
+                                kept.save(update_fields=("day_type",))
+
+                        for staff_id in daily_team - assigned:
+                            staff = staff_lookup[staff_id]
+                            new_assignments.append(ShiftAssignment(
+                                duty_roster=duty_roster,
+                                shift=shift,
+                                staff=staff,
+                                date=current,
+                                day_type=day_type,
+                            ))
+                            assigned.add(staff_id)
+                            assigned_by_date[current].add(staff_id)
                             if shift.is_overnight:
-                                assigned_by_date[current + timedelta(days=1)].add(staff.id)
-                            staff_load[staff.id] += 1
-                            last_shift[staff.id] = (current,shift, )
+                                assigned_by_date[current + timedelta(days=1)].add(staff_id)
+                            staff_load[staff_id] += 1
 
                     current += timedelta(days=1)
+
+            weekly_team_records = []
+            for (week_start, shift_id), staff_ids in weekly_teams.items():
+                if staff_ids is None:
+                    continue
+                shift = next((item for item in shifts if item.pk == shift_id), None)
+                if not shift:
+                    continue
+                weekly_team, _created = WeeklyShiftTeam.get_for_date(
+                    duty_roster=duty_roster,
+                    shift=shift,
+                    section=section,
+                    target_date=week_start,
+                    create=True,
+                )
+                weekly_team.replace_staff_ids(staff_ids, reconciled=False)
+                weekly_team_records.append(weekly_team)
 
             if new_assignments:
                 for assignment in new_assignments:
                     assignment.save()
+
+            for weekly_team in weekly_team_records:
+                weekly_team.refresh_reconciliation()
 
             # -----------------------------------------------------
             # Supervisor assignment
@@ -2666,7 +3802,7 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                     staff__section=section,
                     staff__is_active=True,
                     date__gte=assignment_start,
-                    date__lte=month_end,
+                    date__lte=assignment_end,
                     is_deleted=False,
                 )
                 .select_related("shift")
@@ -2753,6 +3889,273 @@ class MonthlyDutyRoster(AuditMixin, models.Model):
                     batch_size=1000,
                     ignore_conflicts=True,
                 )
+
+
+class WeeklyShiftTeam(models.Model):
+    """The canonical staff crew for one shift and section in a roster week."""
+
+    duty_roster = models.ForeignKey(
+        MonthlyDutyRoster,
+        on_delete=models.CASCADE,
+        related_name="weekly_teams",
+    )
+    shift = models.ForeignKey(
+        Shift,
+        on_delete=models.CASCADE,
+        related_name="weekly_teams",
+    )
+    section = models.ForeignKey(
+        "core.Section",
+        on_delete=models.CASCADE,
+        related_name="weekly_shift_teams",
+    )
+    week_start = models.DateField()
+    week_end = models.DateField()
+    members = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through="WeeklyShiftTeamMember",
+        related_name="weekly_shift_teams",
+    )
+    is_reconciled = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("week_start", "shift__start_time", "section__name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("duty_roster", "shift", "section", "week_start"),
+                name="unique_weekly_shift_team_scope",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(week_end__gte=models.F("week_start")),
+                name="weekly_shift_team_valid_date_range",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.section} · {self.shift} · {self.week_start:%d %b}–{self.week_end:%d %b %Y}"
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.duty_roster_id and self.shift_id:
+            if self.duty_roster.treatment_plant_id != self.shift.treatment_plant_id:
+                errors["shift"] = "The weekly team and roster must belong to the same treatment plant."
+            if self.week_start and self.week_end:
+                if (
+                    self.week_start.month != self.duty_roster.month
+                    or self.week_start.year != self.duty_roster.year
+                    or self.week_end.month != self.duty_roster.month
+                    or self.week_end.year != self.duty_roster.year
+                ):
+                    errors["week_start"] = "The weekly team dates must fall within the roster month."
+                else:
+                    expected_bounds = MonthlyDutyRoster.get_week_bounds(self.week_start)
+                    if expected_bounds != (self.week_start, self.week_end):
+                        errors["week_start"] = "The team dates must match one complete roster week."
+            if self.section_id and not section_belongs_to_plant(
+                self.section,
+                self.duty_roster.treatment_plant_id,
+            ):
+                errors["section"] = "The weekly team section must belong to the roster's treatment plant."
+            if self.section_id and not ShiftSectionRequirement.objects.filter(
+                shift_id=self.shift_id,
+                section_id=self.section_id,
+                section__is_active=True,
+            ).exists():
+                errors["section"] = "The shift must have an active requirement for this section."
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    @classmethod
+    def get_for_date(cls, *, duty_roster, shift, section, target_date, create=False):
+        week_start, week_end = MonthlyDutyRoster.get_week_bounds(target_date)
+        scope = {
+            "duty_roster": duty_roster,
+            "shift": shift,
+            "section": section,
+            "week_start": week_start,
+            "week_end": week_end,
+        }
+        if not create:
+            return cls.objects.filter(**scope).first(), False
+        team, created = cls.objects.get_or_create(
+            duty_roster=duty_roster,
+            shift=shift,
+            section=section,
+            week_start=week_start,
+            defaults={"week_end": week_end},
+        )
+        if team.week_end != week_end:
+            raise ValidationError("The saved weekly team has invalid roster date bounds.")
+        return team, created
+
+    @transaction.atomic
+    def replace_staff_ids(self, staff_ids, *, reconciled=False, enforce_maximum=True):
+        """Set the planned team while preventing assignments from escaping it."""
+        if not self.pk:
+            self.save()
+        self = type(self).objects.select_for_update().get(pk=self.pk)
+        staff_ids = {int(staff_id) for staff_id in staff_ids}
+        requirement = ShiftSectionRequirement.objects.filter(
+            shift_id=self.shift_id,
+            section_id=self.section_id,
+            section__is_active=True,
+        ).first()
+        if not requirement:
+            raise ValidationError("This shift is not configured for the weekly team's section.")
+        if enforce_maximum and len(staff_ids) > requirement.maximum_allowed:
+            raise ValidationError(
+                f"A weekly team cannot exceed the maximum of {requirement.maximum_allowed} staff."
+            )
+        staff_by_id = User.objects.filter(
+            pk__in=staff_ids,
+            is_active=True,
+            assigned_treatment_plant_id=self.duty_roster.treatment_plant_id,
+            section_id=self.section_id,
+        ).in_bulk()
+        if len(staff_by_id) != len(staff_ids):
+            raise ValidationError("Every weekly team member must be active in this plant and section.")
+        incharge_staff_ids = set(User.objects.filter(
+            pk__in=staff_ids,
+            groups__name__in=INCHARGE_GROUPS,
+        ).values_list("pk", flat=True).distinct())
+        if incharge_staff_ids:
+            raise ValidationError("In-charge staff are exempt from routine weekly shift teams.")
+
+        orphaned_assignment = ShiftAssignment.objects.filter(
+            duty_roster_id=self.duty_roster_id,
+            shift_id=self.shift_id,
+            staff__section_id=self.section_id,
+            date__range=(self.week_start, self.week_end),
+            is_deleted=False,
+        ).exclude(staff_id__in=staff_ids).exists()
+        if orphaned_assignment:
+            raise ValidationError(
+                "Remove or move every assignment outside the replacement weekly team before changing its membership."
+            )
+
+        membership_model = self.members.through
+        membership_model.objects.filter(team_id=self.pk).exclude(staff_id__in=staff_ids).delete()
+        existing_ids = set(membership_model.objects.filter(team_id=self.pk).values_list("staff_id", flat=True))
+        membership_model.objects.bulk_create([
+            membership_model(team=self, staff=staff_by_id[staff_id])
+            for staff_id in sorted(staff_ids - existing_ids)
+        ])
+        self.is_reconciled = bool(reconciled)
+        self.save(update_fields=("is_reconciled", "updated_at"))
+        return self
+
+    @transaction.atomic
+    def refresh_reconciliation(self):
+        self = type(self).objects.select_for_update().get(pk=self.pk)
+        dates = []
+        current = self.week_start
+        while current <= self.week_end:
+            dates.append(current)
+            current += timedelta(days=1)
+        members = set(self.members.values_list("pk", flat=True))
+        holiday_dates = set(ShiftAssignment.objects.filter(
+            duty_roster_id=self.duty_roster_id,
+            staff__section_id=self.section_id,
+            date__range=(self.week_start, self.week_end),
+            day_type=ShiftAssignment.DAYTYPE_HOLIDAY,
+            is_deleted=False,
+        ).values_list("date", flat=True))
+        assignments_by_date = defaultdict(set)
+        for assignment_date, staff_id in ShiftAssignment.objects.filter(
+            duty_roster_id=self.duty_roster_id,
+            shift_id=self.shift_id,
+            staff__section_id=self.section_id,
+            date__range=(self.week_start, self.week_end),
+            is_deleted=False,
+        ).values_list("date", "staff_id"):
+            assignments_by_date[assignment_date].add(staff_id)
+        requirement = ShiftSectionRequirement.objects.filter(
+            shift_id=self.shift_id,
+            section_id=self.section_id,
+            section__is_active=True,
+        ).first()
+        category_dates = {
+            ShiftAssignment.DAYTYPE_WEEKDAY: [
+                roster_date for roster_date in dates
+                if roster_date.weekday() < 5 and roster_date not in holiday_dates
+            ],
+            ShiftAssignment.DAYTYPE_WEEKEND: [
+                roster_date for roster_date in dates if roster_date.weekday() >= 5
+            ],
+            ShiftAssignment.DAYTYPE_HOLIDAY: [
+                roster_date for roster_date in dates
+                if roster_date.weekday() < 5 and roster_date in holiday_dates
+            ],
+        }
+        category_crews = {}
+        reconciled = bool(dates) and requirement is not None
+        for category, category_days in category_dates.items():
+            daily_crews = [frozenset(assignments_by_date.get(roster_date, set())) for roster_date in category_days]
+            if len(set(daily_crews)) > 1:
+                reconciled = False
+            crew = set(daily_crews[0]) if daily_crews else set()
+            category_crews[category] = crew
+            if requirement and category_days:
+                required = requirement.get_required_staff(category)
+                if category in {ShiftAssignment.DAYTYPE_WEEKEND, ShiftAssignment.DAYTYPE_HOLIDAY}:
+                    reconciled = reconciled and len(crew) == required
+                else:
+                    reconciled = reconciled and required <= len(crew) <= requirement.maximum_allowed
+        union_crews = set().union(*category_crews.values()) if category_crews else set()
+        reconciled = reconciled and union_crews == members
+        if requirement and any(
+            len(assignments_by_date.get(roster_date, set())) > requirement.maximum_allowed
+            for roster_date in dates
+        ):
+            reconciled = False
+        self.is_reconciled = reconciled
+        self.save(update_fields=("is_reconciled", "updated_at"))
+        return self.is_reconciled
+
+
+class WeeklyShiftTeamMember(models.Model):
+    team = models.ForeignKey(
+        WeeklyShiftTeam,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    staff = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="weekly_shift_team_memberships",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("team", "staff"),
+                name="unique_weekly_shift_team_member",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.team_id and self.staff_id:
+            if (
+                not self.staff.is_active
+                or self.staff.assigned_treatment_plant_id != self.team.duty_roster.treatment_plant_id
+                or self.staff.section_id != self.team.section_id
+            ):
+                raise ValidationError({"staff": "A team member must be active in the team's plant and section."})
+            if is_user_incharge(self.staff, section_id=self.team.section_id):
+                raise ValidationError({"staff": "In-charge staff are exempt from routine weekly shift teams."})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
 class ShiftHandover(AuditMixin, models.Model):
     shift = models.ForeignKey(
         'Shift',

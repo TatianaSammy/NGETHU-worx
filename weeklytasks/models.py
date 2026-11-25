@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from core.models import Section
 from core.plant_section_scope import section_belongs_to_plant
@@ -541,10 +542,20 @@ class WeeklyDutyTask(TimestampedModel):
 
         if assignment_date is not None:
             queryset = queryset.exclude(
-                annual_leave_records__status__in=AnnualLeave.UNAVAILABLE_STATUSES,
+                annual_leave_records__status__in=AnnualLeave.EXEMPT_FROM_ROUTINE_STATUSES,
                 annual_leave_records__start_date__lte=assignment_date,
                 annual_leave_records__end_date__gte=assignment_date,
             )
+            now = timezone.now()
+            temporary_supervisor_ids = ShiftAssignment.objects.filter(
+                date=assignment_date,
+                is_deleted=False,
+                temp_supervisor_id__isnull=False,
+                temp_supervisor__is_active=True,
+                temp_supervisor_start__lte=now,
+                temp_supervisor_end__gt=now,
+            ).values("temp_supervisor_id")
+            queryset = queryset.exclude(pk__in=temporary_supervisor_ids)
 
         return (
             queryset
@@ -580,6 +591,16 @@ class WeeklyDutyTask(TimestampedModel):
 
         if AnnualLeave.is_unavailable(user.pk, assignment_date):
             return False, f"{user.get_full_name() or user.username} is marked on annual leave or off duty on {assignment_date}."
+        if AnnualLeave.objects.filter(
+            staff_id=user.pk,
+            status=AnnualLeave.STATUS_IN_CHARGE,
+            start_date__lte=assignment_date,
+            end_date__gte=assignment_date,
+        ).exists():
+            return False, f"{user.get_full_name() or user.username} is in charge and is exempt from routine work on {assignment_date}."
+        from sc.models import is_user_temporarily_supervising
+        if is_user_temporarily_supervising(user.pk, assignment_date):
+            return False, f"{user.get_full_name() or user.username} is temporarily supervising and is exempt from routine work on {assignment_date}."
 
         # Shift gating from sc.models
         if shift:
@@ -868,6 +889,19 @@ class DailyTaskAssignment(TimestampedModel):
                     f"{user.get_full_name()} is marked on annual leave or off duty on {self.date} "
                     "and cannot be assigned a task."
                 )
+
+            from sc.models import is_user_incharge, is_user_temporarily_supervising
+            if is_user_incharge(user, section_id=task.section_id):
+                errors["user"] = "An in-charge staff member is exempt from routine weekly tasks."
+            elif self.date and AnnualLeave.objects.filter(
+                staff_id=user.pk,
+                status=AnnualLeave.STATUS_IN_CHARGE,
+                start_date__lte=self.date,
+                end_date__gte=self.date,
+            ).exists():
+                errors["user"] = "A staff member marked in charge is exempt from routine weekly tasks."
+            elif self.date and is_user_temporarily_supervising(user.pk, self.date):
+                errors["user"] = "A temporary supervisor is exempt from routine weekly tasks during the supervision period."
 
             if not user.is_superuser and user.assigned_treatment_plant_id != task.treatment_plant_id:
                 errors["user"] = (

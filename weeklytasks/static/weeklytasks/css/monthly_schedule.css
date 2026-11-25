@@ -234,20 +234,20 @@ body:has(.weekly-schedule-dashboard) .app-content {
   top: 0;
   z-index: 5;
   height: 48px;
-  background: var(--theme-surface-strong, var(--weekly-panel)) !important;
+  background: var(--table-header-bg, var(--theme-surface-strong, var(--theme-surface))) !important;
   opacity: 1 !important;
-  color: var(--theme-text, var(--weekly-ink)) !important;
+  color: var(--theme-text) !important;
   text-align: left;
   font-size: .72rem;
   font-weight: 850;
-  border-bottom: 2px solid var(--theme-border-strong, #64748b) !important;
-  border-right: 1.5px solid var(--theme-border, var(--weekly-line)) !important;
+  border-bottom: 2px solid var(--theme-border-strong, var(--theme-border)) !important;
+  border-right: 1.5px solid var(--theme-border) !important;
 }
 
 .weekly-schedule-matrix thead th small {
   display: block;
   margin-top: 3px;
-  color: var(--theme-text-secondary, var(--weekly-muted));
+  color: var(--theme-text-secondary, var(--theme-muted)) !important;
   font-size: .63rem;
   font-weight: 700;
   letter-spacing: .05em;
@@ -385,6 +385,10 @@ body:has(.weekly-schedule-dashboard) .app-content {
   transition: all .12s ease;
 }
 
+.weekly-assignee[hidden],
+.weekly-shift-filter-empty[hidden] { display: none !important; }
+.weekly-shift-filter-empty { display: block; margin-top: 4px; color: var(--weekly-muted); font-size: .62rem; font-style: italic; }
+
 .weekly-assignee:hover {
   border-color: var(--theme-accent);
   background: var(--theme-accent-soft);
@@ -452,6 +456,7 @@ body:has(.weekly-schedule-dashboard) .app-content {
   background: var(--weekly-accent);
   color: var(--theme-on-accent, #ffffff);
 }
+.weekly-task-cell .weekly-add-trigger { width: 28px; height: 28px; justify-content: center; gap: 0; padding: 0; border-style: solid; }
 
 .weekly-schedule-matrix tbody tr:hover .weekly-week-cell {
   background: var(--row-hover-bg, var(--theme-accent-soft)) !important;

@@ -1,23 +1,12 @@
-<!-- ca/templates/ca/dashboard/partials/_receive_batch_modal.html -->
-<!-- =======================================================================
-     ULTRAMODERN, COMPACT & FUTURISTIC RECEIVE CHEMICAL BATCH MODAL
-     Auto-populates Treatment Plant scoped to user, date picker & instant validation
-     ======================================================================= -->
-
 <div id="ca-receive-batch-modal" class="ca-modal-overlay" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="ca-rbm-title">
     <div class="ca-modal-dialog">
 
-        <!-- 1. MODAL HEADER -->
         <div class="ca-modal-header">
             <div class="ca-modal-header__left">
                 <div class="ca-modal-icon-badge">
                     <i class="fa fa-boxes-packing"></i>
                 </div>
                 <div class="ca-modal-header__meta">
-                    <div class="ca-modal-tagline">
-                        <span class="ca-modal-tagline__dot"></span>
-                        <span>SOP-17025 INTAKE WORKFLOW</span>
-                    </div>
                     <h2 id="ca-rbm-title" class="ca-modal-title">Receive Chemical Batch</h2>
                 </div>
             </div>
@@ -26,49 +15,43 @@
             </button>
         </div>
 
-        <!-- 2. MODAL FORM BODY -->
-        <form id="ca-receive-batch-form" method="post" action="{% url 'ca:batch-create' %}" class="ca-modal-form">
+        <form id="ca-receive-batch-form" method="post" enctype="multipart/form-data" action="{% url 'ca:batch-create' %}" class="ca-modal-form">
             {% csrf_token %}
             <input type="hidden" name="is_ajax" value="1">
 
             <div class="ca-modal-body">
 
-                <!-- Alert banner for AJAX errors -->
-                <div id="ca-rbm-alert" class="ca-field-error" style="display: none; padding: 8px 12px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; margin-bottom: 12px; font-size: 0.76rem;">
+                <div id="ca-rbm-alert" class="ca-field-error" style="display: none; padding: 8px 12px; background: color-mix(in srgb, var(--color-danger) 15%, var(--theme-surface)); border: 1px solid color-mix(in srgb, var(--color-danger) 40%, var(--theme-border)); border-radius: 8px; margin-bottom: 12px; font-size: 0.76rem;">
                     <i class="fa fa-triangle-exclamation"></i>
                     <span id="ca-rbm-alert-msg">Please review the required fields below.</span>
                 </div>
 
-                <div class="ca-compact-form-grid">
-
-                    <!-- SCOPED TREATMENT PLANT (Full width) -->
+                <div class="ca-compact-form-grid ca-receipt-essential-grid">
                     <div class="ca-field-wrap ca-col-full">
                         <label class="ca-field-label">
-                            <span><i class="fa fa-industry"></i> Destination Treatment Plant</span>
+                            <span><i class="fa fa-industry"></i> Treatment plant</span>
                             {% if not plant_context.is_superuser %}
-                            <span class="ca-field-label__badge"><i class="fa fa-lock"></i> Locked to Assigned Scope</span>
+                            <span class="ca-field-label__badge"><i class="fa fa-lock"></i> Assigned scope</span>
                             {% else %}
-                            <span class="ca-field-label__badge"><i class="fa fa-shield-halved"></i> Enterprise Admin Scope</span>
+                            <span class="ca-field-label__badge"><i class="fa fa-shield-halved"></i> Admin scope</span>
                             {% endif %}
                         </label>
 
                         {% if not plant_context.is_superuser and request.user.assigned_treatment_plant %}
-                            <!-- Non-Superuser: Visual Card + Hidden Input -->
                             <input type="hidden" name="treatment_plant" value="{{ request.user.assigned_treatment_plant.pk }}">
                             <div class="ca-plant-locked-card">
                                 <div class="ca-plc-left">
                                     <div class="ca-plc-icon"><i class="fa fa-building-circle-check"></i></div>
                                     <div class="ca-plc-info">
                                         <div class="ca-plc-name">{{ request.user.assigned_treatment_plant.name }}</div>
-                                        <div class="ca-plc-sub">Code: {{ request.user.assigned_treatment_plant.code|default:"N/A" }} &bull; Assigned Facility</div>
+                                    <div class="ca-plc-sub">{{ request.user.assigned_treatment_plant.code|default:"Assigned facility" }}</div>
                                     </div>
                                 </div>
                                 <div class="ca-plc-badge">
-                                    <i class="fa fa-check-circle"></i> Auto-Bound
+                                    <i class="fa fa-check-circle"></i> Assigned
                                 </div>
                             </div>
                         {% else %}
-                            <!-- Superuser or Unassigned: Selectable dropdown defaulting to active scope -->
                             <select name="treatment_plant" id="id_treatment_plant" class="ca-compact-select" required>
                                 {% if plant_context.available_plants %}
                                     {% for p in plant_context.available_plants %}
@@ -84,10 +67,9 @@
                         <div class="ca-field-error" id="err-treatment_plant" style="display: none;"></div>
                     </div>
 
-                    <!-- CHEMICAL SELECTION -->
                     <div class="ca-field-wrap ca-col-half">
                         <label for="id_chemical" class="ca-field-label">
-                            <span><i class="fa fa-flask"></i> Chemical <span class="required-star">*</span></span>
+                            <span><i class="fa fa-flask"></i> Chemical name <span class="required-star">*</span></span>
                         </label>
                         <select name="chemical" id="id_chemical" class="ca-compact-select" required>
                             <option value="">Select Chemical...</option>
@@ -98,7 +80,6 @@
                         <div class="ca-field-error" id="err-chemical" style="display: none;"></div>
                     </div>
 
-                    <!-- SUPPLIER SELECTION -->
                     <div class="ca-field-wrap ca-col-half">
                         <label for="id_supplier" class="ca-field-label">
                             <span><i class="fa fa-truck-ramp-box"></i> Supplier <span class="required-star">*</span></span>
@@ -112,7 +93,6 @@
                         <div class="ca-field-error" id="err-supplier" style="display: none;"></div>
                     </div>
 
-                    <!-- STORAGE LOCATION -->
                     <div class="ca-field-wrap ca-col-half">
                         <label for="id_location" class="ca-field-label">
                             <span><i class="fa fa-location-dot"></i> Storage Location <span class="required-star">*</span></span>
@@ -126,131 +106,92 @@
                             {% endfor %}
                         </select>
                         <div class="ca-field-error" id="err-location" style="display: none;"></div>
-                        <div id="ca-location-empty-hint" class="ca-field-hint" hidden style="font-size:0.65rem;color:#94a3b8;margin-top:2px;">Showing all facility storage bays.</div>
+                        <div id="ca-location-empty-hint" class="ca-field-hint" hidden style="font-size:0.65rem;color:var(--theme-muted);margin-top:2px;">Showing all facility storage bays.</div>
                     </div>
 
-                    <!-- DELIVERY / RECEIPT DATE WITH DATE PICKER -->
                     <div class="ca-field-wrap ca-col-half">
-                        <label for="id_delivery_date" class="ca-field-label">
-                            <span><i class="fa fa-calendar-day"></i> Date Received <span class="required-star">*</span></span>
-                            <span class="ca-date-quick-chips" style="margin: 0;">
-                                <span class="ca-date-chip" onclick="caSetBatchDate('today')">Today</span>
-                                <span class="ca-date-chip" onclick="caSetBatchDate('yesterday')">Yesterday</span>
-                            </span>
+                        <label for="id_delivery_datetime" class="ca-field-label">
+                            <span><i class="fa fa-calendar-day"></i> Delivery date and time <span class="required-star">*</span></span>
                         </label>
-                        <input type="date" name="delivery_date" id="id_delivery_date" class="ca-compact-input ca-date-picker" value="{% now 'Y-m-d' %}" required>
-                        <div class="ca-field-error" id="err-delivery_date" style="display: none;"></div>
+                        <input type="datetime-local" name="delivery_datetime" id="id_delivery_datetime" class="ca-compact-input" value="{{ default_delivery_datetime }}" readonly aria-readonly="true" required>
+                        <div class="ca-field-error" id="err-delivery_datetime" style="display: none;"></div>
                     </div>
 
-                    <!-- DELIVERY NOTE NUMBER -->
-                    <div class="ca-field-wrap ca-col-quarter">
+                    <div class="ca-field-wrap ca-col-half">
                         <label for="id_delivery_note_number" class="ca-field-label">
-                            <span><i class="fa fa-file-invoice"></i> Delivery Note <span class="required-star">*</span></span>
-                            <span class="ca-field-label__badge" style="cursor: pointer; color: #38bdf8;" onclick="caAutoFillDN()" title="Generate temporary format">Auto</span>
+                            <span><i class="fa fa-file-invoice"></i> Delivery note number <span class="required-star">*</span></span>
                         </label>
                         <input type="text" name="delivery_note_number" id="id_delivery_note_number" class="ca-compact-input" placeholder="e.g. DN-2026-9842" required autocomplete="off">
                         <div class="ca-field-error" id="err-delivery_note_number" style="display: none;"></div>
                     </div>
 
-                    <!-- BATCH NUMBER -->
-                    <div class="ca-field-wrap ca-col-quarter">
-                        <label for="id_batch_number" class="ca-field-label">
-                            <span><i class="fa fa-barcode"></i> Batch No. <span class="required-star">*</span></span>
-                            <span class="ca-field-label__badge" style="cursor: pointer; color: #38bdf8;" onclick="caAutoFillBatchNo()" title="Format standard code">Auto</span>
+                    <div class="ca-field-wrap ca-col-half">
+                        <label for="id_delivery_note_attachment" class="ca-field-label">
+                            <span><i class="fa fa-file-arrow-up"></i> Delivery Note attachment <span class="required-star">*</span></span>
                         </label>
-                        <input type="text" name="batch_number" id="id_batch_number" class="ca-compact-input" placeholder="e.g. BATCH-ALUM-26" required autocomplete="off">
-                        <div class="ca-field-error" id="err-batch_number" style="display: none;"></div>
+                        <input type="file" name="delivery_note_attachment" id="id_delivery_note_attachment" class="ca-compact-input" accept=".pdf,.png,.jpg,.jpeg" required>
+                        <div class="ca-field-error" id="err-delivery_note_attachment" style="display: none;"></div>
                     </div>
 
-                    <!-- QUANTITY RECEIVED -->
-                    <div class="ca-field-wrap ca-col-quarter">
-                        <label for="id_quantity_received" class="ca-field-label">
-                            <span><i class="fa fa-scale-unbalanced"></i> Quantity <span class="required-star">*</span></span>
+                    <div class="ca-field-wrap ca-col-half">
+                        <label for="id_manufacturer_certificate_of_analysis" class="ca-field-label">
+                            <span><i class="fa fa-file-circle-check"></i> Manufacturer Certificate of Analysis <span class="required-star">*</span></span>
                         </label>
-                        <div style="display: flex; gap: 6px;">
-                            <input type="number" step="any" min="0.0001" name="quantity_received" id="id_quantity_received" class="ca-compact-input" placeholder="e.g. 5000" style="flex: 1; min-width: 0;" required>
-                            <select name="unit" id="id_unit" class="ca-compact-select" style="width: 70px; padding: 0 18px 0 6px;">
-                                <option value="kg" selected>kg</option>
-                                <option value="L">L</option>
-                                <option value="tonnes">t</option>
-                                <option value="m3">m³</option>
-                                <option value="bags">bags</option>
-                                <option value="drums">drums</option>
-                            </select>
+                        <input type="file" name="manufacturer_certificate_of_analysis" id="id_manufacturer_certificate_of_analysis" class="ca-compact-input" accept=".pdf,.png,.jpg,.jpeg" required>
+                        <div class="ca-field-error" id="err-manufacturer_certificate_of_analysis" style="display: none;"></div>
+                    </div>
+
+                    <div class="ca-field-wrap ca-receipt-quantity">
+                        <div class="ca-field-label"><span><i class="fa fa-cubes-stacked"></i> QUANTITY <span class="required-star">*</span></span></div>
+                        <div class="ca-receipt-quantity-grid">
+                            <div class="ca-field-wrap">
+                                <label for="id_package_count" class="ca-field-label">Package count</label>
+                                <input type="number" min="1" step="1" name="package_count" id="id_package_count" class="ca-compact-input" placeholder="e.g. 200" required>
+                                <div class="ca-field-error" id="err-package_count" style="display: none;"></div>
+                            </div>
+                            <div class="ca-field-wrap">
+                                <label for="id_package_weight" class="ca-field-label">Package weight</label>
+                                <input type="number" min="0.1" step="0.1" name="package_weight" id="id_package_weight" class="ca-compact-input" placeholder="e.g. 50.0" required>
+                                <div class="ca-field-error" id="err-package_weight" style="display: none;"></div>
+                            </div>
+                            <div class="ca-field-wrap">
+                                <label for="id_unit" class="ca-field-label">Unit of measure</label>
+                                <select name="unit" id="id_unit" class="ca-compact-select" required>
+                                    <option value="KG" selected>KG</option>
+                                    <option value="g">G</option>
+                                    <option value="tonnes">T</option>
+                                    <option value="L">L</option>
+                                    <option value="mL">ML</option>
+                                    <option value="m3">M³</option>
+                                </select>
+                                <div class="ca-field-error" id="err-unit" style="display: none;"></div>
+                            </div>
+                            <div class="ca-field-wrap">
+                                <label for="id_package_type" class="ca-field-label">Package type</label>
+                                <select name="package_type" id="id_package_type" class="ca-compact-select ca-package-type-select" required>
+                                    <option value="">SELECT TYPE</option>
+                                    <option value="BAGS">BAGS</option>
+                                    <option value="DRUMS">DRUMS</option>
+                                    <option value="TINS">TINS</option>
+                                </select>
+                                <div class="ca-field-error" id="err-package_type" style="display: none;"></div>
+                            </div>
                         </div>
-                        <div class="ca-field-error" id="err-quantity_received" style="display: none;"></div>
-                    </div>
-
-                    <!-- PACKAGE COUNT -->
-                    <div class="ca-field-wrap ca-col-quarter">
-                        <label for="id_package_count" class="ca-field-label">
-                            <span><i class="fa fa-cubes-stacked"></i> Package Count <span class="required-star">*</span></span>
-                        </label>
-                        <input type="number" min="1" step="1" name="package_count" id="id_package_count" class="ca-compact-input" placeholder="e.g. 100 bags" required>
-                        <div class="ca-field-error" id="err-package_count" style="display: none;"></div>
-                    </div>
-
-                    <!-- REMARKS & INTEL (Full width) -->
-                    <div class="ca-field-wrap ca-col-full">
-                        <label for="id_remarks" class="ca-field-label">
-                            <span><i class="fa fa-comment-dots"></i> Physical Inspection &amp; Intake Remarks</span>
-                            <span class="ca-field-label__badge">Truck Reg / Seals / Packaging</span>
-                        </label>
-                        <textarea name="remarks" id="id_remarks" class="ca-compact-textarea" rows="1" placeholder="e.g. Truck KBZ 982T, seals intact, dry bags, no spillage detected. Received into main store."></textarea>
-                        <div class="ca-field-error" id="err-remarks" style="display: none;"></div>
-                    </div>
-
-                    <!-- DISCREPANCIES / HOLD FIELDSET -->
-                    <fieldset class="ca-field-wrap ca-col-full ca-discrepancy-fieldset" id="ca-discrepancy-box">
-                        <legend class="ca-field-label" style="padding:0 6px;color:#fdba74;margin-bottom:2px;">
-                            <i class="fa fa-triangle-exclamation" aria-hidden="true"></i> Intake discrepancies / hold
-                        </legend>
-                        <div class="ca-discrepancy-chips">
-                            <label class="ca-discrepancy-chip">
-                                <input type="checkbox" name="intake_discrepancies" value="DAMAGED_PACKAGING">
-                                <span><i class="fa fa-box-open"></i> Damaged packaging</span>
-                            </label>
-                            <label class="ca-discrepancy-chip">
-                                <input type="checkbox" name="intake_discrepancies" value="QUANTITY_MISMATCH">
-                                <span><i class="fa fa-scale-unbalanced"></i> Quantity mismatch</span>
-                            </label>
-                            <label class="ca-discrepancy-chip">
-                                <input type="checkbox" name="intake_discrepancies" value="MISSING_DOCUMENTS">
-                                <span><i class="fa fa-file-circle-xmark"></i> Missing docs</span>
-                            </label>
-                            <label class="ca-discrepancy-chip">
-                                <input type="checkbox" name="intake_discrepancies" value="LABEL_MISMATCH">
-                                <span><i class="fa fa-tag"></i> Label mismatch</span>
-                            </label>
-                            <label class="ca-discrepancy-chip">
-                                <input type="checkbox" name="intake_discrepancies" value="EXPIRED">
-                                <span><i class="fa fa-calendar-xmark"></i> Expired</span>
-                            </label>
-                            <label class="ca-discrepancy-chip">
-                                <input type="checkbox" name="intake_discrepancies" value="OTHER">
-                                <span><i class="fa fa-ellipsis"></i> Other</span>
-                            </label>
+                        <div class="ca-receipt-hint ca-receipt-hint--inline" aria-live="polite">
+                            <span id="ca-receipt-quantity-preview">Quantity = count × weight × type ·</span>
+                            <span>committee verifies before posting.</span>
                         </div>
-                        <div id="ca-hold-reason-wrapper" class="ca-hold-reason-wrap" style="display: none; margin-top: 6px;">
-                            <label for="id_hold_reason" class="ca-field-label" style="color: #fdba74; font-size: 0.63rem;">
-                                <span><i class="fa fa-circle-exclamation"></i> Discrepancy details &amp; hold reason <span class="required-star">*</span></span>
-                            </label>
-                            <textarea name="hold_reason" id="id_hold_reason" class="ca-compact-textarea" rows="2" style="min-height: 48px;" placeholder="Describe the discrepancy. A held batch cannot proceed to analysis until an authorized reviewer resolves it."></textarea>
-                            <div class="ca-field-error" id="err-hold_reason" style="display:none;"></div>
-                        </div>
-                    </fieldset>
-
+                    </div>
                 </div>
 
             </div>
 
-            <!-- 3. MODAL FOOTER -->
             <div class="ca-modal-footer">
                 <button type="button" class="ca-btn-ghost" data-action="close-receive-batch-modal">
                     <i class="fa fa-xmark"></i> Cancel
                 </button>
                 <button type="submit" id="ca-rbm-submit-btn" class="ca-btn-futuristic">
-                    <i class="fa fa-check-double"></i> Confirm Batch Intake
+                    <i class="fa fa-check-double"></i> Confirm receipt
                 </button>
             </div>
         </form>
@@ -258,14 +199,14 @@
     </div>
 
     <div id="ca-rbm-next-step" hidden role="alertdialog" aria-modal="true" aria-labelledby="ca-rbm-next-title"
-         style="position:absolute;inset:0;z-index:30;display:none;align-items:center;justify-content:center;padding:1.25rem;background:rgba(2,8,23,.82);backdrop-filter:blur(8px);">
-        <div style="width:min(100%,420px);padding:1.5rem;border:1px solid rgba(56,189,248,.5);border-radius:16px;background:#0b172b;box-shadow:0 20px 60px rgba(0,0,0,.45);text-align:center;">
-            <div style="width:48px;height:48px;margin:0 auto .75rem;border-radius:50%;display:grid;place-items:center;background:rgba(16,185,129,.14);color:#34d399;font-size:1.3rem;">
+         style="position:absolute;inset:0;z-index:30;display:none;align-items:center;justify-content:center;padding:1.25rem;background:color-mix(in srgb, var(--theme-bg) 82%, transparent);backdrop-filter:blur(8px);">
+        <div style="width:min(100%,420px);padding:1.5rem;border:1px solid color-mix(in srgb, var(--theme-accent) 50%, var(--theme-border));border-radius:16px;background:var(--theme-surface);box-shadow:0 20px 60px rgba(0,0,0,.45);text-align:center;">
+            <div style="width:48px;height:48px;margin:0 auto .75rem;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb, var(--color-success) 14%, var(--theme-surface));color:var(--color-success);font-size:1.3rem;">
                 <i class="fa fa-check" aria-hidden="true"></i>
             </div>
-            <h3 id="ca-rbm-next-title" style="margin:0 0 .4rem;color:#f8fafc;font-size:1.1rem;">Batch received successfully</h3>
-            <p style="margin:0 0 1.2rem;color:#94a3b8;font-size:.85rem;">Would you like to enter another batch or close this form?</p>
-            <p id="ca-rbm-close-countdown" aria-live="polite" style="margin:-.65rem 0 1rem;color:#64748b;font-size:.72rem;">This form will close in 5 seconds.</p>
+            <h3 id="ca-rbm-next-title" style="margin:0 0 .4rem;color:var(--theme-text);font-size:1.1rem;">Batch received successfully</h3>
+            <p style="margin:0 0 1.2rem;color:var(--theme-muted);font-size:.85rem;">Would you like to enter another batch or close this form?</p>
+            <p id="ca-rbm-close-countdown" aria-live="polite" style="margin:-.65rem 0 1rem;color:var(--theme-text-secondary,var(--theme-muted));font-size:.72rem;">This form will close in 5 seconds.</p>
             <div style="display:flex;justify-content:center;gap:.65rem;flex-wrap:wrap;">
                 <button type="button" id="ca-rbm-enter-another" class="ca-btn-futuristic">
                     <i class="fa fa-plus"></i> Enter another batch
@@ -278,10 +219,20 @@
     </div>
 </div>
 
-<!-- Interactive Modal Scripts -->
 <script>
 let caReceiveBatchCloseTimer = null;
 let caReceiveBatchCountdownTimer = null;
+
+function caCurrentLocalDateTime() {
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    return now.toISOString().slice(0, 16);
+}
+
+function caSetCurrentDeliveryDateTime() {
+    const input = document.getElementById("id_delivery_datetime");
+    if (input) input.value = caCurrentLocalDateTime();
+}
 
 function caClearReceiveBatchCloseTimers() {
     if (caReceiveBatchCloseTimer) window.clearTimeout(caReceiveBatchCloseTimer);
@@ -304,37 +255,6 @@ function caStartReceiveBatchCloseCountdown() {
         }
     }, 1000);
     caReceiveBatchCloseTimer = window.setTimeout(caCloseReceiveBatchModal, 5000);
-}
-
-function caSetBatchDate(mode) {
-    const input = document.getElementById("id_delivery_date");
-    if (!input) return;
-    const now = new Date();
-    if (mode === "yesterday") {
-        now.setDate(now.getDate() - 1);
-    }
-    const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-    input.value = localDate.toISOString().split("T")[0];
-}
-
-function caAutoFillDN() {
-    const input = document.getElementById("id_delivery_note_number");
-    if (input && !input.value) {
-        const yr = new Date().getFullYear();
-        const rand = Math.floor(1000 + Math.random() * 9000);
-        input.value = `DN-${yr}-${rand}`;
-    }
-}
-
-function caAutoFillBatchNo() {
-    const input = document.getElementById("id_batch_number");
-    if (input && !input.value) {
-        const chemSelect = document.getElementById("id_chemical");
-        const chemName = chemSelect && chemSelect.selectedIndex > 0 ? chemSelect.options[chemSelect.selectedIndex].text.split(" ")[0].toUpperCase() : "CHEM";
-        const yr = new Date().getFullYear();
-        const rand = Math.floor(10 + Math.random() * 90);
-        input.value = `BATCH-${chemName}-${yr}-${rand}`;
-    }
 }
 
 document.addEventListener("DOMContentLoaded", function() {
@@ -386,28 +306,10 @@ document.addEventListener("DOMContentLoaded", function() {
     // Populate chemical and supplier options if empty
     caLoadBatchPrerequisites();
 
-    // Discrepancy Chips & Hold Reason Toggle
-    const discrepancyCheckboxes = modal.querySelectorAll('input[name="intake_discrepancies"]');
-    const discrepancyBox = document.getElementById("ca-discrepancy-box");
-    const holdReasonWrapper = document.getElementById("ca-hold-reason-wrapper");
-    const holdReasonTextarea = document.getElementById("id_hold_reason");
-
-    function updateDiscrepanciesState() {
-        let anyChecked = false;
-        discrepancyCheckboxes.forEach(cb => {
-            const chip = cb.closest(".ca-discrepancy-chip");
-            if (chip) chip.classList.toggle("is-checked", cb.checked);
-            if (cb.checked) anyChecked = true;
-        });
-        if (discrepancyBox) discrepancyBox.classList.toggle("has-discrepancy", anyChecked);
-        if (holdReasonWrapper) {
-            holdReasonWrapper.style.display = anyChecked ? "block" : "none";
-        }
+    const deliveryTimeInput = modal.querySelector('[name="delivery_datetime"]');
+    if (deliveryTimeInput) {
+        if (!deliveryTimeInput.value) caSetCurrentDeliveryDateTime();
     }
-    discrepancyCheckboxes.forEach(cb => {
-        cb.addEventListener("change", updateDiscrepanciesState);
-    });
-    updateDiscrepanciesState();
 
     const plantSelect = modal.querySelector('select[name="treatment_plant"]');
     const plantInput = modal.querySelector('input[name="treatment_plant"]');
@@ -450,6 +352,32 @@ document.addEventListener("DOMContentLoaded", function() {
     // AJAX Form Submission
     const form = document.getElementById("ca-receive-batch-form");
     if (form) {
+        const countField = form.elements.namedItem("package_count");
+        const weightField = form.elements.namedItem("package_weight");
+        const unitField = form.elements.namedItem("unit");
+        const packageTypeField = form.elements.namedItem("package_type");
+        const quantityPreview = document.getElementById("ca-receipt-quantity-preview");
+        const updateQuantityPreview = function() {
+            if (!quantityPreview) return;
+            const count = countField && countField.value;
+            const weight = weightField && weightField.value;
+            const unit = unitField && unitField.selectedOptions[0]?.textContent.trim();
+            const packageType = packageTypeField && packageTypeField.selectedOptions[0];
+            if (count && weight && unit && packageType && packageType.value) {
+                quantityPreview.textContent = `Quantity: ${count} × ${weight} ${unit} ${packageType.textContent.toUpperCase()} ·`;
+            } else {
+                quantityPreview.textContent = "Quantity = count × weight × type ·";
+            }
+        };
+        [countField, weightField, unitField, packageTypeField].forEach(function(field) {
+            if (field) field.addEventListener("input", updateQuantityPreview);
+            if (field) field.addEventListener("change", updateQuantityPreview);
+        });
+        form.addEventListener("reset", function() {
+            window.setTimeout(updateQuantityPreview, 0);
+        });
+        updateQuantityPreview();
+
         form.addEventListener("submit", function(e) {
             e.preventDefault();
             const submitBtn = document.getElementById("ca-rbm-submit-btn");
@@ -503,7 +431,7 @@ document.addEventListener("DOMContentLoaded", function() {
             .then(res => {
                 if (submitBtn) {
                     submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fa fa-check-double"></i> Confirm Batch Intake';
+                    submitBtn.innerHTML = '<i class="fa fa-check-double"></i> Confirm receipt';
                 }
 
                 if (res.ok && res.data.status === "ok") {
@@ -512,8 +440,11 @@ document.addEventListener("DOMContentLoaded", function() {
                         window.CA_Notifications.playChime();
                         window.CA_Notifications.fetchNotifications();
                     }
+                    const workflowNextStep = res.data.request_id
+                        ? ` Analysis request ${res.data.request_id} created.`
+                        : " Inspection Committee review is next.";
                     caShowBatchToast(
-                        `${res.data.message || "Batch received successfully!"} Analysis request ${res.data.request_id} created.`,
+                        `${res.data.message || "Batch received successfully!"}${workflowNextStep}`,
                         "success"
                     );
 
@@ -523,8 +454,7 @@ document.addEventListener("DOMContentLoaded", function() {
                         : null;
                     form.reset();
                     if (selectedPlant && plantField) plantField.value = selectedPlant;
-                    const unitField = form.elements.namedItem("unit");
-                    if (unitField) unitField.value = "kg";
+                    caSetCurrentDeliveryDateTime();
                     filterBatchLocations();
                     modal.querySelectorAll(".ca-field-error").forEach(el => {
                         if (el === alertBox) return;
@@ -572,7 +502,7 @@ document.addEventListener("DOMContentLoaded", function() {
             .catch(err => {
                 if (submitBtn) {
                     submitBtn.disabled = false;
-                    submitBtn.innerHTML = '<i class="fa fa-check-double"></i> Confirm Batch Intake';
+                    submitBtn.innerHTML = '<i class="fa fa-check-double"></i> Confirm receipt';
                 }
                 if (alertBox && alertMsg) {
                     alertBox.style.display = "flex";
@@ -588,6 +518,7 @@ function caOpenReceiveBatchModal() {
     const modal = document.getElementById("ca-receive-batch-modal");
     if (!modal) return;
     caClearReceiveBatchCloseTimers();
+    caSetCurrentDeliveryDateTime();
     const nextStep = document.getElementById("ca-rbm-next-step");
     if (nextStep) {
         nextStep.hidden = true;

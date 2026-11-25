@@ -472,46 +472,52 @@ html[data-theme="dusk"], html[data-theme="inferno"] {
     --shadow-lg: 0 12px 28px rgba(0, 0, 0, .28);
 }
 
-/* Cyber Command (Midnight / Low Light Tactical): ultra-crisp futuristic telemetry */
+/* Cyber Command (Midnight): luminous, layered executive command palette */
 html[data-theme="cyber"],
 html[data-theme="cyber-command"],
 html[data-theme="night"],
 html[data-theme="dark"] {
     color-scheme: dark;
-    --theme-bg: #090e17;
-    --theme-surface: #0f1726;
-    --theme-surface-strong: #141f32;
-    --theme-surface-muted: #18253c;
-    --theme-text: #ffffff;
-    --theme-text-secondary: #e2e8f0;
-    --theme-muted: #94a3b8;
-    --theme-border: #1e2e46;
-    --theme-border-strong: #2e4466;
-    --theme-accent: #00e5ff;
-    --theme-accent-hover: #38edff;
-    --theme-accent-soft: rgba(0, 229, 255, .12);
-    --theme-accent-glow: rgba(0, 229, 255, .32);
-    --theme-on-accent: #04141e;
-    --theme-selection: rgba(0, 229, 255, .25);
-    --theme-focus-ring: 0 0 0 3px rgba(0, 229, 255, .36);
-    --color-success: #10b981;
-    --color-warning: #f59e0b;
-    --color-danger: #f43f5e;
-    --color-info: #00e5ff;
-    --topbar-bg: #0c121e;
-    --topbar-border: #1e2e46;
-    --sidebar-bg: #0a0f19;
-    --sidebar-border: #1e2e46;
+    --theme-bg: #121d2f;
+    --theme-surface: #1a2a40;
+    --theme-surface-strong: #223852;
+    --theme-surface-muted: #2b4663;
+    --theme-text: #f7fbff;
+    --theme-text-secondary: #d7e4f2;
+    --theme-muted: #a1b5cc;
+    --theme-border: #354e6a;
+    --theme-border-strong: #54718e;
+    --theme-accent: #4fd8e7;
+    --theme-accent-hover: #76e8f1;
+    --theme-accent-soft: rgba(79, 216, 231, .15);
+    --theme-accent-glow: rgba(79, 216, 231, .34);
+    --theme-on-accent: #08232a;
+    --theme-selection: rgba(79, 216, 231, .26);
+    --theme-focus-ring: 0 0 0 3px rgba(79, 216, 231, .40);
+    --color-success: #52d6a3;
+    --color-warning: #ffc46b;
+    --color-danger: #ff6f84;
+    --color-info: #4fd8e7;
+    --topbar-bg: #192a40;
+    --topbar-border: #3b5570;
+    --sidebar-bg: #142237;
+    --sidebar-border: #354e6a;
     --panel-bg: var(--theme-surface);
-    --panel-bg-soft: var(--theme-surface-muted);
+    --panel-bg-soft: color-mix(in srgb, var(--theme-surface-muted) 90%, transparent);
     --panel-border: var(--theme-border);
     --input-bg: var(--theme-surface-strong);
-    --table-header-bg: var(--theme-surface-strong);
+    --table-header-bg: #20334c;
     --row-hover-bg: var(--theme-accent-soft);
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, .4);
-    --shadow-sm: 0 2px 6px rgba(0, 0, 0, .5);
-    --shadow-md: 0 8px 20px rgba(0, 0, 0, .6);
-    --shadow-lg: 0 14px 32px rgba(0, 0, 0, .7);
+    --hud-bg: linear-gradient(135deg, #203751 0%, #192d45 58%, #243b54 100%);
+    --cyber-bg-glass: color-mix(in srgb, var(--theme-surface) 92%, transparent);
+    --cyber-bg-card: linear-gradient(145deg, #20344c 0%, #192a40 100%);
+    --cyber-bg-input: var(--input-bg);
+    --cyber-border-glow: color-mix(in srgb, var(--theme-accent) 28%, transparent);
+    --cyber-glow-purple: rgba(157, 143, 255, .30);
+    --shadow-xs: 0 1px 2px rgba(5, 13, 26, .20);
+    --shadow-sm: 0 2px 8px rgba(5, 13, 26, .24), inset 0 1px 0 rgba(255, 255, 255, .025);
+    --shadow-md: 0 10px 26px rgba(5, 13, 26, .32), 0 0 0 1px rgba(79, 216, 231, .035);
+    --shadow-lg: 0 18px 42px rgba(5, 13, 26, .40), 0 0 28px rgba(79, 216, 231, .055);
 }
 
 /* Deep Abyss (OLED Pitch Black): Zero-power true black with luminescent numbers */
@@ -1270,9 +1276,11 @@ html[data-theme="night"] body,
 html[data-theme="dark"] body {
     background-color: var(--theme-bg) !important;
     background-image:
-        radial-gradient(rgba(0, 229, 255, 0.08) 1px, transparent 1px),
-        linear-gradient(180deg, #090e17 0%, #05080f 100%) !important;
-    background-size: 28px 28px, 100% 100% !important;
+        radial-gradient(circle at 14% 2%, rgba(79, 216, 231, .17), transparent 38%),
+        radial-gradient(circle at 91% 88%, rgba(157, 143, 255, .12), transparent 38%),
+        radial-gradient(rgba(196, 215, 238, .06) 1px, transparent 1px),
+        linear-gradient(145deg, #1b2d45 0%, #15253b 48%, #111c2e 100%) !important;
+    background-size: 100% 100%, 100% 100%, 32px 32px, 100% 100% !important;
     background-attachment: fixed !important;
 }
 

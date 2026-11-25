@@ -99,6 +99,7 @@ urlpatterns = [
     path("ca/", include("ca.urls")),
     path('t/', include('t.urls')),
     path('inventory/', include('inventory.urls')),
+    path('standardization/', include('standardization.urls')),
     path("sc/", include("sc.urls")),
     path('wc/', include('wc.urls')),
     path('parameters/', include('parameters.urls')),

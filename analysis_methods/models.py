@@ -118,26 +118,10 @@ class ChemicalAnalysisMethod(AbstractBaseMethod):
             raise ValidationError({"rounding_mode": "Select a supported scientific rounding rule."})
 
     def get_input_fields(self):
-        definitions = self.inputs_structure
-        if isinstance(definitions, str):
-            return [name.strip() for name in definitions.split(",") if name.strip()]
-        if isinstance(definitions, dict):
-            definitions = [
-                {"name": name} for name in definitions
-            ]
-        if not isinstance(definitions, (list, tuple)):
-            return []
-        fields = []
-        for definition in definitions:
-            name = definition if isinstance(definition, str) else (
-                definition.get("name") if isinstance(definition, dict) else None
-            )
-            name = str(name or "").strip()
-            if name and name not in fields:
-                fields.append(name)
-        return fields
+        definitions = self.get_input_definitions()
+        return list(dict.fromkeys(item["name"] for item in definitions if item.get("name")))
 
-    def get_input_definitions(self):
+    def _input_definitions_from_structure(self):
         definitions = self.inputs_structure
         if isinstance(definitions, dict):
             definitions = [
@@ -148,13 +132,50 @@ class ChemicalAnalysisMethod(AbstractBaseMethod):
             definitions = [{"name": name.strip()} for name in definitions.split(",") if name.strip()]
         if not isinstance(definitions, (list, tuple)):
             return []
-        return [
-            {"name": definition, "required": True}
-            if isinstance(definition, str)
-            else dict(definition)
-            for definition in definitions
-            if isinstance(definition, (str, dict))
-        ]
+        output = []
+        for definition in definitions:
+            if isinstance(definition, str):
+                output.append({"name": definition.strip(), "required": True, "type": "number"})
+            elif isinstance(definition, dict) and definition.get("name"):
+                output.append(dict(definition, name=str(definition["name"]).strip()))
+        return output
+
+    def get_input_definitions(self):
+        if self.pk:
+            try:
+                related = list(self.analysis_inputs.order_by("position", "pk"))
+            except Exception:
+                related = []
+            if related:
+                return [item.as_definition() for item in related]
+        return self._input_definitions_from_structure()
+
+    def _sync_analysis_inputs(self):
+        InputModel = apps.get_model("ca", "ChemicalAnalysisInput")
+        manager = InputModel.objects.using(self._state.db)
+        if manager.filter(method_id=self.pk).exists():
+            return
+        definitions = self._input_definitions_from_structure()
+        rows = []
+        for position, definition in enumerate(definitions):
+            name = str(definition.get("name") or "").strip()
+            if not name:
+                continue
+            rows.append(InputModel(
+                method_id=self.pk,
+                name=name,
+                label=definition.get("label") or name.replace("_", " ").title(),
+                input_type=definition.get("type") or "number",
+                unit=definition.get("unit") or "",
+                help_text=definition.get("help_text") or "",
+                required=definition.get("required", True),
+                min_value=definition.get("min_value"),
+                max_value=definition.get("max_value"),
+                choices=definition.get("choices") or [],
+                position=position,
+            ))
+        if rows:
+            manager.bulk_create(rows, ignore_conflicts=True)
 
     def generate_formula_hash(self):
         raw = json.dumps({
@@ -200,6 +221,7 @@ class ChemicalAnalysisMethod(AbstractBaseMethod):
         self.formula_hash = self.generate_formula_hash()
         self.full_clean()
         super().save(*args, **kwargs)
+        self._sync_analysis_inputs()
         if previous is not None and self.pk != previous_pk:
             # The method change created a new immutable version. Point each
             # current specification at it by creating a new specification
@@ -218,30 +240,29 @@ class ChemicalAnalysisMethod(AbstractBaseMethod):
         raise ValidationError("Chemical analysis method versions cannot be deleted.")
 
     def evaluate(self, input_data: dict) -> Decimal | None:
-        missing = [name for name in self.get_input_fields() if name not in input_data]
-        if missing:
-            raise ValidationError(f"Missing required inputs: {missing}")
-
         from ca.services.formulas import safe_eval_formula
+        from ca.models import ChemicalAnalysisInput
 
         self.clean()
-        definitions = {item.get("name"): item for item in self.get_input_definitions()}
-        safe_context = {}
-        for key in self.get_input_fields():
+        if not (self.formula or "").strip():
+            raise ValidationError("This analysis method has no calculation formula.")
+        ChemicalAnalysisInput.validate_values(self, input_data)
+        formula = self.formula.strip()
+        tree = ast.parse(formula, mode="eval")
+        formula_fields = {
+            node.id for node in ast.walk(tree)
+            if isinstance(node, ast.Name) and node.id != "math"
+        }
+        safe_context = {"math": math}
+        for key in formula_fields:
             try:
                 value = Decimal(str(input_data[key]))
             except (InvalidOperation, TypeError, ValueError) as exc:
                 raise ValidationError({key: "Enter a valid numeric measurement."}) from exc
             if not value.is_finite():
                 raise ValidationError({key: "Measurements must be finite numbers."})
-            definition = definitions.get(key, {})
-            minimum, maximum = definition.get("min_value"), definition.get("max_value")
-            if minimum is not None and value < Decimal(str(minimum)):
-                raise ValidationError({key: "The measurement is below its configured minimum."})
-            if maximum is not None and value > Decimal(str(maximum)):
-                raise ValidationError({key: "The measurement exceeds its configured maximum."})
             safe_context[key] = value
-        result = safe_eval_formula(self.formula, safe_context)
+        result = safe_eval_formula(formula, safe_context)
         rounding_modes = {
             "HALF_UP": ROUND_HALF_UP,
             "HALF_EVEN": ROUND_HALF_EVEN,
@@ -255,17 +276,8 @@ class ChemicalAnalysisMethod(AbstractBaseMethod):
         return {name: 0.0 for name in self.get_input_fields()}
 
     def describe_inputs(self):
-        if isinstance(self.inputs_structure, dict):
-            definitions = [
-                {"name": name, **(value if isinstance(value, dict) else {"label": value})}
-                for name, value in self.inputs_structure.items()
-            ]
-        elif isinstance(self.inputs_structure, str):
-            definitions = [{"name": name.strip()} for name in self.inputs_structure.split(",") if name.strip()]
-        else:
-            definitions = self.inputs_structure or []
         descriptions = []
-        for definition in definitions:
+        for definition in self.get_input_definitions():
             if isinstance(definition, str):
                 name = definition
                 label = definition.replace("_", " ").title()

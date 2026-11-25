@@ -2009,114 +2009,6 @@ html.theme-light .shift-info-pill .shift-supervisor {
    WATER QUALITY INDEX (WQI) COMPONENT STYLES
    ══════════════════════════════════════════════════════════════════════════════ */
 
-.wqi-topbar {
-    min-height: 42px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--bg-topbar, #0f172a);
-    border-bottom: 1px solid var(--border-contrast, rgba(255, 255, 255, 0.08));
-    padding: 0.35rem 1rem;
-    gap: 1rem;
-    flex-wrap: wrap;
-    z-index: 35;
-}
-
-.wqi-topbar-left {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.wqi-topbar-label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.25rem 0.65rem;
-    background: rgba(56, 189, 248, 0.14);
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    border-radius: 6px;
-    font-size: 0.68rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #38bdf8;
-}
-
-.wqi-topbar-center {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 0.85rem;
-    overflow-x: auto;
-}
-
-.wqi-chip {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    padding: 0.25rem 0.75rem;
-    border-radius: 8px;
-    background: var(--chip-bg, rgba(255, 255, 255, 0.04));
-    border: 1px solid var(--border-contrast, rgba(255, 255, 255, 0.08));
-    transition: all 0.2s ease;
-}
-
-.wqi-chip:hover {
-    border-color: var(--border-active, rgba(56, 189, 248, 0.4));
-    transform: translateY(-1px);
-}
-
-.wqi-chip-icon {
-    font-size: 1rem;
-    color: #38bdf8;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.wqi-chip-text {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-}
-
-.wqi-chip-meta {
-    display: flex;
-    align-items: center;
-    gap: 0.45rem;
-}
-
-.wqi-chip-label {
-    font-size: 0.64rem;
-    text-transform: uppercase;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: var(--text-muted, #94a3b8);
-}
-
-.wqi-chip-score {
-    display: flex;
-    align-items: baseline;
-    gap: 0.45rem;
-}
-
-.wqi-val {
-    font-size: 0.95rem;
-    font-weight: 900;
-    font-family: var(--font-mono, "JetBrains Mono", monospace);
-    color: var(--text-primary, #f8fafc);
-}
-
-.wqi-note {
-    font-size: 0.66rem;
-    color: var(--text-muted, #94a3b8);
-}
-
-.wqi-warn-text { color: #f59e0b; font-weight: 700; }
-.wqi-ok-text { color: #10b981; font-weight: 600; }
-
 .wqi-badge, .wqi-tier-pill {
     display: inline-flex;
     align-items: center;
@@ -2163,34 +2055,6 @@ html.theme-light .shift-info-pill .shift-supervisor {
     background: rgba(148, 163, 184, 0.15);
     color: #94a3b8;
     border: 1px solid rgba(148, 163, 184, 0.25);
-}
-
-.wqi-topbar-right {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.wqi-action-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.3rem 0.75rem;
-    border-radius: 6px;
-    background: rgba(99, 102, 241, 0.18);
-    border: 1px solid rgba(99, 102, 241, 0.35);
-    color: #c7d2fe;
-    font-size: 0.72rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.wqi-action-btn:hover, .wqi-action-btn:focus-visible {
-    background: rgba(99, 102, 241, 0.32);
-    color: #fff;
-    border-color: rgba(99, 102, 241, 0.6);
-    transform: translateY(-1px);
 }
 
 /* Cycle-specific WQI Strip inside sampling card */
@@ -2638,9 +2502,6 @@ html.theme-light .shift-info-pill .shift-supervisor {
 @media (max-width: 768px) {
     .wqi-scale-strip {
         grid-template-columns: 1fr;
-    }
-    .wqi-topbar {
-        padding: 0.5rem;
     }
 }
 

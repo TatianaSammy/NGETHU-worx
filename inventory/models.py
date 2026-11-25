@@ -309,10 +309,6 @@ class WorkMaterialReservation(models.Model):
         self.save()
 
 
-# =========================================================
-# REAGENTS (UNCHANGED CORE BUT LEDGER READY)
-# =========================================================
-
 class LaboratoryReagent(models.Model):
     rname = models.CharField(max_length=100)
     quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)

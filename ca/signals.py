@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import uuid
 from contextlib import contextmanager
+from decimal import Decimal
 from functools import wraps
 from io import BytesIO
 from threading import local
@@ -25,6 +26,7 @@ from .models import (
     BatchTestResult,
     ChemicalAnalysisRequest,
     ChemicalBatch,
+    ChemicalBatchInspection,
     ChemicalCoA,
     ChemicalBatchHold,
     ChemicalInventoryMovement,
@@ -1387,7 +1389,10 @@ def auto_create_checklist_for_request(
     raw=False,
     **kwargs,
 ):
-    if raw or not created:
+    if raw:
+        return
+
+    if not created and instance.checklists.exists():
         return
 
     chemical = getattr(
@@ -1406,16 +1411,44 @@ def auto_create_checklist_for_request(
         )
         return
 
+    if not instance.batch_id:
+        logger.warning(
+            "Skipping automatic checklist creation until a batch is available",
+            extra={"request_id": instance.pk},
+        )
+        return
+
     def create_checklist():
         try:
-            checklist, made = (
-                ChecklistForWaterTreatmentChemicalAnalysis.objects
-                .get_or_create(
+            with transaction.atomic():
+                batch = ChemicalBatch.objects.select_related("chemical").get(pk=instance.batch_id)
+                inspection = (
+                    ChemicalBatchInspection.objects
+                    .filter(batch=batch, status=ChemicalBatchInspection.Status.PASS)
+                    .order_by("-attempt")
+                    .first()
+                )
+                inspected_weight = (
+                    Decimal(str(inspection.declared_package_weight)).quantize(Decimal("0.001"))
+                    if inspection is not None
+                    else None
+                )
+                net_weight = (
+                    inspected_weight
+                    if inspected_weight is not None
+                    and Decimal("0") < inspected_weight <= Decimal("999999999.999")
+                    else None
+                )
+
+                checklist, made = ChecklistForWaterTreatmentChemicalAnalysis.objects.get_or_create(
                     chemical_analysis_request=instance,
                     defaults={
                         "chemical": chemical,
                         "grade": "NA",
-                        "net_weight": 0,
+                        "manufacture_date": inspection.manufacture_date if inspection else None,
+                        "expiry_date": inspection.expiry_date if inspection else None,
+                        "storage_conditions": inspection.observed_storage_conditions if inspection else "",
+                        "net_weight": net_weight,
                         "manufacturer_name_indicated": False,
                         "chemical_name_on_label": False,
                         "min_mass_indicated": False,
@@ -1429,7 +1462,6 @@ def auto_create_checklist_for_request(
                         "fire_action_requires_respiratory_equipment": False,
                     },
                 )
-            )
 
             if made:
                 logger.info(
@@ -1456,7 +1488,7 @@ def auto_create_checklist_for_request(
                 },
             )
 
-    transaction.on_commit(create_checklist)
+    transaction.on_commit(create_checklist, robust=True)
 
 
 @receiver(

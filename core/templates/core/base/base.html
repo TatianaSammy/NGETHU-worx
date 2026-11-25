@@ -1,6 +1,6 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en" data-theme="day" class="app-fullscreen">
+<html lang="en" data-theme="day">
 <head>
 <meta charset="UTF-8">
 <title>
@@ -14,7 +14,7 @@
 <meta name="application-name" content="NCWSCwaterLAB">
 <meta name="format-detection" content="telephone=no">
 <meta name="csrf-token" content="{{ csrf_token }}">
-<link rel="manifest" href="/manifest.json?v=20261020-enterprise-theme">
+<link rel="manifest" href="/manifest.json?v=20261115-network-only">
 {% if company.logo %}
     <link rel="apple-touch-icon" href="{{ company.logo.url }}">
     <link rel="icon" href="{{ company.logo.url }}">
@@ -25,12 +25,11 @@
     <link rel="apple-touch-icon" href="{% static 'image/apple-touch-icon.png' %}">
     <link rel="icon" href="{% static 'image/logo.ico' %}" type="image/x-icon">
 {% endif %}
-<script src="{% static 'core/js/theme.js' %}?v=20261112-multitheme-v8"></script>
+<script src="{% static 'core/js/theme.js' %}?v=20261123-cyber-executive-v1"></script>
 <link rel="stylesheet" href="{% static 'vendor/bootstrap/bootstrap.min.css' %}">
 <link rel="stylesheet" href="{% static 'css/font_awesome/all.min.css' %}">
 <link rel="stylesheet" href="{% static 'core/css/base.css' %}">
-<link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261113-header-offset">
-<link rel="stylesheet" href="{% static 'core/css/app-fullscreen.css' %}?v=20261018-fullscreen">
+<link rel="stylesheet" href="{% static 'core/css/theme.css' %}?v=20261123-cyber-executive-v1">
 <link rel="stylesheet" href="{% static 'core/css/header.css' %}?v=20261023-standard-alert-center">
 <link rel="stylesheet" href="{% static 'core/css/dropdown.css' %}">
 <link rel="stylesheet" href="{% static 'core/css/graphical.css' %}">
@@ -41,9 +40,9 @@
 <link rel="stylesheet" href="{% static 'accounts/css/change_password.css' %}">
 <link rel="stylesheet" href="{% static 'core/css/sidebar.css' %}">
 {% block extra_styles %}{% endblock %}
-<link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261020-enterprise-theme">
+<link rel="stylesheet" href="{% static 'core/css/ca-theme-bridge.css' %}?v=20261123-cyber-executive-v1">
 </head>
-<body class="app-fullscreen-shell">
+<body class="app-shell-host">
 <div class="theme-flash"></div>
 {% block header %}{% include "accounts/partials/header.html" %}{% endblock %}
 <div class="layout">
@@ -63,9 +62,7 @@
 <script src="{% static 'core/js/header.js' %}?v=20261023-standard-alert-center" defer></script>
 <script src="{% static 'core/js/modal.js' %}" defer></script>
 <script src="{% static 'core/js/sidebar.js' %}" defer></script>
-<script src="{% static 'core/js/fullscreen.js' %}?v=20261018-first-interaction" defer></script>
-<script src="{% static 'core/js/offline-queue.js' %}?v=20261024-offline" defer></script>
-<script src="{% static 'core/js/pwa.js' %}?v=20261105-safe-logout" defer></script>
+<script src="{% static 'core/js/pwa.js' %}?v=20261115-network-only" defer></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -238,15 +238,11 @@ def result_qs(model) -> QuerySet:
 def input_qs(model) -> QuerySet:
     return (
         model.objects
-        .select_related(
-            "test_result",
-            "test_result__batch",
-            "test_result__batch__chemical",
-            "test_result__parameter",
-            "test_result__parameter__method",
-        )
+        .select_related("method")
         .order_by(
-            "-id",
+            "method__method",
+            "position",
+            "id",
         )
     )
 
@@ -555,14 +551,13 @@ MODEL_CAPABILITIES = {
         "bulk_edit": True,
     },
     "ChemicalAnalysisInput": {
-        "create": True,
-        "update": True,
+        "create": False,
+        "update": False,
         "delete": False,
         "search": True,
         "filter": True,
         "export": True,
-        "bulk_edit": True,
-        "calculation": True,
+        "bulk_edit": False,
     },
     "ChemicalCoA": {
         "create": False,
@@ -825,18 +820,8 @@ PERMISSIONS = {
             "Lab Supervisor",
             "QA Officer",
         ],
-        "create": [
-            "Lab Technician",
-            "Lab Assistant",
-        ],
-        "update": [
-            "Lab Technician",
-            "Lab Assistant",
-        ],
-        "calculate": [
-            "Lab Technician",
-            "Lab Assistant",
-        ],
+        "create": [],
+        "update": [],
     },
     "ChemicalCoA": {
         "view": [
@@ -1210,9 +1195,8 @@ AUDIT_CONFIG = {
     "ChemicalAnalysisInput": {
         "enabled": True,
         "track_create": True,
-        "track_update": True,
+        "track_update": False,
         "track_delete": False,
-        "track_calculation": True,
     },
     "ChemicalCoA": {
         "enabled": True,
@@ -1392,9 +1376,13 @@ EXPORT_CONFIG = {
             "pdf",
         ],
         "columns": [
-            "test_result",
-            "inputs",
-            "calculated_value",
+            "method",
+            "name",
+            "label",
+            "input_type",
+            "required",
+            "unit",
+            "position",
         ],
     },
     "ChemicalCoA": {
@@ -1619,32 +1607,25 @@ MODEL_CONFIGS = {
     },
     "ChemicalAnalysisInput": {
         "search_fields": [
-            "test_result__id",
-            "test_result__batch__sample_id",
-            "test_result__batch__batch_number",
-            "test_result__parameter__parameter_name",
+            "method__method",
+            "name",
+            "label",
         ],
         "filter_fields": [
-            "test_result",
+            "method",
+            "input_type",
+            "required",
         ],
         "ordering": [
-            "-id",
+            "method__method",
+            "position",
+            "id",
         ],
         "select_related": [
-            "test_result",
-            "test_result__batch",
-            "test_result__parameter",
+            "method",
         ],
         "queryset_factory": input_qs,
-        "inline_edit_fields": [
-            "inputs",
-        ],
-        "calculation": {
-            "property": "calculated_value",
-            "formula_property": "formula",
-            "required_fields_property": "required_input_fields",
-            "precision_property": "rounding_precision",
-        },
+        "inline_edit_fields": [],
     },
     "ChemicalCoA": {
         **CERTIFICATE_BASE_CONFIG,

@@ -16,7 +16,7 @@ def batch_failure_prediction():
 
     rows = []
 
-    for batch in ChemicalBatch.objects.prefetch_related(
+    for batch in ChemicalBatch.objects.filter(quantity_received__isnull=False).prefetch_related(
         "test_results"
     ):
         rows.append({

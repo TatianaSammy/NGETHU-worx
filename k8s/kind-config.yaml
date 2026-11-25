@@ -1,0 +1,34 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: qad
+networking:
+  # Use a local subnet that doesn't collide with Docker default
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
+  disableDefaultCNI: false
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # HTTP — access via http://localhost:8080
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+        listenAddress: "127.0.0.1"
+      # HTTPS — access via https://localhost:8443
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+        listenAddress: "127.0.0.1"
+  - role: worker
+    labels:
+      topology.kubernetes.io/zone: zone-a
+  - role: worker
+    labels:
+      topology.kubernetes.io/zone: zone-b
+

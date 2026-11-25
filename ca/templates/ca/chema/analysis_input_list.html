@@ -1,270 +1,40 @@
 {% extends "ca/dashboard/layout/app.html" %}
 
-{% block title %}Analysis Inputs{% endblock %}
+{% block title %}Method Inputs{% endblock %}
 
 {% block content %}
-
 <div class="ca-page">
-
     <div class="page-header">
         <div>
-            <h1>Analysis Inputs</h1>
-            <p>
-                Review calculation inputs recorded for chemical analysis results.
-            </p>
+            <h1>Method Inputs</h1>
+            <p>Input definitions are attached to their chemical analysis methods.</p>
         </div>
-
         <div class="page-actions">
-            <a href="{% url 'ca:dashboard' %}" class="btn btn-secondary">
-                Dashboard
-            </a>
-
-            <a href="{% url 'ca:result-list' %}" class="btn btn-secondary">
-                Results
-            </a>
+            <a href="{% url 'ca:dashboard' %}" class="btn btn-secondary">Dashboard</a>
+            <a href="{% url 'ca:result-list' %}" class="btn btn-secondary">Results</a>
         </div>
     </div>
 
     <div class="card">
-
-        <div class="card-header">
-            <div>
-                <h2>Calculation Inputs</h2>
-
-                <span>
-                    {% if analysis_inputs %}
-                        {{ analysis_inputs|length }}
-                        input{{ analysis_inputs|length|pluralize }}
-                    {% else %}
-                        0 inputs
-                    {% endif %}
-                </span>
-            </div>
-        </div>
-
         <div class="table-responsive">
-
             <table class="table">
-
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Batch</th>
-                        <th>Sample ID</th>
-                        <th>Parameter</th>
-                        <th>Calculated Value</th>
-                        <th>Result</th>
-                        <th>Status</th>
-                        <th>Analyst</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-
+                <thead><tr><th>Method</th><th>Input</th><th>Type</th><th>Required</th><th>Unit</th><th>Action</th></tr></thead>
                 <tbody>
-
                     {% for analysis_input in analysis_inputs %}
-
-                        <tr>
-
-                            <td>
-                                <strong>
-                                    #{{ analysis_input.pk }}
-                                </strong>
-                            </td>
-
-                            <td>
-                                {% if analysis_input.test_result %}
-                                    {% if analysis_input.test_result.batch %}
-                                        <a
-                                            href="{% url 'ca:batch-detail' analysis_input.test_result.batch.pk %}"
-                                        >
-                                            {{ analysis_input.test_result.batch }}
-                                        </a>
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                {% if analysis_input.test_result %}
-                                    {% if analysis_input.test_result.batch %}
-                                        {% if analysis_input.test_result.batch.sample_id %}
-                                            <strong>
-                                                {{ analysis_input.test_result.batch.sample_id }}
-                                            </strong>
-                                        {% else %}
-                                            —
-                                        {% endif %}
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                {% if analysis_input.test_result %}
-                                    {% if analysis_input.test_result.parameter %}
-                                        <strong>
-                                            {{ analysis_input.test_result.parameter }}
-                                        </strong>
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                {% if analysis_input.calculated_value is not None %}
-                                    {{ analysis_input.calculated_value }}
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                {% if analysis_input.test_result %}
-
-                                    {% if analysis_input.test_result.value is not None %}
-                                        {{ analysis_input.test_result.value }}
-                                    {% elif analysis_input.test_result.textual_result %}
-                                        {{ analysis_input.test_result.textual_result }}
-                                    {% else %}
-                                        —
-                                    {% endif %}
-
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                {% if analysis_input.test_result %}
-
-                                    {% if analysis_input.test_result.status == "PASS" %}
-
-                                        <span class="badge badge-success">
-                                            PASS
-                                        </span>
-
-                                    {% elif analysis_input.test_result.status == "FAIL" %}
-
-                                        <span class="badge badge-danger">
-                                            FAIL
-                                        </span>
-
-                                    {% elif analysis_input.test_result.status == "NA" %}
-
-                                        <span class="badge badge-secondary">
-                                            N/A
-                                        </span>
-
-                                    {% else %}
-
-                                        <span class="badge badge-warning">
-                                            {{ analysis_input.test_result.get_status_display|default:analysis_input.test_result.status|default:"Pending" }}
-                                        </span>
-
-                                    {% endif %}
-
-                                {% else %}
-
-                                    <span class="badge badge-warning">
-                                        Pending
-                                    </span>
-
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                {% if analysis_input.test_result %}
-                                    {% if analysis_input.test_result.analyst %}
-
-                                        {% if analysis_input.test_result.analyst.get_full_name %}
-                                            {{ analysis_input.test_result.analyst.get_full_name }}
-                                        {% else %}
-                                            {{ analysis_input.test_result.analyst.username }}
-                                        {% endif %}
-
-                                    {% else %}
-                                        —
-                                    {% endif %}
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-
-                            <td>
-                                <div class="page-actions">
-
-                                    {% if analysis_input.test_result %}
-                                        <a
-                                            href="{% url 'ca:result-detail' analysis_input.test_result.pk %}"
-                                            class="btn btn-secondary"
-                                        >
-                                            Result
-                                        </a>
-                                    {% endif %}
-
-                                    <a
-                                        href="{% url 'ca:analysis-input-detail' analysis_input.pk %}"
-                                        class="btn btn-primary"
-                                    >
-                                        View
-                                    </a>
-
-                                    <a
-                                        href="{% url 'ca:analysis-input-recalculate' analysis_input.pk %}"
-                                        class="btn btn-secondary"
-                                    >
-                                        Recalculate
-                                    </a>
-
-                                </div>
-                            </td>
-
-                        </tr>
-
+                    <tr>
+                        <td>{{ analysis_input.method }}</td>
+                        <td>{{ analysis_input.label|default:analysis_input.name }}</td>
+                        <td>{{ analysis_input.get_input_type_display }}</td>
+                        <td>{{ analysis_input.required|yesno:"Yes,No" }}</td>
+                        <td>{{ analysis_input.unit|default:"—" }}</td>
+                        <td><a href="{% url 'ca:analysis-input-detail' analysis_input.pk %}" class="btn btn-secondary">View</a></td>
+                    </tr>
                     {% empty %}
-
-                        <tr>
-                            <td colspan="9">
-
-                                <div class="card-body">
-
-                                    <div class="section">
-
-                                        <h3>No analysis inputs found</h3>
-
-                                        <p>
-                                            Calculation inputs will appear here
-                                            when they are recorded against
-                                            chemical analysis results.
-                                        </p>
-
-                                    </div>
-
-                                </div>
-
-                            </td>
-                        </tr>
-
+                    <tr><td colspan="6" class="empty-state">No method inputs configured.</td></tr>
                     {% endfor %}
-
                 </tbody>
-
             </table>
-
         </div>
-
     </div>
-
 </div>
-
 {% endblock %}

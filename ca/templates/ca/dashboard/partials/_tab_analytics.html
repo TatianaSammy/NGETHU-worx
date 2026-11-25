@@ -226,6 +226,74 @@ window.CA_Analytics = {
     render: function(spec) {
         var el = document.getElementById("ca-plotly-render");
         if (!el || !spec || !spec.data) return;
+        this.chartData = spec;
+
+        var root = document.querySelector(".pbi-dashboard-root") || document.documentElement;
+        var styles = getComputedStyle(root);
+        var themeValue = function(name, fallback) {
+            return styles.getPropertyValue(name).trim() || fallback;
+        };
+        var fontFamily = styles.fontFamily || themeValue("--font-sans", "sans-serif");
+        var textColor = themeValue("--theme-text", "#172033");
+        var mutedColor = themeValue("--theme-text-secondary", themeValue("--theme-muted", "#64748b"));
+        var borderColor = themeValue("--theme-border", "#dbe3eb");
+        var surfaceColor = themeValue("--theme-surface", "#ffffff");
+        var layout = Object.assign({}, spec.layout || {}, {
+            template: "none",
+            paper_bgcolor: "transparent",
+            plot_bgcolor: "transparent",
+            colorway: [
+                themeValue("--theme-accent", "#0284c7"),
+                themeValue("--color-success", "#16a34a"),
+                themeValue("--color-warning", "#d97706"),
+                themeValue("--color-danger", "#dc2626")
+            ],
+            font: Object.assign({}, (spec.layout || {}).font || {}, {
+                family: fontFamily,
+                color: textColor
+            }),
+            hoverlabel: Object.assign({}, (spec.layout || {}).hoverlabel || {}, {
+                bgcolor: surfaceColor,
+                bordercolor: borderColor,
+                font: Object.assign({}, ((spec.layout || {}).hoverlabel || {}).font || {}, {
+                    family: fontFamily,
+                    color: textColor
+                })
+            })
+        });
+        if (layout.title) {
+            var chartTitle = typeof layout.title === "string" ? { text: layout.title } : layout.title;
+            layout.title = Object.assign({}, chartTitle, {
+                font: Object.assign({}, chartTitle.font || {}, { family: fontFamily, color: textColor })
+            });
+        }
+        Object.keys(layout).filter(function(key) { return /^[xyz]axis\d*$/.test(key); }).forEach(function(key) {
+            var axis = layout[key] || {};
+            var title = typeof axis.title === "string" ? { text: axis.title } : (axis.title || {});
+            layout[key] = Object.assign({}, axis, {
+                color: mutedColor,
+                gridcolor: borderColor,
+                linecolor: borderColor,
+                zerolinecolor: borderColor,
+                tickfont: Object.assign({}, axis.tickfont || {}, { family: fontFamily, color: mutedColor }),
+                title: Object.assign({}, title, {
+                    font: Object.assign({}, title.font || {}, { family: fontFamily, color: textColor })
+                })
+            });
+        });
+        if (layout.legend) {
+            layout.legend.font = Object.assign({}, layout.legend.font || {}, {
+                family: fontFamily,
+                color: textColor
+            });
+        }
+        if (Array.isArray(layout.annotations)) {
+            layout.annotations = layout.annotations.map(function(annotation) {
+                return Object.assign({}, annotation, {
+                    font: Object.assign({}, annotation.font || {}, { family: fontFamily, color: textColor })
+                });
+            });
+        }
 
         var config = {
             responsive: true,
@@ -234,7 +302,7 @@ window.CA_Analytics = {
             modeBarButtonsToRemove: ['lasso2d', 'select2d']
         };
 
-        Plotly.newPlot(el, spec.data, spec.layout || {}, config);
+        Plotly.newPlot(el, spec.data, layout, config);
     },
 
     refresh: function() {
@@ -282,6 +350,11 @@ window.CA_Analytics = {
 
 document.addEventListener("DOMContentLoaded", function() {
     window.CA_Analytics.init();
+});
+window.addEventListener("themeChanged", function() {
+    if (window.CA_Analytics.chartData) {
+        window.CA_Analytics.render(window.CA_Analytics.chartData);
+    }
 });
 if (document.readyState === "complete" || document.readyState === "interactive") {
     window.CA_Analytics.init();

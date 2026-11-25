@@ -19,6 +19,7 @@ from django.contrib.auth import authenticate, login as auth_login, logout as aut
 from django.contrib.auth.mixins import LoginRequiredMixin
 from CompanyInfo.context_processors import company_context
 from .models import CustomUser
+from .password_policy import apply_password_reset
 from core.models import validate_pf_number, validate_mobile_number, validate_password_strength
 from django.urls import reverse, reverse_lazy, NoReverseMatch
 from django.contrib import messages
@@ -44,6 +45,11 @@ def get_client_ip(request):
     if xff:
         return xff.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR", "")
+
+
+def _password_version(user):
+    value = getattr(user, "password_last_set", None)
+    return value.isoformat() if value else ""
 
 
 # =========================================================
@@ -83,23 +89,53 @@ class ResetPasswordRequestView(View):
         username = request.POST.get("username", "").strip().upper()
 
         if not username:
-            return JsonResponse({"success": False, "message": "Username is required."})
+            return JsonResponse(
+                {"success": False, "message": "Enter a valid username."},
+                status=400,
+            )
+
+        try:
+            validate_pf_number(username)
+        except ValidationError:
+            return JsonResponse(
+                {
+                    "success": False,
+                    "message": "Enter a valid username in the required format.",
+                },
+                status=400,
+            )
 
         user = CustomUser.objects.filter(username=username).first()
         if not user:
-            # Intentionally vague to prevent user enumeration
-            return JsonResponse({"success": True, "message": "If the account exists, a reset email has been sent."})
-
+            logger.info("Password reset requested for unknown username=%s", username)
+            return JsonResponse(
+                {"success": False, "message": "No account was found for that username."},
+                status=404,
+            )
         if not user.email:
-            return JsonResponse({"success": False, "message": "No email address associated with this account. Contact your administrator."})
+            logger.warning("Password reset requested for user without email=%s", user.username)
+            return JsonResponse(
+                {
+                    "success": False,
+                    "message": "An account exists for this username, but it has no registered email address.",
+                },
+                status=409,
+            )
 
         # ── Build signed token with timestamp ──
         from django.core.signing import TimestampSigner
         signer = TimestampSigner()
-        token = signer.sign(str(user.pk))
+        token = signer.sign_object({
+            "user_id": str(user.pk),
+            "password_version": _password_version(user),
+        }, compress=True)
 
         reset_path = reverse("accounts:password_reset_confirm", kwargs={"token": token})
-        reset_url = request.build_absolute_uri(reset_path)
+        public_origin = getattr(settings, "PUBLIC_ORIGIN", "")
+        if public_origin:
+            reset_url = f"{public_origin.rstrip('/')}/{reset_path.lstrip('/')}"
+        else:
+            reset_url = request.build_absolute_uri(reset_path)
 
         # ── Render email ──
         from django.template.loader import render_to_string
@@ -114,7 +150,7 @@ class ResetPasswordRequestView(View):
         plain_message = strip_tags(html_message)
 
         try:
-            send_mail(
+            sent_count = send_mail(
                 subject="Password Reset Request",
                 message=plain_message,
                 from_email=settings.DEFAULT_FROM_EMAIL,
@@ -122,16 +158,25 @@ class ResetPasswordRequestView(View):
                 html_message=html_message,
                 fail_silently=False,
             )
-            logger.info("Password reset email sent for user=%s to=%s", user.username, user.email)
+            if not sent_count:
+                raise RuntimeError("Email backend did not accept the reset message")
+            logger.info("Password reset email sent for user=%s", user.username)
         except Exception as e:
             logger.error("Password reset email failed for user=%s: %s", user.username, e)
-            return JsonResponse({"success": False, "message": "Failed to send email. Please try again later."})
+            return JsonResponse(
+                {
+                    "success": False,
+                    "message": "Unable to send reset instructions right now. Try again later.",
+                },
+                status=503,
+            )
 
-        # Mask actual email for privacy
-        email = user.email
-        at_idx = email.index("@")
-        masked = email[0] + "***" + email[at_idx - 1:] if at_idx > 1 else email
-        return JsonResponse({"success": True, "message": f"Password reset email sent to {masked}."})
+        return JsonResponse(
+            {
+                "success": True,
+                "message": "Account found. Password reset instructions have been sent to the registered email address.",
+            }
+        )
 
 
 # =========================================================
@@ -147,31 +192,48 @@ class PasswordResetConfirmView(View):
     RESET_TOKEN_MAX_AGE = 600  # 10 minutes
 
     def _unsign_token(self, token):
-        """Return (user_pk, error_message) tuple."""
+        """Return (user_pk, password_version, error_message) tuple."""
         from django.core.signing import TimestampSigner, SignatureExpired, BadSignature
         signer = TimestampSigner()
         try:
-            user_pk = signer.unsign(token, max_age=self.RESET_TOKEN_MAX_AGE)
-            return user_pk, None
+            payload = signer.unsign_object(token, max_age=self.RESET_TOKEN_MAX_AGE)
+            if not isinstance(payload, dict) or "user_id" not in payload:
+                raise BadSignature("Invalid reset token payload")
+            return str(payload["user_id"]), payload.get("password_version"), None
         except SignatureExpired:
-            return None, "This password reset link has expired (10-minute limit). Please request a new one."
+            return None, None, "This password reset link has expired (10-minute limit). Please request a new one."
         except BadSignature:
-            return None, "Invalid password reset link. Please request a new one."
+            # Continue to accept reset emails issued just before this version,
+            # but newly issued links are tied to the password version and are single-use.
+            try:
+                user_pk = signer.unsign(token, max_age=self.RESET_TOKEN_MAX_AGE)
+                return str(user_pk), None, None
+            except SignatureExpired:
+                return None, None, "This password reset link has expired (10-minute limit). Please request a new one."
+            except BadSignature:
+                return None, None, "Invalid password reset link. Please request a new one."
 
     def get(self, request, token):
-        user_pk, error = self._unsign_token(token)
+        user_pk, password_version, error = self._unsign_token(token)
         ctx = get_company_context(request)
+        ctx["reset_min_password_length"] = max(12, int(SystemConfiguration.current().password_min_length or 0))
         if error:
             ctx["error"] = error
             ctx["token_valid"] = False
         else:
-            ctx["token_valid"] = True
-            ctx["token"] = token
+            user = CustomUser.objects.filter(pk=user_pk).first()
+            if not user or (password_version is not None and password_version != _password_version(user)):
+                ctx["error"] = "This password reset link has already been used. Request a new one."
+                ctx["token_valid"] = False
+            else:
+                ctx["token_valid"] = True
+                ctx["token"] = token
         return render(request, self.template_name, ctx)
 
     def post(self, request, token):
-        user_pk, error = self._unsign_token(token)
+        user_pk, password_version, error = self._unsign_token(token)
         ctx = get_company_context(request)
+        ctx["reset_min_password_length"] = max(12, int(SystemConfiguration.current().password_min_length or 0))
 
         if error:
             ctx["error"] = error
@@ -184,8 +246,8 @@ class PasswordResetConfirmView(View):
             ctx["token_valid"] = False
             return render(request, self.template_name, ctx)
 
-        new_password = request.POST.get("new_password", "").strip()
-        confirm_password = request.POST.get("confirm_password", "").strip()
+        new_password = request.POST.get("new_password", "")
+        confirm_password = request.POST.get("confirm_password", "")
 
         if not new_password or not confirm_password:
             ctx["error"] = "Both password fields are required."
@@ -200,16 +262,15 @@ class PasswordResetConfirmView(View):
             return render(request, self.template_name, ctx)
 
         try:
-            validate_password_strength(new_password)
+            apply_password_reset(user.pk, new_password, expected_password_version=password_version)
         except ValidationError as e:
-            ctx["error"] = e.messages[0] if hasattr(e, 'messages') else str(e)
-            ctx["token_valid"] = True
-            ctx["token"] = token
+            message = e.messages[0] if hasattr(e, "messages") else str(e)
+            ctx["error"] = message
+            link_used = "already been used" in message.casefold()
+            ctx["token_valid"] = not link_used
+            if not link_used:
+                ctx["token"] = token
             return render(request, self.template_name, ctx)
-
-        user.set_password(new_password)
-        user.password_last_set = timezone.now()
-        user.save(update_fields=["password", "password_last_set"])
 
         logger.info("Password reset completed for user=%s from IP=%s", user.username, get_client_ip(request))
 

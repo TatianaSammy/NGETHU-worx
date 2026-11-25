@@ -7,10 +7,10 @@
 <div class="ca-tab-checklists-view" id="ca-checklists-container">
 
     <!-- KPI SUMMARY STRIP -->
-    <div class="ca-hud-bar" style="margin-bottom: 1rem; border-radius: 12px; background: rgba(13, 31, 56, 0.7); border: 1px solid rgba(56, 189, 248, 0.2);">
+    <div class="ca-hud-bar" style="margin-bottom: 1rem; border-radius: 12px; background: var(--theme-surface); border: 1px solid color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border));">
         <div class="ca-hud-bar__left">
             <div class="ca-hud-scope-chip" title="Checklist verification coverage">
-                <i class="fa fa-clipboard-check" style="color: #38bdf8;"></i>
+                <i class="fa fa-clipboard-check" style="color: var(--theme-accent);"></i>
                 <span>SOP-17025 Delivery Verification</span>
             </div>
             <div class="ca-hud-stat-pill">
@@ -44,10 +44,10 @@
     <div class="pbi-table-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #0c2340;">
-                    <i class="fa fa-clipboard-list" style="color: #0b4584;"></i> Chemical Receiving Checklists & Safety Register
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--theme-text);">
+                    <i class="fa fa-clipboard-list" style="color: var(--theme-accent);"></i> Chemical Receiving Checklists & Safety Register
                 </h3>
-                <span style="font-size: 0.72rem; color: #64748b;">
+                <span style="font-size: 0.72rem; color: var(--theme-text-secondary, var(--theme-muted));">
                     Physical inspection, packaging integrity, expiry dates, and hazard classifications
                 </span>
             </div>
@@ -75,11 +75,11 @@
                     <tr>
                         <td>
                             <code>#CK-{{ c.pk }}</code>
-                            <div style="font-size: 0.65rem; color: #64748b;">{{ c.created_at|date:"d M Y"|default:"—" }}</div>
+                            <div style="font-size: 0.65rem; color: var(--theme-text-secondary,var(--theme-muted));">{{ c.created_at|date:"d M Y"|default:"—" }}</div>
                         </td>
                         <td>
                             <strong>{{ c.chemical.name|default:c.chemical_name_on_label|default:"Chemical" }}</strong>
-                            <div style="font-size: 0.68rem; color: #0284c7;">
+                            <div style="font-size: 0.68rem; color: var(--theme-accent);">
                                 Batch: {{ c.chemical_analysis_request.batch.batch_number|default:"—" }}
                             </div>
                         </td>
@@ -89,15 +89,15 @@
                             </span>
                         </td>
                         <td>
-                            <div><strong>{{ c.net_weight|default:"—" }}</strong> kg</div>
-                            <div style="font-size: 0.68rem; color: #64748b;">
+                            <div><strong>{% if c.net_weight != None %}{{ c.net_weight|floatformat:1 }}{% else %}—{% endif %}</strong> kg</div>
+                            <div style="font-size: 0.68rem; color: var(--theme-text-secondary,var(--theme-muted));">
                                 {% if c.min_mass_indicated %}Mass Confirmed{% else %}Standard Weight{% endif %}
                             </div>
                         </td>
                         <td>
                             <div style="font-size: 0.72rem;">
                                 <span>Mfg: {{ c.manufacture_date|date:"Y-m-d"|default:"—" }}</span><br>
-                                <span style="color: #dc2626;">Exp: {{ c.expiry_date|date:"Y-m-d"|default:"—" }}</span>
+                                <span style="color: var(--color-danger);">Exp: {{ c.expiry_date|date:"Y-m-d"|default:"—" }}</span>
                             </div>
                         </td>
                         <td>
@@ -118,9 +118,9 @@
                         </td>
                         <td>
                             {% if c.checklist_verified_by %}
-                                <i class="fa fa-user-check" style="color: #10b981;"></i> {{ c.checklist_verified_by.get_full_name|default:c.checklist_verified_by.username }}
+                                <i class="fa fa-user-check" style="color: var(--color-success);"></i> {{ c.checklist_verified_by.get_full_name|default:c.checklist_verified_by.username }}
                             {% else %}
-                                <span style="color: #f59e0b;"><i class="fa fa-clock"></i> Pending Signoff</span>
+                                <span style="color: var(--color-warning);"><i class="fa fa-clock"></i> Pending Signoff</span>
                             {% endif %}
                         </td>
                         <td>
@@ -131,7 +131,7 @@
                                     <i class="fa fa-forward-step"></i> Continue
                                 </a>
                                 {% endif %}
-                                {% if permissions.view_chemicalrequest %}<a href="{% url 'ca:request-detail' c.chemical_analysis_request.pk %}" class="ca-btn-ghost" style="padding: 4px 8px; font-size: 0.72rem; color: #0284c7; border-color: #bae6fd;">
+                                {% if permissions.view_chemicalrequest %}<a href="{% url 'ca:request-detail' c.chemical_analysis_request.pk %}" class="ca-btn-ghost" style="padding: 4px 8px; font-size: 0.72rem; color: var(--theme-accent); border-color: var(--theme-border-strong,var(--theme-border));">
                                     <i class="fa fa-eye"></i> View
                                 </a>{% endif %}
                             </div>
@@ -140,8 +140,8 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 2rem; color: #64748b;">
-                            <i class="fa fa-clipboard-check" style="font-size: 2.2rem; color: #38bdf8; display: block; margin-bottom: 0.5rem;"></i>
+                        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--theme-text-secondary,var(--theme-muted));">
+                            <i class="fa fa-clipboard-check" style="font-size: 2.2rem; color: var(--theme-accent); display: block; margin-bottom: 0.5rem;"></i>
                             <strong>No receiving checklists recorded yet in active plant scope.</strong>
                             <p style="font-size: 0.78rem; margin-top: 0.25rem;">Intake chemical batches to generate mandatory receiving checklists.</p>
                         </td>

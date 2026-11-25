@@ -142,6 +142,7 @@ INSTALLED_APPS = [
     "heavy_metal.apps.HeavyMetalConfig", "microbial.apps.MicrobialConfig", "filtered_water","qc", 'qc_analytics','wc',
     "xmicalconcentration","backwashing",
     "inventory",
+    "standardization.apps.StandardizationConfig",
     "central_lab.apps.CentralLabConfig",
     "dashboards",
     "reports",
@@ -165,6 +166,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "axes.middleware.AxesMiddleware",
+    "core.middleware.NetworkOnlyResponseMiddleware",
 ]
 
 
@@ -203,31 +205,35 @@ TEMPLATES = [
 # =========================================================
 # DATABASE
 # =========================================================
-DATABASE_URL = env("DATABASE_URL")
+DATABASE_URL = env("DATABASE_URL", default="").strip()
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is required in every environment; configure PostgreSQL.")
 
-if DATABASE_URL:
-    u = urlparse(DATABASE_URL)
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": u.path.lstrip("/"),
-            "USER": u.username,
-            "PASSWORD": u.password,
-            "HOST": u.hostname,
-            "PORT": u.port or 5432,
-            "CONN_MAX_AGE": env("DB_CONN_MAX_AGE", 300, int),
-            "ATOMIC_REQUESTS": True,
-        }
+u = urlparse(DATABASE_URL)
+if u.scheme not in {"postgres", "postgresql"}:
+    raise RuntimeError("DATABASE_URL must use the PostgreSQL 'postgres://' or 'postgresql://' scheme.")
+if not u.hostname or not u.path.strip("/"):
+    raise RuntimeError("DATABASE_URL must include a PostgreSQL host and database name.")
+
+try:
+    database_port = u.port or 5432
+except ValueError as exc:
+    raise RuntimeError("DATABASE_URL contains an invalid PostgreSQL port.") from exc
+
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": u.path.lstrip("/"),
+        "USER": u.username,
+        "PASSWORD": u.password,
+        "HOST": u.hostname,
+        "PORT": database_port,
+        "CONN_MAX_AGE": env("DB_CONN_MAX_AGE", 300, int),
+        "CONN_HEALTH_CHECKS": True,
+        "OPTIONS": {"connect_timeout": env("DB_CONNECT_TIMEOUT", 5, int)},
+        "ATOMIC_REQUESTS": True,
     }
-else:
-    if ENVIRONMENT.strip().lower() in {"production", "prod"}:
-        raise RuntimeError("DATABASE_URL is required in production; SQLite is development-only")
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
-        }
-    }
+}
 
 
 # =========================================================
@@ -247,16 +253,16 @@ SUPERUSER_LANDING_MAP = "home"
 LOGIN_GROUP_REDIRECT_MAP = {
     "ADMIN": "accounts:dashboard",
     "STORES ASSISTANT":"ca:dashboard",
-    "STORES SUPERVISOR": "accounts:dashboard",
+    "STORES SUPERVISOR": "ca:dashboard",
     "PROCUREMENT OFFICER": "laboratory:dashboard",
     "LABORATORY TECHNICIAN": "qc_analytics:dashboard",
     "LABORATORY ASSISTANT": "qc_analytics:dashboard",
-    "CHEMIST OFFICER": "qc:dashboard",
+    "CHEMIST OFFICER": "qc_analytics:dashboard",
     "QUALITY ASSURANCE OFFICER": "qc:dashboard",
-    "TREATMENT WORKS SUPERVISOR": "qc:dashboard",
-    "TREATMENT WORKS OPERATOR": "qc:dashboard",
-    "TREATMENT WORKS OFFICER": "qc:dashboard",
-    "TREATMENT WORKS CO-ORDINATOR": "qc:dashboard",
+    "TREATMENT WORKS SUPERVISOR": "o:dashboard",
+    "TREATMENT WORKS OPERATOR": "o:dashboard",
+    "TREATMENT WORKS OFFICER": "o:dashboard",
+    "TREATMENT WORKS CO-ORDINATOR": "o:dashboard",
     "QUALITY ASSURANCE  CO-ORDINATOR": "qc:dashboard",
     "WSP CO-ORDINATOR": "qc:dashboard",
     "QUALITY ASSURANCE MANAGER": "qc:dashboard",
@@ -273,7 +279,10 @@ LOGIN_GROUP_REDIRECT_MAP = {
 # =========================================================
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 8},
+    },
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
@@ -314,15 +323,28 @@ ensure_runtime_dirs()
 
 
 # =========================================================
-# EMAIL
+# EMAIL / EXCHANGE EWS
 # =========================================================
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-EMAIL_HOST = env("EMAIL_HOST")
+EMAIL_BACKEND = env("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+# SMTP is unused when the Exchange EWS backend is selected. Keep Django's
+# standard email settings optional so installations can configure EWS alone.
+EMAIL_HOST = env("EMAIL_HOST", "")
 EMAIL_PORT = env("EMAIL_PORT", 587, int)
 EMAIL_USE_TLS = env("EMAIL_USE_TLS", True, bool)
-EMAIL_HOST_USER = env("EMAIL_HOST_USER")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD")
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", "")
+EXCHANGE_EWS_URL = env("EXCHANGE_EWS_URL", "")
+EXCHANGE_DOMAIN = env("EXCHANGE_DOMAIN", "")
+EXCHANGE_USERNAME = env("EXCHANGE_USERNAME", EMAIL_HOST_USER or "")
+EXCHANGE_PASSWORD = env("EXCHANGE_PASSWORD", EMAIL_HOST_PASSWORD or "")
+EXCHANGE_VERIFY_SSL = env("EXCHANGE_VERIFY_SSL", True, bool)
+EXCHANGE_CA_BUNDLE = env("EXCHANGE_CA_BUNDLE", "")
+EXCHANGE_TIMEOUT = env("EXCHANGE_TIMEOUT", 20, int)
+DEFAULT_FROM_EMAIL = env(
+    "DEFAULT_FROM_EMAIL",
+    env("EMAIL_DEFAULT_FROM", EXCHANGE_USERNAME or EMAIL_HOST_USER or ""),
+)
+PUBLIC_ORIGIN = env("PUBLIC_ORIGIN", "").strip().rstrip("/")
 
 
 # =========================================================

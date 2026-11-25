@@ -1,213 +1,50 @@
 #pwa-install-button {
     position: fixed;
-    z-index: 2147483000;
-    right: max(1rem, env(safe-area-inset-right, 0px));
-    bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+    right: 18px;
+    bottom: 18px;
+    z-index: 10000;
     display: inline-flex;
     align-items: center;
-    gap: .55rem;
-    min-height: 44px;
-    padding: .65rem .95rem;
-    border: 1px solid rgba(255, 255, 255, .22);
+    gap: 8px;
+    padding: 10px 16px;
+    border: 0;
     border-radius: 999px;
-    background: #075985;
+    background: linear-gradient(135deg, #0ea5e9, #2563eb);
+    box-shadow: 0 8px 24px rgb(15 23 42 / 25%);
     color: #fff;
-    box-shadow: 0 8px 28px rgba(2, 8, 23, .3);
-    font: 600 .9rem/1.2 system-ui, sans-serif;
+    font: 600 13px/1.2 system-ui, sans-serif;
     cursor: pointer;
 }
 
-#pwa-install-button:hover,
-#pwa-install-button:focus-visible {
-    background: #0369a1;
-    outline: 3px solid rgba(56, 189, 248, .5);
-    outline-offset: 2px;
+#pwa-install-button:disabled {
+    cursor: wait;
+    opacity: .7;
 }
 
 .pwa-network-notice {
     position: fixed;
-    z-index: 2147482999;
-    inset: max(.75rem, env(safe-area-inset-top, 0px)) .75rem auto;
-    padding: .75rem 1rem;
-    border: 1px solid #f59e0b;
-    border-radius: .75rem;
-    background: #fffbeb;
-    color: #78350f;
-    box-shadow: 0 8px 28px rgba(2, 8, 23, .2);
-    font: 600 .9rem/1.4 system-ui, sans-serif;
-    text-align: center;
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    z-index: 10001;
+    width: fit-content;
+    max-width: min(640px, calc(100vw - 32px));
+    margin: 0 auto;
+    padding: 12px 16px;
+    border: 1px solid #b91c1c;
+    border-radius: 10px;
+    background: #7f1d1d;
+    box-shadow: 0 8px 24px rgb(15 23 42 / 28%);
+    color: #fff;
+    font: 600 13px/1.45 system-ui, sans-serif;
 }
 
 .pwa-network-notice[hidden] {
     display: none;
 }
 
-#pwa-global-close-control,
-.btn-launcher-close,
-[data-close-app-window] {
-    display: none !important;
-}
-
-@media (display-mode: fullscreen), (display-mode: standalone), (display-mode: window-controls-overlay) {
-    #pwa-install-button { display: none !important; }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   Offline Queue & Sync Floating Indicator
-   ═══════════════════════════════════════════════════════════════ */
-#pwa-sync-pill {
-    position: fixed;
-    z-index: 2147483001;
-    bottom: max(1rem, env(safe-area-inset-bottom, 0px));
-    left: max(1rem, env(safe-area-inset-left, 0px));
-    display: inline-flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.6rem 1rem;
-    border-radius: 9999px;
-    font: 600 0.85rem/1.2 system-ui, -apple-system, sans-serif;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 1px rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    transform: translateY(0);
-}
-
-#pwa-sync-pill.status-offline {
-    background: linear-gradient(135deg, rgba(217, 119, 6, 0.95), rgba(180, 83, 9, 0.95));
-    border: 1px solid rgba(251, 191, 36, 0.4);
-    color: #ffffff;
-}
-
-#pwa-sync-pill.status-pending {
-    background: linear-gradient(135deg, rgba(14, 116, 144, 0.95), rgba(3, 105, 161, 0.95));
-    border: 1px solid rgba(56, 189, 248, 0.4);
-    color: #ffffff;
-}
-
-#pwa-sync-pill.status-syncing {
-    background: linear-gradient(135deg, rgba(67, 56, 202, 0.95), rgba(79, 70, 229, 0.95));
-    border: 1px solid rgba(165, 180, 252, 0.4);
-    color: #ffffff;
-}
-
-#pwa-sync-pill.status-synced {
-    background: linear-gradient(135deg, rgba(5, 150, 105, 0.95), rgba(4, 120, 87, 0.95));
-    border: 1px solid rgba(52, 211, 153, 0.4);
-    color: #ffffff;
-}
-
-#pwa-sync-pill .pill-action {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.2rem 0.6rem;
-    border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.2);
-    color: #ffffff;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    cursor: pointer;
-    border: none;
-    transition: background 0.15s ease;
-}
-
-#pwa-sync-pill .pill-action:hover {
-    background: rgba(255, 255, 255, 0.35);
-}
-
-#pwa-sync-pill .pill-icon-spin {
-    animation: pwa-spin 1s linear infinite;
-}
-
-@keyframes pwa-spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-/* Offline Toast Notification */
-.pwa-offline-toast {
-    position: fixed;
-    z-index: 2147483002;
-    top: max(1.25rem, env(safe-area-inset-top, 0px));
-    left: 50%;
-    transform: translateX(-50%) translateY(0);
-    max-width: 90vw;
-    width: 420px;
-    padding: 1rem 1.25rem;
-    background: rgba(15, 23, 42, 0.92);
-    border: 1px solid rgba(56, 189, 248, 0.3);
-    border-radius: 14px;
-    color: #f8fafc;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 25px rgba(56, 189, 248, 0.15);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    display: flex;
-    align-items: flex-start;
-    gap: 0.85rem;
-    animation: pwa-slide-down 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes pwa-slide-down {
-    from {
-        transform: translateX(-50%) translateY(-30px);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(-50%) translateY(0);
-        opacity: 1;
-    }
-}
-
-.pwa-offline-toast.toast-warning {
-    border-color: rgba(245, 158, 11, 0.5);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 25px rgba(245, 158, 11, 0.2);
-}
-
-.pwa-offline-toast.toast-success {
-    border-color: rgba(16, 185, 129, 0.5);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 25px rgba(16, 185, 129, 0.2);
-}
-
-.pwa-offline-toast-icon {
-    font-size: 1.3rem;
-    flex-shrink: 0;
-    margin-top: 0.1rem;
-}
-
-.pwa-offline-toast-content {
-    flex: 1;
-}
-
-.pwa-offline-toast-title {
-    font-weight: 700;
-    font-size: 0.95rem;
-    color: #ffffff;
-    margin-bottom: 0.25rem;
-}
-
-.pwa-offline-toast-message {
-    font-size: 0.82rem;
-    line-height: 1.4;
-    color: #cbd5e1;
-}
-
-.pwa-offline-toast-close {
-    background: transparent;
-    border: none;
-    color: #94a3b8;
-    font-size: 1.2rem;
-    cursor: pointer;
-    padding: 0 0.25rem;
-    line-height: 1;
-}
-
-.pwa-offline-toast-close:hover {
-    color: #ffffff;
-}
-
 @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { scroll-behavior: auto !important; }
-    #pwa-sync-pill, .pwa-offline-toast { animation: none !important; transition: none !important; }
+    #pwa-install-button {
+        transition: none;
+    }
 }

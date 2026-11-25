@@ -7,14 +7,9 @@
     min-height: 0;
     flex-direction: column;
     overflow: hidden;
-    background:
-        linear-gradient(
-            180deg,
-            rgb(13 27 46 / .99) 0%,
-            rgb(8 20 35 / 1) 100%
-        );
-    color: #d8e3f0;
-    border-right: 1px solid rgb(148 163 184 / .11);
+    background: var(--sidebar-bg, linear-gradient(180deg, rgb(13 27 46 / .99) 0%, rgb(8 20 35 / 1) 100%));
+    color: var(--sidebar-text, var(--theme-text, #d8e3f0));
+    border-right: 1px solid var(--sidebar-border, var(--theme-border, rgb(148 163 184 / .11)));
     box-shadow: 12px 0 32px rgb(2 8 23 / .08);
     transition:
         width var(--ca-transition);

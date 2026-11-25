@@ -22,6 +22,7 @@ MODEL_SCOPE_PATHS = {
     "sc.shiftsupervisor": {"plant": ("treatment_plant_id", "shift__treatment_plant_id", "user__assigned_treatment_plant_id"), "section": ("section_id", "shift__section_requirements__section_id", "user__section_id")},
     "sc.annualleave": {"plant": ("treatment_plant_id", "staff__assigned_treatment_plant_id"), "section": ("staff__section_id",)},
     "sc.monthlydutyroster": {"plant": ("treatment_plant_id",), "section": ("assignments__staff__section_id",)},
+    "sc.weeklyshiftteam": {"plant": ("duty_roster__treatment_plant_id",), "section": ("section_id",)},
     "sc.shiftassignment": {"plant": ("shift__treatment_plant_id", "duty_roster__treatment_plant_id", "staff__assigned_treatment_plant_id"), "section": ("staff__section_id",)},
     "sc.shifthandover": {"plant": ("shift__treatment_plant_id",)},
     "sc.apparatus": {"plant": ("equipment__section__treatment_plant_id",), "section": ("equipment__section_id",)},

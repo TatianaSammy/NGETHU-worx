@@ -1,0 +1,21 @@
+<aside class="sidebar collapsed" id="appSidebar">
+    <nav class="sidebar-nav" aria-label="Laboratory standardization">
+        <ul class="sidebar-menu">
+            <li class="sidebar-section-title"><span class="label">STANDARDIZATION</span></li>
+            <li class="sidebar-item {% if request.GET.entry == '1' %}active{% endif %}">
+                <a href="{% url 'standardization:dashboard' %}?entry=1#new-standardization"
+                   class="nav-link" title="Standardization form" aria-label="Open standardization form">
+                    <i class="fas fa-flask-vial sidebar-icon" aria-hidden="true"></i>
+                    <span class="label">Standardization form</span>
+                </a>
+            </li>
+            <li class="sidebar-item {% if request.GET.entry != '1' %}active{% endif %}">
+                <a href="{% url 'standardization:dashboard' %}#standardization-records"
+                   class="nav-link" title="Run history" aria-label="View standardization run history">
+                    <i class="fas fa-list-check sidebar-icon" aria-hidden="true"></i>
+                    <span class="label">Run history</span>
+                </a>
+            </li>
+        </ul>
+    </nav>
+</aside>

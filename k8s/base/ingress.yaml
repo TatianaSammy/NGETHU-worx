@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qad-ingress
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-buffering: "on"
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "16k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "8"
+    # WebSocket upgrade for daphne
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - qad.local
+      secretName: qad-tls
+  rules:
+    - host: qad.local
+      http:
+        paths:
+          # WebSocket path → Daphne (ASGI)
+          - path: /ws/
+            pathType: Prefix
+            backend:
+              service:
+                name: qad-daphne
+                port:
+                  number: 8001
+          # Static files served by nginx directly
+          - path: /static/
+            pathType: Prefix
+            backend:
+              service:
+                name: qad-nginx
+                port:
+                  number: 80
+          # Media files served by nginx directly
+          - path: /media/
+            pathType: Prefix
+            backend:
+              service:
+                name: qad-nginx
+                port:
+                  number: 80
+          # Everything else → gunicorn web
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: qad-web
+                port:
+                  number: 80
+

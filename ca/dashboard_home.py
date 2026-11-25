@@ -18,6 +18,7 @@ from .models import (
     ChemicalAnalysisProcess,
     ChemicalAnalysisRequest,
     ChemicalBatch,
+    ChemicalBatchInspection,
     ChemicalLocation,
     ChemicalBatchHold,
     ChemicalInventoryMovement,
@@ -395,7 +396,101 @@ class ChemicalAnalysisDashboardView(CaWanjalaMixin, ChemicalBatchRegisterQueryMi
         can_view_results = self._allowed("ca.view_batchtestresult")
         can_view_coa = self._allowed("ca.view_chemicalcoa")
         can_receive = self._allowed("ca.receive_chemical_batch")
+        can_review_inspections = self._allowed("ca.reject_chemical_batch")
+        can_view_supplier_collections = self._allowed("ca.return_chemical_batch")
+        can_view_receiving_tab = (
+            can_receive or can_review_inspections or can_view_supplier_collections
+        )
+        requested_tab = (self.request.GET.get("tab") or "register").strip()
+        active_tab = (
+            "receiving"
+            if requested_tab == "receiving" and can_view_receiving_tab
+            else "register"
+        )
         plant_context = context.get("plant_context", {})
+        dashboard_batch_count = (
+            self.scope_queryset(ChemicalBatch.objects.all(), field="treatment_plant_id").count()
+            if can_view_batches else 0
+        )
+        inspection_queue = ChemicalBatch.objects.none()
+        supply_chain_review_queue = ChemicalBatch.objects.none()
+        supplier_collection_queue = ChemicalBatch.objects.none()
+        if can_view_receiving_tab:
+            latest_inspection = ChemicalBatchInspection.objects.filter(
+                batch_id=OuterRef("pk")
+            ).order_by("-attempt")
+            receiving_scope = self.scope_queryset(
+                ChemicalBatch.objects.filter(status=ChemicalBatch.Status.RECEIVED),
+                field="treatment_plant_id",
+            ).select_related("chemical", "supplier", "treatment_plant")
+            receiving_scope = receiving_scope.annotate(
+                latest_inspection_status=Subquery(latest_inspection.values("status")[:1]),
+                latest_inspection_attempt=Subquery(latest_inspection.values("attempt")[:1]),
+                latest_inspection_reviewed_at=Subquery(latest_inspection.values("reviewed_at")[:1]),
+                latest_inspection_decision=Subquery(latest_inspection.values("supply_chain_decision")[:1]),
+            )
+            if can_receive:
+                inspection_queue = receiving_scope.filter(
+                    Q(latest_inspection_status__isnull=True)
+                    | Q(latest_inspection_status=ChemicalBatchInspection.Status.PENDING)
+                ).order_by("-received_date", "-pk")
+            if can_review_inspections:
+                supply_chain_review_queue = receiving_scope.filter(
+                    latest_inspection_status=ChemicalBatchInspection.Status.FAIL,
+                    latest_inspection_reviewed_at__isnull=True,
+                ).order_by("-received_date", "-pk")
+            if can_view_supplier_collections:
+                supplier_collection_queue = self.scope_queryset(
+                    ChemicalBatch.objects.filter(
+                        status=ChemicalBatch.Status.REJECTED,
+                        supplier_collection_due_at__isnull=False,
+                        supplier_collected_at__isnull=True,
+                    ).select_related("chemical", "supplier", "treatment_plant"),
+                    field="treatment_plant_id",
+                ).order_by("supplier_collection_due_at", "-pk")
+
+        inspection_queue_count = inspection_queue.count()
+        supply_chain_review_count = supply_chain_review_queue.count()
+        supplier_collection_count = supplier_collection_queue.count()
+        inspection_batches = []
+        supply_chain_review_batches = []
+        supplier_collection_batches = []
+        can_change_batch = self._allowed("ca.change_chemicalbatch")
+        if active_tab == "receiving":
+            inspection_batches = list(inspection_queue[:100])
+            supply_chain_review_batches = list(supply_chain_review_queue[:100])
+            supplier_collection_batches = list(supplier_collection_queue[:100])
+            inspection_suffix = ""
+            if plant_context.get("plant_id"):
+                inspection_suffix = (
+                    f"&{plant_context.get('query_param', 'plant')}="
+                    f"{plant_context['plant_id']}"
+                )
+            for batch in inspection_batches:
+                batch.inspection_detail_url = (
+                    f"{reverse('ca:batch-detail', kwargs={'pk': batch.pk})}"
+                    f"?stage=inspection{inspection_suffix}"
+                )
+                batch.inspection_action_url = (
+                    reverse("ca:batch-update", kwargs={"pk": batch.pk})
+                    if batch.package_count is None and can_change_batch
+                    else batch.inspection_detail_url
+                )
+                batch.inspection_action_label = (
+                    "Add package count" if batch.package_count is None and can_change_batch
+                    else "Open batch" if batch.package_count is None
+                    else "Open inspection"
+                )
+            for batch in supply_chain_review_batches:
+                batch.inspection_detail_url = (
+                    f"{reverse('ca:batch-detail', kwargs={'pk': batch.pk})}"
+                    f"?stage=inspection{inspection_suffix}"
+                )
+            for batch in supplier_collection_batches:
+                batch.collection_detail_url = (
+                    f"{reverse('ca:batch-detail', kwargs={'pk': batch.pk})}"
+                    f"?stage=disposition{inspection_suffix}"
+                )
         chemical_locations = ChemicalLocation.objects.select_related(
             "treatment_plant"
         ).order_by("treatment_plant__name", "name")
@@ -433,7 +528,7 @@ class ChemicalAnalysisDashboardView(CaWanjalaMixin, ChemicalBatchRegisterQueryMi
         page_numbers = []
         total_batches = 0
         filter_options = {"chemicals": [], "suppliers": [], "locations": [], "analysts": []}
-        if can_view_batches:
+        if can_view_batches and active_tab == "register":
             base = self.scope_queryset(ChemicalBatch.objects.all(), field="treatment_plant_id")
             filter_options = {
                 "chemicals": Chemical.objects.filter(
@@ -479,12 +574,28 @@ class ChemicalAnalysisDashboardView(CaWanjalaMixin, ChemicalBatchRegisterQueryMi
         context.update(
             {
                 "dashboard_now": timezone.now(),
+                "default_delivery_datetime": timezone.localtime().strftime(
+                    "%Y-%m-%dT%H:%M"
+                ),
                 "can_view_batches": can_view_batches,
                 "can_view_requests": can_view_requests,
                 "can_view_processes": can_view_processes,
                 "can_view_results": can_view_results,
                 "can_view_coa": can_view_coa,
                 "can_receive_batch": can_receive,
+                "can_review_inspections": can_review_inspections,
+                "can_view_supplier_collections": can_view_supplier_collections,
+                "can_view_receiving_tab": can_view_receiving_tab,
+                "active_tab": active_tab,
+                "dashboard_batch_count": dashboard_batch_count,
+                "inspection_queue_count": inspection_queue_count,
+                "supply_chain_review_count": supply_chain_review_count,
+                "supplier_collection_count": supplier_collection_count,
+                "inspection_batches": inspection_batches,
+                "supply_chain_review_batches": supply_chain_review_batches,
+                "supplier_collection_batches": supplier_collection_batches,
+                "inspection_list_limit": 100,
+                "can_change_batch": can_change_batch,
                 "is_ca_superuser": self.is_ca_superuser(),
                 "chemicals": list(Chemical.objects.order_by("name")) if can_receive else [],
                 "suppliers": list(Supplier.objects.order_by("name")) if can_receive else [],
@@ -648,8 +759,16 @@ def _batch_register_export_row(batch, columns):
         "location": batch.location.name if batch.location_id else "—",
         "received": batch.received_date,
         "age": batch.days_in_store,
-        "quantity": f"{batch.quantity_received:g} {batch.unit}",
-        "available": f"{batch.register_available_quantity:g} {batch.unit}",
+        "quantity": (
+            f"{batch.quantity_received:g} {batch.unit} ({batch.package_quantity_display})"
+            if batch.quantity_received is not None
+            else f"Pending committee inspection ({batch.package_quantity_display or 'quantity details missing'})"
+        ),
+        "available": (
+            f"{batch.register_available_quantity:g} {batch.unit}"
+            if batch.quantity_received is not None
+            else "Not yet stocked"
+        ),
         "status": batch.get_status_display(),
         "stage": batch.analysis_stage_label,
         "analysts": batch.assigned_analysts_label,

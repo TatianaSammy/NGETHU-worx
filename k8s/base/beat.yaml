@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qad-beat
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: beat
+spec:
+  # CRITICAL: beat must always be a singleton �?multiple instances corrupt the schedule
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: beat
+  strategy:
+    # Recreate ensures old pod is killed before new one starts (no dual-beat scenario)
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qad
+        app.kubernetes.io/component: beat
+    spec:
+      serviceAccountName: qad-serviceaccount
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-deps
+          image: qad-backend:stable
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until nc -z pgbouncer 6432; do echo "waiting for pgbouncer..."; sleep 2; done
+              until nc -z redis 6379; do echo "waiting for redis..."; sleep 2; done
+              echo "Beat dependencies ready."
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      containers:
+        - name: beat
+          image: qad-backend:stable
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command:
+            - celery
+            - -A
+            - qad
+            - beat
+            - --loglevel=INFO
+            - --scheduler=django_celery_beat.schedulers:DatabaseScheduler
+            - --pidfile=/tmp/celerybeat.pid
+            - --logfile=/tmp/celerybeat.log
+          envFrom:
+            - configMapRef:
+                name: qad-config
+            - secretRef:
+                name: qad-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep -f 'celery beat' > /dev/null"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 10
+          volumeMounts:
+            - name: beat-tmp
+              mountPath: /tmp
+      volumes:
+        - name: beat-tmp
+          emptyDir:
+            sizeLimit: 256Mi
+

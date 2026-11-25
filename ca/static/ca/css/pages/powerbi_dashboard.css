@@ -5,25 +5,25 @@
    ========================================================================== */
 
 :root {
-    --pbi-canvas-bg: var(--theme-bg, #dbe6f5);
-    --pbi-canvas-gradient: linear-gradient(135deg, var(--theme-bg, #e4edf8) 0%, var(--theme-surface-muted, #d8e5f5) 55%, var(--theme-bg, #cddff3) 100%);
-    --pbi-sidebar-bg: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent, #09376e) 78%, #082a4c) 0%, color-mix(in srgb, var(--theme-accent, #0c4384) 68%, #082a4c) 45%, color-mix(in srgb, var(--theme-accent, #093468) 78%, #082a4c) 100%);
-    --pbi-sidebar-active: var(--theme-surface, #e2edfa);
-    --pbi-sidebar-active-text: var(--theme-accent, #093366);
-    --pbi-sidebar-text: rgba(255, 255, 255, .88);
-    --pbi-header-pill-bg: linear-gradient(180deg, color-mix(in srgb, var(--theme-accent, #0b4584) 78%, #082a4c) 0%, color-mix(in srgb, var(--theme-accent-hover, #072e5c) 78%, #082a4c) 100%);
-    --pbi-slicer-header-bg: color-mix(in srgb, var(--theme-accent, #0d2746) 78%, #082a4c);
-    --pbi-slicer-border: var(--theme-border, #c8daf0);
+    --pbi-canvas-bg: var(--theme-bg, var(--theme-surface-muted));
+    --pbi-canvas-gradient: linear-gradient(135deg, var(--theme-bg, var(--theme-surface-muted)) 0%, var(--theme-surface-muted, var(--theme-surface-muted)) 55%, var(--theme-bg, var(--theme-surface-muted)) 100%);
+    --pbi-sidebar-bg: var(--theme-surface-strong, var(--theme-surface, #ffffff));
+    --pbi-sidebar-active: var(--theme-accent-soft, color-mix(in srgb, var(--theme-accent) 14%, var(--theme-surface)));
+    --pbi-sidebar-active-text: var(--theme-accent, var(--theme-text));
+    --pbi-sidebar-text: var(--theme-text-secondary, var(--theme-muted, var(--theme-text-secondary,var(--theme-muted))));
+    --pbi-header-pill-bg: var(--theme-accent, var(--theme-text));
+    --pbi-slicer-header-bg: var(--theme-surface-muted, var(--theme-surface-muted));
+    --pbi-slicer-border: var(--theme-border, var(--theme-border));
     --pbi-card-bg: var(--theme-surface, #ffffff);
-    --pbi-card-border: var(--theme-border, #d4e2f2);
-    --pbi-card-shadow: var(--shadow-md, 0 4px 16px rgba(10, 40, 90, 0.08));
-    --pbi-navy-text: var(--theme-text, #0c2340);
-    --pbi-sub-text: var(--theme-muted, #4a5c73);
-    --pbi-bar-blue: color-mix(in srgb, var(--theme-accent, #1e88e5) 48%, white);
-    --pbi-bar-hover: var(--theme-accent, #6ea4e0);
-    --pbi-accent-blue: var(--theme-accent, #1e88e5);
-    --pbi-gauge-fill: var(--theme-accent, #3a86ff);
-    --pbi-gauge-track: var(--theme-surface-muted, #e5effa);
+    --pbi-card-border: var(--theme-border, var(--theme-border));
+    --pbi-card-shadow: var(--shadow-md, 0 4px 16px color-mix(in srgb,var(--theme-text) 8%,transparent));
+    --pbi-navy-text: var(--theme-text, var(--theme-text));
+    --pbi-sub-text: var(--theme-muted, var(--theme-text-secondary,var(--theme-muted)));
+    --pbi-bar-blue: color-mix(in srgb, var(--theme-accent) 48%, var(--theme-surface));
+    --pbi-bar-hover: var(--theme-accent);
+    --pbi-accent-blue: var(--theme-accent);
+    --pbi-gauge-fill: var(--theme-accent);
+    --pbi-gauge-track: var(--theme-surface-muted, var(--theme-surface-muted));
 }
 
 /* ── Parent Shell Overrides for Power BI Full Canvas Experience ── */
@@ -59,7 +59,7 @@
 
 .ca-app-shell:has(.pbi-dashboard-root) .ca-context-topbar,
 .is-pbi-active .ca-context-topbar {
-    border-bottom: 1px solid #c8d9ee;
+    border-bottom: 1px solid var(--theme-border);
 }
 
 /* ── Container Layout ────────────────────────────────────────── */
@@ -68,7 +68,7 @@
     width: 100%;
     min-height: calc(100vh - var(--header-height, 62px));
     background: var(--pbi-canvas-gradient);
-    font-family: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-sans, "Segoe UI", system-ui, sans-serif);
     color: var(--pbi-navy-text);
     box-sizing: border-box;
     overflow-x: hidden;
@@ -84,7 +84,7 @@
     flex-direction: column;
     align-items: center;
     padding: 16px 0 20px;
-    box-shadow: 4px 0 20px rgba(7, 35, 70, 0.18);
+    box-shadow: 4px 0 20px color-mix(in srgb,var(--theme-text) 18%,transparent);
     z-index: 20;
     box-sizing: border-box;
     transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), flex-basis 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease;
@@ -101,9 +101,9 @@
 }
 
 .pbi-sidebar-toggle-btn {
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    color: #e2e8f0;
+    background: color-mix(in srgb,var(--theme-text) 8%,transparent);
+    border: 1px solid color-mix(in srgb,var(--theme-text) 18%,transparent);
+    color: var(--theme-border);
     width: 28px;
     height: 28px;
     border-radius: 6px;
@@ -117,10 +117,10 @@
 }
 
 .pbi-sidebar-toggle-btn:hover {
-    background: rgba(0, 242, 254, 0.2);
-    border-color: #00f2fe;
-    color: #ffffff;
-    box-shadow: 0 0 10px rgba(0, 242, 254, 0.4);
+    background: color-mix(in srgb,var(--theme-accent) 20%,transparent);
+    border-color: var(--theme-accent);
+    color: var(--theme-on-accent,#fff);
+    box-shadow: 0 0 10px color-mix(in srgb,var(--theme-accent) 40%,transparent);
 }
 
 /* Collapsed Sidebar State */
@@ -180,17 +180,17 @@
     left: 64px;
     top: 50%;
     transform: translateY(-50%);
-    background: #072346;
-    color: #ffffff;
+    background: var(--theme-surface-strong,var(--theme-surface));
+    color: var(--theme-on-accent,#fff);
     padding: 7px 12px;
     border-radius: 6px;
     font-size: 0.76rem;
     font-weight: 600;
     white-space: nowrap;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 6px 20px color-mix(in srgb,var(--theme-text) 35%,transparent);
     z-index: 999;
     pointer-events: none;
-    border: 1px solid rgba(0, 242, 254, 0.3);
+    border: 1px solid color-mix(in srgb,var(--theme-accent) 30%,transparent);
     animation: pbiFadeIn 0.15s ease-out;
 }
 
@@ -234,8 +234,8 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
-    border: 3px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 6px 18px color-mix(in srgb,var(--theme-text) 22%,transparent);
+    border: 3px solid color-mix(in srgb,var(--theme-text) 85%,transparent);
     transition: transform 0.25s ease;
 }
 
@@ -247,14 +247,14 @@
     font-size: 1.35rem;
     font-weight: 900;
     letter-spacing: -0.02em;
-    color: #0b4584;
+    color: var(--theme-text);
     line-height: 1;
 }
 
 .pbi-emblem-subtext {
     font-size: 0.52rem;
     font-weight: 700;
-    color: #0088cc;
+    color: var(--theme-accent);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     margin-top: 3px;
@@ -299,8 +299,8 @@
 }
 
 .pbi-nav-link:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #ffffff;
+    background: color-mix(in srgb,var(--theme-text) 12%,transparent);
+    color: var(--theme-on-accent,#fff);
     transform: translateX(3px);
 }
 
@@ -308,11 +308,11 @@
     background: var(--pbi-sidebar-active);
     color: var(--pbi-sidebar-active-text);
     font-weight: 800;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+    box-shadow: 0 4px 14px color-mix(in srgb,var(--theme-text) 15%,transparent);
 }
 
 .pbi-nav-link.is-active i {
-    color: #0b4584;
+    color: var(--theme-text);
     opacity: 1;
 }
 
@@ -340,10 +340,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #ffffff;
+    color: var(--theme-on-accent,#fff);
     font-size: 0.85rem;
     text-decoration: none;
-    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 3px 8px color-mix(in srgb,var(--theme-text) 25%,transparent);
     transition: transform 0.2s ease;
 }
 
@@ -352,11 +352,11 @@
 }
 
 .pbi-social-icon--yt {
-    background: #e62117;
+    background: var(--theme-accent);
 }
 
 .pbi-social-icon--in {
-    background: #0077b5;
+    background: var(--theme-accent);
 }
 
 .pbi-status-chip {
@@ -365,9 +365,9 @@
     gap: 6px;
     padding: 4px 10px;
     border-radius: 999px;
-    background: rgba(16, 185, 129, 0.15);
-    border: 1px solid rgba(16, 185, 129, 0.4);
-    color: #6ee7b7;
+    background: color-mix(in srgb,var(--color-success) 15%,transparent);
+    border: 1px solid color-mix(in srgb,var(--color-success) 40%,transparent);
+    color: var(--color-success);
     font-size: 0.68rem;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -378,8 +378,8 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: #10b981;
-    box-shadow: 0 0 8px #10b981;
+    background: var(--color-success);
+    box-shadow: 0 0 8px var(--color-success);
 }
 
 /* ── Main Canvas ─────────────────────────────────────────────── */
@@ -405,8 +405,8 @@
     background: var(--pbi-header-pill-bg);
     border-radius: 14px;
     padding: 12px 36px;
-    box-shadow: 0 4px 18px rgba(9, 45, 85, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 4px 18px color-mix(in srgb,var(--theme-text) 25%,transparent), inset 0 1px 0 color-mix(in srgb,var(--theme-text) 15%,transparent);
+    border: 1px solid color-mix(in srgb,var(--theme-text) 18%,transparent);
     text-align: center;
 }
 
@@ -415,8 +415,8 @@
     font-size: 1.35rem;
     font-weight: 800;
     letter-spacing: -0.01em;
-    color: #ffffff;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+    color: var(--theme-on-accent,#fff);
+    text-shadow: 0 2px 4px color-mix(in srgb,var(--theme-text) 25%,transparent);
 }
 
 /* ── Horizontal Filter Slicers Bar ────────────────────────────── */
@@ -446,13 +446,13 @@
     background: var(--theme-surface, #ffffff);
     border-radius: 8px;
     overflow: hidden;
-    box-shadow: var(--shadow-sm, 0 3px 10px rgba(10, 40, 85, 0.06));
+    box-shadow: var(--shadow-sm, 0 3px 10px color-mix(in srgb,var(--theme-text) 6%,transparent));
     border: 1px solid var(--pbi-slicer-border);
 }
 
 .pbi-slicer-header {
     background: var(--pbi-slicer-header-bg);
-    color: #ffffff;
+    color: var(--theme-on-accent,#fff);
     padding: 6px 10px;
     display: flex;
     align-items: center;
@@ -475,7 +475,7 @@
 
 .pbi-slicer-select {
     width: 100%;
-    border: 1px solid var(--theme-border-strong, #d0deec);
+    border: 1px solid var(--theme-border-strong, var(--theme-border));
     border-radius: 4px;
     padding: 4px 24px 4px 8px;
     font-size: 0.74rem;
@@ -489,8 +489,8 @@
 }
 
 .pbi-slicer-select:focus {
-    border-color: var(--theme-accent, #1e88e5);
-    box-shadow: 0 0 0 2px var(--theme-accent-soft, rgba(30, 136, 229, 0.2));
+    border-color: var(--theme-accent);
+    box-shadow: 0 0 0 2px var(--theme-accent-soft, color-mix(in srgb,var(--theme-accent) 20%,transparent));
 }
 
 .pbi-slicer-chevron {
@@ -499,7 +499,7 @@
     top: 50%;
     transform: translateY(-50%);
     font-size: 0.62rem;
-    color: var(--theme-muted, #4a6382);
+    color: var(--theme-muted, var(--theme-text-secondary,var(--theme-muted)));
     pointer-events: none;
 }
 
@@ -539,7 +539,7 @@
 
 .pbi-kpi-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(10, 45, 90, 0.12);
+    box-shadow: 0 6px 20px color-mix(in srgb,var(--theme-text) 12%,transparent);
 }
 
 .pbi-kpi-card::after {
@@ -549,7 +549,7 @@
     top: 20%;
     height: 60%;
     width: 1px;
-    background: #e2ecf7;
+    background: var(--theme-border);
 }
 
 .pbi-kpi-card:last-child::after {
@@ -577,7 +577,7 @@
 
 .pbi-kpi-sub {
     font-size: 0.65rem;
-    color: #64748b;
+    color: var(--theme-text-secondary,var(--theme-muted));
     margin-top: 4px;
     font-weight: 500;
 }
@@ -646,7 +646,7 @@
 .pbi-hbar-track {
     flex: 1 1 auto;
     height: 48px;
-    background: #f1f5fa;
+    background: var(--theme-surface-muted);
     border-radius: 4px;
     position: relative;
     overflow: hidden;
@@ -725,7 +725,7 @@
 .pbi-gauge-sub {
     font-size: 0.7rem;
     font-weight: 700;
-    color: #10b981;
+    color: var(--color-success);
     margin-top: 4px;
 }
 
@@ -764,7 +764,7 @@
 
 .pbi-donut-leader-line {
     fill: none;
-    stroke: #8ba0b8;
+    stroke: var(--theme-muted);
     stroke-width: 1;
 }
 
@@ -781,7 +781,7 @@
     height: 180px;
     padding: 10px 10px 0;
     position: relative;
-    border-bottom: 2px solid #cbdbee;
+    border-bottom: 2px solid var(--theme-border);
     box-sizing: border-box;
 }
 
@@ -819,7 +819,7 @@
     bottom: -24px;
     font-size: 0.72rem;
     font-weight: 600;
-    color: #4a5c73;
+    color: var(--theme-text-secondary,var(--theme-muted));
     white-space: nowrap;
 }
 
@@ -838,7 +838,7 @@
 
 /* ── Telemetry & Table Enhancements in Power BI Theme ────────── */
 .pbi-table-card {
-    background: #ffffff;
+    background: var(--theme-surface);
     border-radius: 12px;
     padding: 18px;
     box-shadow: var(--pbi-card-shadow);
@@ -852,8 +852,8 @@
 }
 
 .pbi-table th {
-    background: #0d2746;
-    color: #ffffff;
+    background: var(--theme-surface-strong,var(--theme-surface));
+    color: var(--theme-on-accent,#fff);
     padding: 10px 12px;
     text-align: left;
     font-weight: 700;
@@ -864,12 +864,12 @@
 
 .pbi-table td {
     padding: 10px 12px;
-    border-bottom: 1px solid #e5edf5;
+    border-bottom: 1px solid var(--theme-border);
     color: var(--pbi-navy-text);
 }
 
 .pbi-table tr:hover td {
-    background: #f4f8fd;
+    background: var(--theme-surface-muted);
 }
 
 .pbi-pill {
@@ -882,10 +882,10 @@
     font-weight: 700;
 }
 
-.pbi-pill--success { background: #dcfce7; color: #15803d; }
-.pbi-pill--warning { background: #fef3c7; color: #b45309; }
-.pbi-pill--danger  { background: #fee2e2; color: #b91c1c; }
-.pbi-pill--info    { background: #e0f2fe; color: #0369a1; }
+.pbi-pill--success { background: color-mix(in srgb,var(--color-success) 14%,var(--theme-surface)); color: var(--color-success); }
+.pbi-pill--warning { background: color-mix(in srgb,var(--color-warning) 14%,var(--theme-surface)); color: var(--color-warning); }
+.pbi-pill--danger  { background: color-mix(in srgb,var(--color-danger) 14%,var(--theme-surface)); color: var(--color-danger); }
+.pbi-pill--info    { background: color-mix(in srgb,var(--theme-accent) 14%,var(--theme-surface)); color: var(--theme-accent-hover,var(--theme-accent)); }
 
 /* ── ADVANCED SCIENTIFIC BI PRESENTATIONS & ULTRA-MODERN VISUALS ── */
 
@@ -896,9 +896,9 @@
 }
 
 @keyframes pbiPulseBeacon {
-    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.7); }
-    70% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(0, 242, 254, 0); }
-    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 242, 254, 0); }
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 color-mix(in srgb,var(--theme-accent) 70%,transparent); }
+    70% { transform: scale(1.05); box-shadow: 0 0 0 6px color-mix(in srgb,var(--theme-accent) 0%,transparent); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 color-mix(in srgb,var(--theme-accent) 0%,transparent); }
 }
 
 @keyframes pbiSparkDotPulse {
@@ -961,7 +961,7 @@
 
 .pbi-card-subtitle {
     font-size: 0.72rem;
-    color: #64748b;
+    color: var(--theme-text-secondary,var(--theme-muted));
     margin: 0;
     font-weight: 500;
 }
@@ -976,17 +976,17 @@
     font-weight: 800;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    background: rgba(2, 132, 199, 0.12);
-    border: 1px solid rgba(2, 132, 199, 0.35);
-    color: #0284c7;
+    background: color-mix(in srgb,var(--theme-accent) 12%,transparent);
+    border: 1px solid color-mix(in srgb,var(--theme-accent) 35%,transparent);
+    color: var(--theme-accent);
     width: fit-content;
     margin-bottom: 3px;
 }
 
 .pbi-live-badge--emerald {
-    background: rgba(16, 185, 129, 0.12);
-    border-color: rgba(16, 185, 129, 0.35);
-    color: #059669;
+    background: color-mix(in srgb,var(--color-success) 12%,transparent);
+    border-color: color-mix(in srgb,var(--color-success) 35%,transparent);
+    color: var(--color-success);
 }
 
 /* ── Legend Groups ───────────────────────────────────────────── */
@@ -996,7 +996,7 @@
     gap: 12px;
     font-size: 0.72rem;
     font-weight: 600;
-    color: #475569;
+    color: var(--theme-text-secondary,var(--theme-muted));
 }
 
 .pbi-legend-item {
@@ -1013,15 +1013,15 @@
 }
 
 .pbi-legend-pill--bar {
-    background: linear-gradient(90deg, #0284c7, #00f2fe);
+    background: linear-gradient(90deg, var(--theme-accent), var(--theme-accent));
 }
 
 .pbi-legend-pill--line {
-    background: linear-gradient(90deg, #38f9d7, #8b5cf6);
+    background: linear-gradient(90deg, var(--theme-accent), var(--ca-series-4));
 }
 
 .pbi-legend-pill--target {
-    background: #ef4444;
+    background: var(--color-danger);
 }
 
 /* ── Progressive Compound Line & Bar Canvas ──────────────────── */
@@ -1041,14 +1041,14 @@
 .pbi-axis-text {
     font-size: 9.5px;
     font-weight: 600;
-    fill: #64748b;
-    font-family: "JetBrains Mono", monospace;
+    fill: var(--theme-text-secondary,var(--theme-muted));
+    font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .pbi-axis-month {
     font-size: 10px;
     font-weight: 700;
-    fill: #334155;
+    fill: var(--theme-border-strong,var(--theme-border));
     text-transform: uppercase;
 }
 
@@ -1059,7 +1059,7 @@
 
 .pbi-compound-bar:hover {
     opacity: 0.85;
-    filter: drop-shadow(0 4px 10px rgba(0, 242, 254, 0.5));
+    filter: drop-shadow(0 4px 10px color-mix(in srgb,var(--theme-accent) 50%,transparent));
 }
 
 .pbi-vertex-node {
@@ -1069,9 +1069,9 @@
 
 .pbi-vertex-node:hover {
     r: 6.5px;
-    fill: #00f2fe;
-    stroke: #ffffff;
-    filter: drop-shadow(0 0 8px #00f2fe);
+    fill: var(--theme-accent);
+    stroke: var(--theme-surface);
+    filter: drop-shadow(0 0 8px var(--theme-accent));
 }
 
 /* ── Compound Chart Footer Ribbon ────────────────────────────── */
@@ -1082,8 +1082,8 @@
     margin-top: 14px;
     padding: 10px 14px;
     border-radius: 10px;
-    background: linear-gradient(135deg, rgba(248, 250, 252, 0.85) 0%, rgba(241, 245, 249, 0.85) 100%);
-    border: 1px solid #e2e8f0;
+    background: linear-gradient(135deg, color-mix(in srgb,var(--theme-surface) 85%,transparent) 0%, color-mix(in srgb,var(--theme-surface) 85%,transparent) 100%);
+    border: 1px solid var(--theme-border);
 }
 
 .pbi-compound-metric {
@@ -1095,7 +1095,7 @@
 .pbi-metric-sub {
     font-size: 0.65rem;
     font-weight: 600;
-    color: #64748b;
+    color: var(--theme-text-secondary,var(--theme-muted));
     text-transform: uppercase;
     letter-spacing: 0.03em;
 }
@@ -1103,7 +1103,7 @@
 .pbi-metric-val {
     font-size: 0.86rem;
     font-weight: 800;
-    color: #0f172a;
+    color: var(--theme-text);
 }
 
 /* ── Concentric Polar Donut & Wheel ──────────────────────────── */
@@ -1123,7 +1123,7 @@
     height: 140px;
     border-radius: 50%;
     flex-shrink: 0;
-    box-shadow: 0 8px 24px rgba(7, 35, 70, 0.12);
+    box-shadow: 0 8px 24px color-mix(in srgb,var(--theme-text) 12%,transparent);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1136,31 +1136,31 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.15);
+    box-shadow: inset 0 2px 6px color-mix(in srgb,var(--theme-text) 15%,transparent);
 }
 
 .pbi-polar-mid-ring {
     width: 96px;
     height: 96px;
     border-radius: 50%;
-    background: #ffffff;
+    background: var(--theme-surface);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.08);
+    box-shadow: inset 0 2px 6px color-mix(in srgb,var(--theme-text) 8%,transparent);
 }
 
 .pbi-polar-core {
     width: 70px;
     height: 70px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #072346 0%, #0b4584 100%);
+    background: linear-gradient(135deg, var(--theme-surface-strong,var(--theme-surface)) 0%, var(--theme-text) 100%);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #ffffff;
-    box-shadow: 0 4px 14px rgba(7, 35, 70, 0.35);
+    color: var(--theme-on-accent,#fff);
+    box-shadow: 0 4px 14px color-mix(in srgb,var(--theme-text) 35%,transparent);
     position: relative;
 }
 
@@ -1168,7 +1168,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #00f2fe;
+    background: var(--theme-accent);
     position: absolute;
     top: 7px;
     animation: pbiPulseBeacon 2s infinite ease-in-out;
@@ -1177,7 +1177,7 @@
 .pbi-core-value {
     font-size: 1.05rem;
     font-weight: 800;
-    color: #00f2fe;
+    color: var(--theme-accent);
     line-height: 1;
     letter-spacing: -0.02em;
 }
@@ -1187,7 +1187,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #94a3b8;
+    color: var(--theme-muted);
     margin-top: 2px;
 }
 
@@ -1214,15 +1214,15 @@
 }
 
 .pbi-polar-legend-name {
-    color: #334155;
+    color: var(--theme-border-strong,var(--theme-border));
     font-weight: 600;
 }
 
 .pbi-polar-legend-pct {
     margin-left: auto;
     font-weight: 800;
-    color: #0f172a;
-    font-family: "JetBrains Mono", monospace;
+    color: var(--theme-text);
+    font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.72rem;
 }
 
@@ -1245,7 +1245,7 @@
 .pbi-radar-label {
     font-size: 8.5px;
     font-weight: 700;
-    fill: #475569;
+    fill: var(--theme-text-secondary,var(--theme-muted));
     letter-spacing: 0.02em;
 }
 
@@ -1256,8 +1256,8 @@
 
 .pbi-radar-vertex:hover {
     r: 5px;
-    fill: #00f2fe;
-    filter: drop-shadow(0 0 6px #00f2fe);
+    fill: var(--theme-accent);
+    filter: drop-shadow(0 0 6px var(--theme-accent));
 }
 
 /* ── Multidimensional Stacked Horizon Plant Matrix ───────────── */
@@ -1279,11 +1279,11 @@
     justify-content: space-between;
     font-size: 0.76rem;
     font-weight: 700;
-    color: #1e293b;
+    color: var(--theme-surface-muted);
 }
 
 .pbi-matrix-count {
-    color: #64748b;
+    color: var(--theme-text-secondary,var(--theme-muted));
     font-weight: 600;
     font-size: 0.72rem;
 }
@@ -1294,8 +1294,8 @@
     height: 12px;
     border-radius: 6px;
     overflow: hidden;
-    background: #e2e8f0;
-    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+    background: var(--theme-border);
+    box-shadow: inset 0 1px 3px color-mix(in srgb,var(--theme-text) 8%,transparent);
 }
 
 .pbi-matrix-segment {
@@ -1314,9 +1314,9 @@
     gap: 12px;
     margin-top: 8px;
     font-size: 0.72rem;
-    color: #475569;
+    color: var(--theme-text-secondary,var(--theme-muted));
     font-weight: 600;
-    border-top: 1px solid #f1f5f9;
+    border-top: 1px solid var(--theme-surface-muted);
     padding-top: 8px;
 }
 
@@ -1344,31 +1344,31 @@
     align-items: center;
     gap: 12px;
     padding: 10px 14px;
-    background: linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.95) 100%);
-    border: 1px solid #e2e8f0;
+    background: linear-gradient(135deg, color-mix(in srgb,var(--theme-surface) 95%,transparent) 0%, color-mix(in srgb,var(--theme-surface) 95%,transparent) 100%);
+    border: 1px solid var(--theme-border);
     border-radius: 10px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+    box-shadow: 0 2px 6px color-mix(in srgb,var(--theme-text) 2%,transparent);
     transition: all 0.2s ease;
 }
 
 .pbi-telemetry-tile:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 14px rgba(7, 35, 70, 0.08);
-    border-color: #cbd5e1;
+    box-shadow: 0 4px 14px color-mix(in srgb,var(--theme-text) 8%,transparent);
+    border-color: var(--theme-text-secondary,var(--theme-muted));
 }
 
 .pbi-tile-icon-box {
     width: 36px;
     height: 36px;
     border-radius: 8px;
-    background: linear-gradient(135deg, #0284c7 0%, #00f2fe 100%);
+    background: linear-gradient(135deg, var(--theme-accent) 0%, var(--theme-accent) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #ffffff;
+    color: var(--theme-on-accent,#fff);
     font-size: 0.95rem;
     flex-shrink: 0;
-    box-shadow: 0 3px 8px rgba(2, 132, 199, 0.25);
+    box-shadow: 0 3px 8px color-mix(in srgb,var(--theme-accent) 25%,transparent);
 }
 
 .pbi-tile-info {
@@ -1381,7 +1381,7 @@
 .pbi-tile-name {
     font-size: 0.78rem;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--theme-text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1390,8 +1390,8 @@
 .pbi-tile-code {
     font-size: 0.65rem;
     font-weight: 600;
-    color: #64748b;
-    font-family: "JetBrains Mono", monospace;
+    color: var(--theme-text-secondary,var(--theme-muted));
+    font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 .pbi-tile-metrics {
@@ -1406,8 +1406,8 @@
     font-weight: 800;
     padding: 2px 6px;
     border-radius: 4px;
-    background: rgba(16, 185, 129, 0.14);
-    color: #059669;
+    background: color-mix(in srgb,var(--color-success) 14%,transparent);
+    color: var(--color-success);
     letter-spacing: 0.04em;
     text-transform: uppercase;
 }
@@ -1416,9 +1416,9 @@
     display: block;
     font-size: 0.65rem;
     font-weight: 600;
-    color: #475569;
+    color: var(--theme-text-secondary,var(--theme-muted));
     margin-top: 2px;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--font-mono, ui-monospace, monospace);
 }
 
 /* ── Dashboard layout refinements ──────────────────────────────

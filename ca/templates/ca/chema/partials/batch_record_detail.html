@@ -56,7 +56,9 @@
                 <div class="detail-item">
                     <span class="detail-label">Received Date</span>
                     <span class="detail-value">
-                        {% if batch.received_date %}
+                        {% if batch.received_at %}
+                            {{ batch.received_at|date:"d M Y, H:i:s" }}
+                        {% elif batch.received_date %}
                             {{ batch.received_date|date:"d M Y" }}
                         {% else %}
                             —

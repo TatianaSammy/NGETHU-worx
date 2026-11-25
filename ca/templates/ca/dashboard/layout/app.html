@@ -88,6 +88,7 @@ chemical-analysis
             <div class="ca-context-topbar__right">
                 {% if plant_context.is_superuser and plant_context.available_plants %}
                 <form id="ca-plant-scope-form" class="ca-scope-form" method="get" action="">
+                    {% if active_tab %}<input type="hidden" name="tab" value="{{ active_tab }}">{% endif %}
                     <label for="ca-plant-scope-select" class="ca-scope-label">Plant:</label>
                     <select id="ca-plant-scope-select" name="{{ plant_context.query_param }}" class="ca-scope-select" onchange="this.form.submit()">
                         <option value="all" {% if not plant_context.plant_id %}selected{% endif %}>All Treatment Plants</option>
@@ -105,10 +106,16 @@ chemical-analysis
                         <span>My Tasks</span>
                     </a>
                     {% endif %}
+                    {% if plant_context.is_superuser or perms.ca.start_chemical_analysis or perms.ca.record_chemical_result or perms.ca.complete_chemical_analysis %}
+                    <a href="{% url 'ca:my-tasks' %}?stage=analysis" class="ca-btn-context ca-btn-context--outline">
+                        <i class="fa fa-play" aria-hidden="true"></i>
+                        <span>Start analysis</span>
+                    </a>
+                    {% endif %}
                     {% if plant_context.is_superuser or perms.ca.receive_chemical_batch %}
                     <a href="{% url 'ca:batch-create' %}" class="ca-btn-context ca-btn-context--primary" data-open-modal="receive-batch-modal">
                         <i class="fa fa-plus"></i>
-                        <span>Receive Batch</span>
+                        <span>Receive &amp; inspection</span>
                     </a>
                     {% endif %}
                 </div>

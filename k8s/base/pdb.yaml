@@ -1,0 +1,90 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qad-web-pdb
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: web
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: web
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qad-daphne-pdb
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: daphne
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: daphne
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qad-celery-pdb
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: celery
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: celery
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qad-pgbouncer-pdb
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: pgbouncer
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: pgbouncer
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qad-redis-pdb
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: redis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: redis
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qad-postgres-pdb
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: postgres
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: postgres
+

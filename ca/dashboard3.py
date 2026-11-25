@@ -28,7 +28,6 @@ from t.models import TreatmentPlant
 from .models import (
     BatchTestResult,
     Chemical,
-    ChemicalAnalysisInput,
     ChemicalAnalysisProcess,
     ChemicalBatch,
     ChemicalCoA,
@@ -730,7 +729,9 @@ class Dashboard3View(CaWanjalaMixin, TemplateView):
             method_inputs += sum(
                 1
                 for result in results
-                if not hasattr(result, "inputs")
+                if result.parameter_id
+                and result.parameter.method_id
+                and not (result.method_inputs or {})
             )
 
             if process.status in {"QA", "CAPA"}:

@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}
-    {% if object %}Edit Chemical Batch: {{ object.batch_number }}{% else %}Receive Chemical Batch | SOP-17025 Intake{% endif %}
+    {% if object %}Edit Chemical Batch: {{ object.sample_id }}{% else %}Receive Chemical Batch | SOP-17025 Intake{% endif %}
 {% endblock %}
 
 {% block page_title %}
@@ -38,7 +38,7 @@
                         <span>SOP-17025 REGULATORY INTAKE</span>
                     </div>
                     <h1 class="ca-modal-title">
-                        {% if object %}Edit Chemical Batch: {{ object.batch_number }}{% else %}Receive Chemical Batch{% endif %}
+                        {% if object %}Edit Chemical Batch: {{ object.sample_id }}{% else %}Receive Chemical Batch{% endif %}
                     </h1>
                 </div>
             </div>
@@ -49,7 +49,7 @@
         </div>
 
         <!-- 2. FORM BODY -->
-        <form method="post" novalidate id="ca-batch-standalone-form">
+        <form method="post" enctype="multipart/form-data" novalidate id="ca-batch-standalone-form">
             {% csrf_token %}
 
             <div class="ca-modal-body">
@@ -65,6 +65,23 @@
                     </div>
                 {% endif %}
 
+                {% if object %}
+                    <div class="ca-compact-form-grid" aria-label="Immutable receipt record">
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Treatment plant</span><strong>{{ object.treatment_plant.name|default:"—" }}</strong></div>
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Chemical</span><strong>{{ object.chemical.name|default:"—" }}</strong></div>
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Supplier</span><strong>{{ object.supplier.name|default:"—" }}</strong></div>
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Storage location</span><strong>{{ object.location.name|default:"—" }}</strong></div>
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Received</span><strong>{% if object.received_at %}{{ object.received_at|date:"d M Y, H:i:s" }}{% else %}{{ object.received_date|date:"d M Y" }}{% endif %}</strong></div>
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Delivery note</span><strong>{{ object.delivery_note_number|default:"—" }}</strong></div>
+                        <div class="ca-field-wrap ca-col-quarter"><span class="ca-field-label">Packages</span><strong>{{ object.package_count|default:"—" }}</strong></div>
+                        <div class="ca-field-wrap ca-col-quarter"><span class="ca-field-label">Package weight</span><strong>{% if object.package_weight != None %}{{ object.package_weight|floatformat:1 }}{% else %}—{% endif %} {{ object.unit }}</strong></div>
+                        <div class="ca-field-wrap ca-col-quarter"><span class="ca-field-label">Package type</span><strong>{{ object.get_package_type_display|default:"—" }}</strong></div>
+                        <div class="ca-field-wrap ca-col-quarter"><span class="ca-field-label">Verified quantity</span><strong>{% if object.quantity_received != None %}{{ object.quantity_received }} {{ object.unit }}{% else %}Pending committee verification{% endif %}</strong></div>
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Delivery Note</span>{% if object.delivery_note_attachment %}<a href="{{ object.delivery_note_attachment.url }}" target="_blank" rel="noopener">View attachment</a>{% else %}<span>—</span>{% endif %}</div>
+                        <div class="ca-field-wrap ca-col-half"><span class="ca-field-label">Manufacturer Certificate of Analysis</span>{% if object.manufacturer_certificate_of_analysis %}<a href="{{ object.manufacturer_certificate_of_analysis.url }}" target="_blank" rel="noopener">View attachment</a>{% else %}<span>—</span>{% endif %}</div>
+                        <div class="ca-field-wrap ca-col-full"><span class="ca-field-label">Intake remarks</span><span>{{ object.remarks|default:"—" }}</span></div>
+                    </div>
+                {% else %}
                 <div class="ca-compact-form-grid">
 
                     <!-- TREATMENT PLANT: AUTO-POPULATED FROM CUSTOM USER ASSIGNMENT -->
@@ -142,16 +159,16 @@
 
                     <!-- DELIVERY DATE WITH COMPACT DATE PICKER -->
                     <div class="ca-field-wrap ca-col-half">
-                        <label class="ca-field-label" for="{{ form.delivery_date.id_for_label }}">
-                            <span><i class="fa fa-calendar-day"></i> Date Received <span class="required-star">*</span></span>
-                            <span class="ca-date-quick-chips" style="margin:0;">
-                                <span class="ca-date-chip" onclick="caQuickDate('today')">Today</span>
-                                <span class="ca-date-chip" onclick="caQuickDate('yesterday')">Yesterday</span>
-                            </span>
+                        <label class="ca-field-label" for="{% if form.delivery_datetime %}{{ form.delivery_datetime.id_for_label }}{% else %}{{ form.delivery_date.id_for_label }}{% endif %}">
+                            <span><i class="fa fa-calendar-day"></i> Received date and time</span>
                         </label>
-                        {{ form.delivery_date }}
-                        {% if form.delivery_date.errors %}
-                            <div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.delivery_date.errors.0 }}</div>
+                        {% if form.delivery_datetime %}
+                            {{ form.delivery_datetime }}
+                            {% if not object %}<small class="ca-field-help">Recorded automatically when receipt is confirmed.</small>{% endif %}
+                            {% if form.delivery_datetime.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.delivery_datetime.errors.0 }}</div>{% endif %}
+                        {% else %}
+                            {{ form.delivery_date }}
+                            {% if form.delivery_date.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.delivery_date.errors.0 }}</div>{% endif %}
                         {% endif %}
                     </div>
 
@@ -166,45 +183,55 @@
                         {% endif %}
                     </div>
 
-                    <!-- BATCH NUMBER -->
-                    <div class="ca-field-wrap ca-col-quarter">
-                        <label class="ca-field-label" for="{{ form.batch_number.id_for_label }}">
-                            <span><i class="fa fa-barcode"></i> Batch Number <span class="required-star">*</span></span>
+                    <div class="ca-field-wrap ca-col-half">
+                        <label class="ca-field-label" for="{{ form.delivery_note_attachment.id_for_label }}">
+                            <span><i class="fa fa-file-arrow-up"></i> Delivery Note attachment {% if not object %}<span class="required-star">*</span>{% endif %}</span>
                         </label>
-                        {{ form.batch_number }}
-                        {% if form.batch_number.errors %}
-                            <div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.batch_number.errors.0 }}</div>
-                        {% endif %}
+                        {{ form.delivery_note_attachment }}
+                        {% if form.delivery_note_attachment.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.delivery_note_attachment.errors.0 }}</div>{% endif %}
+                        {% if object.delivery_note_attachment %}<small>Current: <a href="{{ object.delivery_note_attachment.url }}" target="_blank" rel="noopener">View attachment</a></small>{% endif %}
                     </div>
 
-                    <!-- QUANTITY RECEIVED & UNIT -->
-                    <div class="ca-field-wrap ca-col-quarter">
-                        <label class="ca-field-label" for="{{ form.quantity_received.id_for_label }}">
-                            <span><i class="fa fa-scale-unbalanced"></i> Quantity <span class="required-star">*</span></span>
+                    <div class="ca-field-wrap ca-col-half">
+                        <label class="ca-field-label" for="{{ form.manufacturer_certificate_of_analysis.id_for_label }}">
+                            <span><i class="fa fa-file-circle-check"></i> Manufacturer Certificate of Analysis {% if not object %}<span class="required-star">*</span>{% endif %}</span>
                         </label>
-                        <div style="display: flex; gap: 6px;">
-                            <div style="flex: 1; min-width: 0;">
-                                {{ form.quantity_received }}
-                            </div>
-                            <div style="width: 72px;">
-                                {{ form.unit }}
-                            </div>
-                        </div>
-                        {% if form.quantity_received.errors %}
-                            <div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.quantity_received.errors.0 }}</div>
-                        {% endif %}
+                        {{ form.manufacturer_certificate_of_analysis }}
+                        {% if form.manufacturer_certificate_of_analysis.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.manufacturer_certificate_of_analysis.errors.0 }}</div>{% endif %}
+                        {% if object.manufacturer_certificate_of_analysis %}<small>Current: <a href="{{ object.manufacturer_certificate_of_analysis.url }}" target="_blank" rel="noopener">View attachment</a></small>{% endif %}
                     </div>
 
-                    <!-- PACKAGE COUNT -->
+                    <!-- PACKAGE QUANTITY -->
+                    <div class="ca-field-wrap ca-col-full">
+                        <span class="ca-field-label"><i class="fa fa-cubes-stacked"></i> QUANTITY <span class="required-star">*</span></span>
+                    </div>
                     <div class="ca-field-wrap ca-col-quarter">
-                        <label class="ca-field-label" for="{{ form.package_count.id_for_label }}">
-                            <span><i class="fa fa-cubes-stacked"></i> Package Count</span>
-                        </label>
+                        <label class="ca-field-label" for="{{ form.package_count.id_for_label }}">Package count</label>
                         {{ form.package_count }}
-                        {% if form.package_count.errors %}
-                            <div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.package_count.errors.0 }}</div>
-                        {% endif %}
+                        {% if form.package_count.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.package_count.errors.0 }}</div>{% endif %}
                     </div>
+                    <div class="ca-field-wrap ca-col-quarter">
+                        <label class="ca-field-label" for="{{ form.package_weight.id_for_label }}">Package weight</label>
+                        {{ form.package_weight }}
+                        {% if form.package_weight.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.package_weight.errors.0 }}</div>{% endif %}
+                    </div>
+                    <div class="ca-field-wrap ca-col-quarter">
+                        <label class="ca-field-label" for="{{ form.unit.id_for_label }}">Unit of measure</label>
+                        {{ form.unit }}
+                        {% if form.unit.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.unit.errors.0 }}</div>{% endif %}
+                    </div>
+                    <div class="ca-field-wrap ca-col-quarter">
+                        <label class="ca-field-label" for="{{ form.package_type.id_for_label }}">Package type</label>
+                        {{ form.package_type }}
+                        {% if form.package_type.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.package_type.errors.0 }}</div>{% endif %}
+                    </div>
+                    {% if object %}
+                        <div class="ca-field-wrap ca-col-half">
+                            <label class="ca-field-label" for="{{ form.quantity_received.id_for_label }}">Verified total quantity</label>
+                            {{ form.quantity_received }}
+                            {% if form.quantity_received.errors %}<div class="ca-field-error"><i class="fa fa-circle-exclamation"></i> {{ form.quantity_received.errors.0 }}</div>{% endif %}
+                        </div>
+                    {% endif %}
 
                     <!-- REMARKS -->
                     <div class="ca-field-wrap ca-col-full">
@@ -219,18 +246,16 @@
                     </div>
 
                 </div>
+                {% endif %}
 
             </div>
 
             <!-- 3. FOOTER ACTIONS -->
             <div class="ca-modal-footer">
                 <a href="{% url 'ca:batch-list' %}" class="ca-btn-ghost">
-                    <i class="fa fa-xmark"></i> Cancel
+                    <i class="fa fa-xmark"></i> {% if object %}Back to Batch Ledger{% else %}Cancel{% endif %}
                 </a>
-                <button type="submit" class="ca-btn-futuristic">
-                    <i class="fa fa-check-double"></i>
-                    {% if object %}Save Batch Changes{% else %}Confirm Batch Intake{% endif %}
-                </button>
+                {% if not object %}<button type="submit" class="ca-btn-futuristic"><i class="fa fa-check-double"></i> Confirm Batch Intake</button>{% endif %}
             </div>
 
         </form>
@@ -240,15 +265,6 @@
 </div>
 
 <script>
-function caQuickDate(mode) {
-    const input = document.getElementById("id_delivery_date");
-    if (!input) return;
-    const now = new Date();
-    if (mode === "yesterday") now.setDate(now.getDate() - 1);
-    const localDate = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-    input.value = localDate.toISOString().split("T")[0];
-}
-
 document.addEventListener("DOMContentLoaded", function() {
     const form = document.getElementById("ca-batch-standalone-form");
     if (!form) return;

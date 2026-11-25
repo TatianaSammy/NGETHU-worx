@@ -4,7 +4,7 @@
 {% block title %}My Assigned Tasks | Chemical Analysis{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'ca/css/pages/my-tasks.css' %}?v=20261026-no-hero">
+<link rel="stylesheet" href="{% static 'ca/css/pages/my-tasks.css' %}?v=20261114-ca-theme-v2">
 {% endblock %}
 
 {% block content %}
@@ -325,6 +325,14 @@
             syncMetricTiles('all');
             apply();
         });
+    }
+
+    const requestedStage = new URLSearchParams(window.location.search).get('stage');
+    if (['intake', 'analysis', 'quality', 'release', 'attention'].includes(requestedStage)) {
+        currentStage = requestedStage;
+        if (filter) filter.value = currentStage;
+        syncMetricTiles(currentStage);
+        apply();
     }
 })();
 </script>

@@ -3,12 +3,15 @@ from datetime import timedelta
 
 from django.db.models import Avg, Count, Max, Min
 from django.db.models.functions import TruncDate
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.views import View
 
 from core.domain_dashboard import dashboard_context, model_list_url, period_days, render_domain_dashboard
 from core.mixins import WanjalaMixin
 from t.models import TreatmentPlant
+from ca.models import Chemical
+from .forms import HydrometerConcentrationForm
 from .models import XmicalConcentration
 
 
@@ -23,6 +26,40 @@ class DashboardView(WanjalaMixin, View):
         return render_domain_dashboard(request, self.template_name, self.app_label, self.get_context(request))
 
     def get_context(self, request):
+        calculator_form = HydrometerConcentrationForm(
+            request.GET if request.GET.get("calculate") == "1" else None
+        )
+        hydrometer_result = None
+        calculator_chemical = None
+        calculator_reading = None
+        calculator_error = None
+        if request.GET.get("calculate") == "1" and calculator_form.is_valid():
+            calculator_chemical = calculator_form.cleaned_data["chemical"]
+            calculator_reading = calculator_form.cleaned_data["reading"]
+            try:
+                concentration = calculator_chemical.calculate_hydrometer_value(
+                    calculator_reading
+                )
+                if concentration < 0:
+                    calculator_error = (
+                        "This reading produces a negative concentration. "
+                        "Check the reading and the chemical formula."
+                    )
+                    calculator_form.add_error(
+                        None,
+                        calculator_error,
+                    )
+                else:
+                    hydrometer_result = {
+                        "chemical": calculator_chemical,
+                        "reading": calculator_reading,
+                        "concentration": concentration,
+                        "formula": calculator_chemical.hydrometer_formula,
+                    }
+            except ValidationError as exc:
+                calculator_error = " ".join(exc.messages)
+                calculator_form.add_error(None, exc)
+
         days = period_days(request)
         now = timezone.now()
         start = now - timedelta(days=days)
@@ -94,7 +131,7 @@ class DashboardView(WanjalaMixin, View):
         context = dashboard_context(
             request,
             title="Chemical Concentration Control",
-            subtitle="Hydrometer readings, calculated concentration, tank profile, and traceable measurement history.",
+            subtitle="Explore saved concentration analytics or calculate chemical percentage concentration from a hydrometer reading.",
             kicker="Chemical preparation analytics",
             kpis=kpis,
             charts=concentration_chart,
@@ -114,7 +151,19 @@ class DashboardView(WanjalaMixin, View):
             use_plant_scope=True,
             model_count=1,
         )
-        context.update({"plant_options": plants, "selected_plant": selected, "show_plant_selector": is_superuser})
+        context.update({
+            "plant_options": plants,
+            "selected_plant": selected,
+            "show_plant_selector": is_superuser,
+            "hydrometer_calculator_form": calculator_form,
+            "hydrometer_result": hydrometer_result,
+            "calculator_chemical": calculator_chemical,
+            "calculator_reading": calculator_reading,
+            "calculator_error": calculator_error,
+            "calculator_chemicals_with_formula": Chemical.objects.exclude(
+                hydrometer_formula=""
+            ).count(),
+        })
         return context
 
     @staticmethod

@@ -1,9 +1,9 @@
 .ca-command-center {
-    --home-ink: #13253e;
-    --home-muted: #657892;
-    --home-line: #e4ebf4;
-    --home-surface: #fff;
-    --home-cyan: #30d8e8;
+    --home-ink: var(--theme-text, #13253e);
+    --home-muted: var(--theme-text-secondary, var(--theme-muted, #657892));
+    --home-line: var(--theme-border, #e4ebf4);
+    --home-surface: var(--theme-surface, #fff);
+    --home-cyan: var(--theme-accent, #30d8e8);
     width: min(100%, 1540px);
     margin: 0 auto;
     padding: clamp(8px, 1vw, 14px);

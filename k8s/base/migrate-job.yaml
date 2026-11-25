@@ -1,0 +1,103 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: qad-migrate
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: migrate
+  annotations:
+    # This Job runs once at deploy time to migrate + collectstatic
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qad
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: qad-serviceaccount
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+      initContainers:
+        - name: wait-for-postgres
+          image: qad-backend:stable
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z pgbouncer 6432; do
+                echo "Waiting for pgbouncer..."; sleep 2;
+              done
+              until nc -z redis 6379; do
+                echo "Waiting for redis..."; sleep 2;
+              done
+              echo "All dependencies ready."
+      containers:
+        - name: migrate
+          image: qad-backend:stable
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /app/media/exports
+              mkdir -p /app/staticfiles
+              chmod -R 777 /app/media
+              chmod -R 777 /app/staticfiles
+              echo "==> Running database migrations..."
+              python manage.py migrate --noinput
+              echo "==> Collecting static files..."
+              python manage.py collectstatic --clear --noinput \
+                --ignore='*.map' \
+                --ignore='*.ts' \
+                --ignore='*.scss' \
+                --ignore='*.sass' \
+                --ignore='*.less' \
+                --ignore='*.test.css' \
+                --ignore='*.test.js' \
+                --ignore='*.spec.js' \
+                --ignore='*material-web*' \
+                --ignore='form.js' \
+                --ignore='LoginForm.js' \
+                --ignore='PasswordInput.js' \
+                --ignore='icon-maskable-512.png'
+              echo "==> Migration and static collection complete."
+          envFrom:
+            - configMapRef:
+                name: qad-config
+            - secretRef:
+                name: qad-secrets
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+            - name: staticfiles
+              mountPath: /app/staticfiles
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-pvc
+        - name: staticfiles
+          persistentVolumeClaim:
+            claimName: staticfiles-pvc
+

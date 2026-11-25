@@ -7,10 +7,10 @@
 <div class="ca-tab-specifications-view" id="ca-specifications-container">
 
     <!-- KPI SUMMARY STRIP -->
-    <div class="ca-hud-bar" style="margin-bottom: 1rem; border-radius: 12px; background: rgba(13, 31, 56, 0.7); border: 1px solid rgba(56, 189, 248, 0.2);">
+    <div class="ca-hud-bar" style="margin-bottom: 1rem; border-radius: 12px; background: var(--theme-surface); border: 1px solid color-mix(in srgb, var(--theme-accent) 20%, var(--theme-border));">
         <div class="ca-hud-bar__left">
             <div class="ca-hud-scope-chip" title="Chemical quality criteria">
-                <i class="fa fa-book-bookmark" style="color: #38bdf8;"></i>
+                <i class="fa fa-book-bookmark" style="color: var(--theme-accent);"></i>
                 <span>KS 05-459 Standards Matrix</span>
             </div>
             <div class="ca-hud-stat-pill">
@@ -42,10 +42,10 @@
     <div class="pbi-table-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
             <div>
-                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #0c2340;">
-                    <i class="fa fa-ruler-combined" style="color: #0b4584;"></i> Regulatory Quality Specifications & Limits
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: var(--theme-text);">
+                    <i class="fa fa-ruler-combined" style="color: var(--theme-accent);"></i> Regulatory Quality Specifications & Limits
                 </h3>
-                <span style="font-size: 0.72rem; color: #64748b;">
+                <span style="font-size: 0.72rem; color: var(--theme-text-secondary, var(--theme-muted));">
                     Official acceptance thresholds, testing methods, and boundary tolerances per water treatment chemical
                 </span>
             </div>
@@ -73,12 +73,12 @@
                     <tr>
                         <td>
                             <strong>{{ spec.chemical.name }}</strong>
-                            <div style="font-size: 0.68rem; color: #0284c7;">
+                            <div style="font-size: 0.68rem; color: var(--theme-accent);">
                                 Code: {{ spec.chemical.code|default:spec.chemical.name|slice:":4"|upper }}
                             </div>
                         </td>
                         <td>
-                            <strong style="color: #0c2340;">{{ spec.parameter_name }}</strong>
+                            <strong style="color: var(--theme-text);">{{ spec.parameter_name }}</strong>
                         </td>
                         <td>
                             <span class="pbi-pill pbi-pill--info">
@@ -86,7 +86,7 @@
                             </span>
                         </td>
                         <td>
-                            <strong style="font-size: 0.9rem; color: #0f172a;">
+                            <strong style="font-size: 0.9rem; color: var(--theme-text);">
                                 {% if spec.min_limit is not None and spec.max_limit is not None %}
                                     {{ spec.min_limit }} – {{ spec.max_limit }}
                                 {% elif spec.min_limit is not None %}
@@ -112,15 +112,15 @@
                             <code>v{{ spec.version|default:1 }}</code>
                         </td>
                         <td>
-                            <span style="font-size: 0.72rem; color: #475569;">
+                            <span style="font-size: 0.72rem; color: var(--theme-text-secondary,var(--theme-muted));">
                                 {{ spec.treatment_plant.name|default:"All Facilities" }}
                             </span>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 2rem; color: #64748b;">
-                            <i class="fa fa-book-open" style="font-size: 2.2rem; color: #38bdf8; display: block; margin-bottom: 0.5rem;"></i>
+                        <td colspan="8" style="text-align: center; padding: 2rem; color: var(--theme-text-secondary,var(--theme-muted));">
+                            <i class="fa fa-book-open" style="font-size: 2.2rem; color: var(--theme-accent); display: block; margin-bottom: 0.5rem;"></i>
                             <strong>No chemical specifications configured yet.</strong>
                             <p style="font-size: 0.78rem; margin-top: 0.25rem;">Configure specifications in the administration module to enable analytical limits.</p>
                         </td>

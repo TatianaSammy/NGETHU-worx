@@ -1,0 +1,75 @@
+<section class="hydro-calculator" aria-labelledby="hydro-calculator-title">
+    <div class="hydro-calculator__intro">
+        <span class="hydro-eyebrow"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> QUICK ANALYSIS</span>
+        <h2 id="hydro-calculator-title">Hydrometer concentration calculator</h2>
+        <p>Select a chemical and enter its hydrometer reading to calculate concentration from the formula configured for that chemical.</p>
+        <div class="hydro-meta">
+            <span><i class="fa-solid fa-flask" aria-hidden="true"></i> {{ calculator_chemicals_with_formula }} formulas configured</span>
+            <span><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Preview only · no record is saved</span>
+        </div>
+    </div>
+
+    <div class="hydro-calculator__workspace">
+        <form method="get" class="hydro-form" novalidate>
+            <input type="hidden" name="calculate" value="1">
+            <input type="hidden" name="days" value="{{ period_days }}">
+            <input type="hidden" name="tab" value="{{ active_tab }}">
+            {% if show_plant_selector and selected_plant %}<input type="hidden" name="plant" value="{{ selected_plant.pk }}">{% endif %}
+
+            <div class="hydro-form__heading">
+                <span class="hydro-step">01</span>
+                <div><strong>Measurement inputs</strong><small>Values follow the selected chemical’s stored formula.</small></div>
+            </div>
+
+            {% if hydrometer_calculator_form.non_field_errors %}
+            <div class="hydro-alert" role="alert">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div>{% for error in hydrometer_calculator_form.non_field_errors %}<span>{{ error }}</span>{% endfor %}</div>
+            </div>
+            {% endif %}
+
+            <div class="hydro-form__fields">
+                <label class="hydro-field">
+                    <span class="hydro-field__label">Chemical <b>*</b></span>
+                    {{ hydrometer_calculator_form.chemical }}
+                    <small class="hydro-field__hint">Options indicate whether a calculation formula is configured.</small>
+                    {% for error in hydrometer_calculator_form.chemical.errors %}<small class="hydro-field__error">{{ error }}</small>{% endfor %}
+                </label>
+                <label class="hydro-field">
+                    <span class="hydro-field__label">Hydrometer reading <b>*</b></span>
+                    <div class="hydro-reading-input">
+                        {{ hydrometer_calculator_form.reading }}
+                        <span class="hydro-reading-input__unit">reading</span>
+                    </div>
+                    <small class="hydro-field__hint">Enter the observed reading to three decimal places.</small>
+                    {% for error in hydrometer_calculator_form.reading.errors %}<small class="hydro-field__error">{{ error }}</small>{% endfor %}
+                </label>
+            </div>
+
+            <div class="hydro-form__footer">
+                <span><i class="fa-solid fa-circle-info" aria-hidden="true"></i> The output is interpreted as percentage concentration.</span>
+                <button class="hydro-button" type="submit"><i class="fa-solid fa-calculator" aria-hidden="true"></i> Calculate concentration</button>
+            </div>
+        </form>
+
+        <aside class="hydro-result {% if hydrometer_result %}hydro-result--complete{% endif %}" aria-live="polite" aria-atomic="true">
+            <div class="hydro-result__top">
+                <span class="hydro-result__icon"><i class="fa-solid {% if hydrometer_result %}fa-chart-simple{% elif calculator_chemical %}fa-triangle-exclamation{% else %}fa-flask-vial{% endif %}" aria-hidden="true"></i></span>
+                {% if hydrometer_result %}<span class="hydro-result__status"><i></i> CALCULATION READY</span>{% elif calculator_chemical %}<span class="hydro-result__status hydro-result__status--idle">CHECK FORMULA</span>{% else %}<span class="hydro-result__status hydro-result__status--idle">AWAITING INPUT</span>{% endif %}
+            </div>
+            {% if hydrometer_result %}
+                <span class="hydro-result__label">Calculated concentration</span>
+                <div class="hydro-result__value">{{ hydrometer_result.concentration|floatformat:3 }}<span>%</span></div>
+                <p class="hydro-result__chemical">{{ hydrometer_result.chemical.name }} <span>· reading {{ hydrometer_result.reading|floatformat:3 }}</span></p>
+                <div class="hydro-result__formula"><small>FORMULA APPLIED</small><code>{{ hydrometer_result.formula }}</code></div>
+            {% elif calculator_chemical %}
+                <span class="hydro-result__label">Unable to calculate</span>
+                <p class="hydro-result__empty-copy">{{ calculator_error|default:"Check that this chemical has a configured formula and that the reading is valid." }}</p>
+            {% else %}
+                <span class="hydro-result__label">Your result appears here</span>
+                <p class="hydro-result__empty-copy">Select a chemical, enter the reading, and calculate to see the concentration percentage.</p>
+                <div class="hydro-result__formula hydro-result__formula--empty"><small>LIVE CHEMICAL FORMULA</small><span>Applied securely on the server</span></div>
+            {% endif %}
+        </aside>
+    </div>
+</section>

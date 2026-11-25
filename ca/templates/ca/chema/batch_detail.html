@@ -5,11 +5,28 @@
 
 {% block extra_css %}
     {{ block.super }}
-    <link rel="stylesheet" href="{% static 'ca/css/pages/batch-workbench.css' %}?v=20261023-workflow-theater">
+    <link rel="stylesheet" href="{% static 'ca/css/pages/batch-workbench.css' %}?v=20261120-inspection-outcome-v1">
 {% endblock %}
 
 {% block content %}
 <main class="ca-batch-workbench" aria-labelledby="batch-workbench-title" data-workbench>
+    {% for message in messages %}
+        {% if "committee-inspection-success" in message.tags or "committee-inspection-review" in message.tags %}
+            <dialog class="ca-inspection-outcome{% if "committee-inspection-review" in message.tags %} ca-inspection-outcome--review{% endif %}" data-ca-inspection-outcome aria-labelledby="ca-inspection-outcome-title" aria-describedby="ca-inspection-outcome-message">
+                <div class="ca-inspection-outcome__mark" aria-hidden="true">
+                    <i class="fa-solid {% if "committee-inspection-review" in message.tags %}fa-triangle-exclamation{% else %}fa-check{% endif %}"></i>
+                </div>
+                <p class="ca-inspection-outcome__eyebrow">CHEMICAL ANALYSIS · WORKFLOW UPDATE</p>
+                <h2 id="ca-inspection-outcome-title">{% if "committee-inspection-review" in message.tags %}Inspection recorded for review{% else %}Committee inspection completed{% endif %}</h2>
+                <p class="ca-inspection-outcome__message" id="ca-inspection-outcome-message">{{ message }}</p>
+                <div class="ca-inspection-outcome__footer">
+                    <span><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Recorded in the batch audit trail</span>
+                    <button class="ca-inspection-outcome__close" type="button" data-ca-inspection-outcome-close>Continue</button>
+                </div>
+            </dialog>
+        {% endif %}
+    {% endfor %}
+
     <header class="ca-batch-workbench__header">
         <div class="ca-batch-workbench__identity">
             <a class="ca-workbench-back" href="{% url 'ca:batch-list' %}" aria-label="Back to chemical batches">
@@ -101,11 +118,71 @@
 
                 {% if stage.key == "receipt" %}
                     <div class="ca-workflow-facts">
-                        <div><span>Received</span><strong>{{ batch.received_date|date:"d M Y"|default:"Pending" }}</strong></div>
-                        <div><span>Batch number</span><strong>{{ batch.batch_number|default:"—" }}</strong></div>
-                        <div><span>Quantity received</span><strong>{{ batch.quantity_received|default:"—" }} {{ batch.unit }}</strong></div>
+                        <div><span>Received</span><strong>{% if batch.received_at %}{{ batch.received_at|date:"d M Y, H:i:s" }}{% else %}{{ batch.received_date|date:"d M Y"|default:"Pending" }}{% endif %}</strong></div>
+                        <div><span>Sample ID</span><strong>{{ batch.sample_id|default:"—" }}</strong></div>
+                        <div><span>Delivered quantity</span><strong>{{ batch.package_quantity_display|default:"—" }}</strong></div>
+                        <div><span>Verified stock quantity</span><strong>{% if batch.quantity_received %}{{ batch.quantity_received|floatformat:1 }} {{ batch.unit }}{% else %}Pending committee inspection{% endif %}</strong></div>
                         <div><span>Storage location</span><strong>{{ batch.location|default:"—" }}</strong></div>
                     </div>
+                    <div class="ca-workbench-results">
+                        <div class="ca-workbench-results__heading"><strong>Receipt documents</strong><span>Batch intake records</span></div>
+                        <div class="ca-workflow-facts">
+                            <div><span>Delivery Note</span><strong>{% if batch.delivery_note_attachment %}<a href="{{ batch.delivery_note_attachment.url }}" target="_blank" rel="noopener">Open attachment</a>{% else %}Not attached{% endif %}</strong></div>
+                            <div><span>Manufacturer Certificate of Analysis</span><strong>{% if batch.manufacturer_certificate_of_analysis %}<a href="{{ batch.manufacturer_certificate_of_analysis.url }}" target="_blank" rel="noopener">Open attachment</a>{% else %}Not attached{% endif %}</strong></div>
+                        </div>
+                    </div>
+                {% elif stage.key == "inspection" %}
+                    <div class="ca-workflow-facts" role="status" aria-live="polite">
+                        <div><span>Committee attendance</span><strong>{{ committee_attendance.present_count }} / {{ committee_attendance.total_members }} acknowledgements</strong></div>
+                        <div><span>Quorum</span><strong>{% if committee_attendance.total_members == 0 %}No active members{% elif committee_attendance.quorum_met %}Met{% else %}{{ committee_attendance.required_count }} acknowledgements required{% endif %}</strong></div>
+                        <p>{% if committee_attendance.total_members == 0 %}Appoint active Inspection Committee members to continue.{% elif committee_attendance.quorum_met %}Quorum is met. The appointed secretary can open the inspection checklist.{% else %}Each committee member must acknowledge their persistent inspection notification. The checklist unlocks when quorum is reached.{% endif %}</p>
+                    </div>
+                    {% if inspection_attempts %}
+                        <div class="ca-workbench-results">
+                            <div class="ca-workbench-results__heading"><strong>Consignment inspection attempts</strong><span>{{ inspection_attempts|length }} attempt{{ inspection_attempts|length|pluralize }}</span></div>
+                            <div class="table-responsive"><table class="table"><thead><tr><th>Attempt</th><th>Outcome</th><th>Vehicle / seal</th><th>Sample plan</th><th>Committee</th><th>Completed</th><th>Supply Chain decision</th></tr></thead><tbody>
+                                {% for inspection in inspection_attempts %}<tr><td>{{ inspection.attempt }}</td><td>{{ inspection.get_status_display }}</td><td>{{ inspection.vehicle_registration|default:"—" }}{% if inspection.vehicle_seal_number %}<br>Seal {{ inspection.vehicle_seal_number }}{% endif %}</td><td>{{ inspection.sample_count }} / {{ inspection.package_count }} sampled · {{ inspection.observed_package_count|default:"—" }} counted<br>Start {{ inspection.random_start }} · interval {{ inspection.sampling_interval }}</td><td>{% for member in inspection.committee_members.all %}{{ member.get_full_name|default:member.get_username }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td><td>{{ inspection.completed_at|date:"d M Y H:i"|default:"Pending" }}</td><td>{{ inspection.get_supply_chain_decision_display|default:"—" }}{% if inspection.reviewed_by %} · {{ inspection.reviewed_by }}{% endif %}</td></tr>{% endfor %}
+                            </tbody></table></div>
+                        </div>
+                        {% if inspection_attendance %}
+                            <div class="ca-workbench-results">
+                                <div class="ca-workbench-results__heading"><strong>Committee attendance</strong><span>Confirmed from notification acknowledgements</span></div>
+                                <div class="table-responsive"><table class="table"><thead><tr><th>Member</th><th>Role</th><th>Acknowledged</th></tr></thead><tbody>
+                                    {% for attendance in inspection_attendance %}<tr><td>{{ attendance.committee_member.user.get_full_name|default:attendance.committee_member.user.get_username }}</td><td>{{ attendance.committee_member.get_role_display }}</td><td>{{ attendance.acknowledged_at|date:"d M Y H:i" }}</td></tr>{% endfor %}
+                                </tbody></table></div>
+                            </div>
+                        {% endif %}
+                        {% if latest_inspection %}
+                            <div class="ca-workbench-results">
+                                <div class="ca-workbench-results__heading"><strong>Package markings</strong><span>{{ latest_inspection.get_status_display }}</span></div>
+                                <div class="ca-workflow-facts">
+                                    <div><span>Manufacturer batch number</span><strong>{{ latest_inspection.manufacturer_batch_number|default:"—" }}</strong></div>
+                                    <div><span>Manufacture date</span><strong>{{ latest_inspection.manufacture_date|date:"d M Y"|default:"—" }}</strong></div>
+                                    <div><span>Expiry date</span><strong>{{ latest_inspection.expiry_date|date:"d M Y"|default:"—" }}</strong></div>
+                                    <div><span>Storage conditions on label</span><strong>{{ latest_inspection.observed_storage_conditions|default:"—" }}</strong></div>
+                                    <div><span>Packages counted</span><strong>{{ latest_inspection.observed_package_count|default:"—" }} / {{ latest_inspection.package_count }}</strong></div>
+                                    {% if latest_inspection.expiry_label_attachment %}<div><span>Expiry evidence</span><strong><a href="{{ latest_inspection.expiry_label_attachment.url }}" target="_blank" rel="noopener">Open file</a></strong></div>{% endif %}
+                                    {% if latest_inspection.batch_number_label_attachment %}<div><span>Batch evidence</span><strong><a href="{{ latest_inspection.batch_number_label_attachment.url }}" target="_blank" rel="noopener">Open file</a></strong></div>{% endif %}
+                                </div>
+                            </div>
+                            <div class="ca-workbench-results">
+                                <div class="ca-workbench-results__heading"><strong>Latest attempt · package weights</strong><span>Tolerance ±{{ latest_inspection.weight_tolerance }} {{ batch.unit }}</span></div>
+                                <div class="table-responsive"><table class="table"><thead><tr><th>Package</th><th>Declared weight</th><th>Measured weight</th><th>Difference</th><th>Evaluation</th></tr></thead><tbody>
+                                    {% for sample in latest_inspection.samples.all %}<tr><td>{{ sample.package_number }}</td><td>{{ sample.declared_weight|floatformat:1 }} {{ batch.unit }}</td><td>{% if sample.measured_weight != None %}{{ sample.measured_weight|floatformat:1 }} {{ batch.unit }}{% else %}—{% endif %}</td><td>{% if sample.weight_difference != None %}{{ sample.weight_difference|floatformat:1 }} {{ batch.unit }}{% else %}—{% endif %}</td><td>{% if sample.within_tolerance %}Within tolerance{% elif sample.within_tolerance == False %}Outside tolerance{% else %}Pending{% endif %}</td></tr>{% endfor %}
+                                </tbody></table></div>
+                            </div>
+                            <div class="ca-workbench-results">
+                                <div class="ca-workbench-results__heading"><strong>Inspection checklist</strong><span>{% if latest_inspection.completed_by %}Completed by {{ latest_inspection.completed_by.get_full_name|default:latest_inspection.completed_by.get_username }}{% else %}Pending{% endif %}</span></div>
+                                <div class="table-responsive"><table class="table"><thead><tr><th>Inspection requirement</th><th>Result</th></tr></thead><tbody>
+                                    {% for row in inspection_checklist_rows %}<tr><td>{{ row.label }}</td><td>{{ row.result|default:"—"|title }}</td></tr>{% endfor %}
+                                </tbody></table></div>
+                                {% if latest_inspection.inspection_notes %}<p>{{ latest_inspection.inspection_notes }}</p>{% endif %}
+                                {% if latest_inspection.supply_chain_remarks %}<p><strong>Supply Chain:</strong> {{ latest_inspection.supply_chain_remarks }}</p>{% endif %}
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="ca-workflow-checklist-state"><span class="ca-workflow-checklist-state__icon"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i></span><div><strong>Inspection Committee review required</strong><p>Inspect the full consignment and measure every package in the 10% systematic random sample before analysis can be requested.</p></div></div>
+                    {% endif %}
                 {% elif stage.key == "assignment" %}
                     <div class="ca-workflow-facts">
                         <div><span>Analysis request</span><strong>{{ analysis_request.request_id|default:"Not created" }}</strong></div>
@@ -172,6 +249,13 @@
                         <div><span>Returned</span><strong>{{ batch.quantity_returned|default:"0" }} {{ batch.unit }}</strong></div>
                         <div><span>Disposition state</span><strong>{{ batch.get_status_display }}</strong></div>
                     </div>
+                    {% if batch.supplier_collection_due_at %}
+                        <div class="ca-workflow-facts">
+                            <div><span>Supplier collection deadline</span><strong>{{ batch.supplier_collection_due_at|date:"d M Y, H:i" }}</strong></div>
+                            <div><span>Collection recorded</span><strong>{% if batch.supplier_collected_at %}{{ batch.supplier_collected_at|date:"d M Y, H:i" }}{% if batch.supplier_collection_was_late %} · Late{% endif %}{% elif batch.supplier_collection_overdue %}Overdue — collection not recorded{% else %}Awaiting supplier{% endif %}</strong></div>
+                            {% if batch.supplier_collection_recorded_by %}<div><span>Recorded by</span><strong>{{ batch.supplier_collection_recorded_by.get_full_name|default:batch.supplier_collection_recorded_by.get_username }}</strong></div>{% endif %}
+                        </div>
+                    {% endif %}
                 {% elif stage.key == "complete" %}
                     <div class="ca-workflow-checklist-state is-complete"><span class="ca-workflow-checklist-state__icon"><i class="fa-solid fa-circle-check" aria-hidden="true"></i></span><div><strong>Batch workflow closed</strong><p>{% if process.completed_at %}Closed {{ process.completed_at|date:"d M Y H:i" }}{% else %}{{ batch.get_status_display }}{% endif %}. The batch record and audit trail remain available below.</p></div></div>
                 {% endif %}
@@ -190,4 +274,17 @@
 {% block extra_js %}
     {{ block.super }}
     <script src="{% static 'ca/js/batch-workbench.js' %}?v=20261023-workflow-theater" defer></script>
+    <script>
+        document.querySelectorAll("[data-ca-inspection-outcome]").forEach((dialog) => {
+            if (typeof dialog.showModal === "function") dialog.showModal();
+            else dialog.setAttribute("open", "");
+
+            const closeButton = dialog.querySelector("[data-ca-inspection-outcome-close]");
+            closeButton?.focus();
+            closeButton?.addEventListener("click", () => dialog.close?.());
+            dialog.addEventListener("click", (event) => {
+                if (event.target === dialog) dialog.close?.();
+            });
+        });
+    </script>
 {% endblock %}

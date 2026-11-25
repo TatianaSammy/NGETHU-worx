@@ -10,7 +10,8 @@
 {% endblock %}
 
 {% block extra_styles %}
-    <link rel="stylesheet" href="{% static 'ca/css/dashboard.css' %}">
+    <link rel="stylesheet" href="{% static 'ca/css/dashboard.css' %}?v=20261114-ca-theme-v2">
+    <link rel="stylesheet" href="{% static 'ca/css/theme-aware.css' %}?v=20261114-ca-theme-v2">
 {% endblock %}
 
 {% block sidebar %}
@@ -18,7 +19,9 @@
 {% endblock %}
 
 {% block content %}
-    {% block accounts_content %}{% endblock %}
+    <div class="ca-legacy-app">
+        {% block accounts_content %}{% endblock %}
+    </div>
 {% endblock %}
 
 {% block modals %}

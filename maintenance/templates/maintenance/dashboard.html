@@ -277,12 +277,11 @@
         {% if active_tab == 'schedule' and can_view_sla %}<section class="maint-panel"><div class="maint-panel__header"><span class="maint-panel__title">SLA schedule</span></div><div class="maint-panel__body"><table class="maint-table"><thead><tr><th>Request</th><th>Priority</th><th>Response due</th><th>Resolution due</th><th>Status</th></tr></thead><tbody>{% for item in sla_records %}<tr><td>{{ item.request.title }}</td><td>{{ item.request.get_priority_display }}</td><td>{{ item.response_due|date:"Y-m-d H:i" }}</td><td>{{ item.resolution_due|date:"Y-m-d H:i" }}</td><td>{{ item.get_status_display }}</td></tr>{% empty %}<tr><td colspan="5" class="maint-empty">No SLA items.</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
     </main>
     {% if can_add_incidents %}
-    <dialog class="maint-report-dialog" id="incident-report-dialog" aria-labelledby="incident-report-title" data-queue-user="{{ request.user.pk }}" data-endpoint="{% url 'maintenance:report_incident' %}">
+    <dialog class="maint-report-dialog" id="incident-report-dialog" aria-labelledby="incident-report-title">
         <form id="incident-report-form" method="post" action="{% url 'maintenance:report_incident' %}">
             {% csrf_token %}
-            <input type="hidden" name="offline_submission_key" id="incident-submission-key">
             <div class="maint-dialog-header"><div><span class="maint-eyebrow">FIELD REPORT</span><h2 id="incident-report-title">Report maintenance incident</h2></div><button class="maint-dialog-close" type="button" data-close-incident-report aria-label="Close report form">×</button></div>
-            <p class="maint-cell-sub">Reports can be queued in this tab while offline and synchronized when the connection returns. Avoid entering sensitive personal information.</p>
+            <p class="maint-cell-sub">An active network connection is required to submit this report.</p>
             <div class="maint-report-grid">
                 <label>Treatment plant <select name="plant" id="incident-report-plant" required><option value="">Select plant</option>{% for plant_option in plant_options %}<option value="{{ plant_option.pk }}" {% if selected_plant and selected_plant.pk == plant_option.pk %}selected{% endif %}>{{ plant_option.name }}</option>{% endfor %}</select></label>
                 <label>Duty house <select name="duty_house" id="incident-report-house"><option value="">Plant / site incident</option>{% for house in incident_report_houses %}<option value="{{ house.pk }}" data-plant="{{ house.plant_id }}">{{ house.house_number }} · {{ house.location.name }}</option>{% endfor %}</select></label>
@@ -292,7 +291,7 @@
                 <label>Occurred at <input name="occurred_at" type="datetime-local"></label>
                 <label class="maint-report-wide">Description <textarea name="description" rows="4" required></textarea></label>
             </div>
-            <div class="maint-report-footer"><span id="incident-queue-status" class="maint-cell-sub" role="status" aria-live="polite">No offline reports queued.</span><div><button class="maint-btn maint-btn--slate" type="button" data-close-incident-report>Cancel</button> <button class="maint-btn maint-btn--rose" type="submit"><i class="fa-solid fa-paper-plane"></i> Submit report</button></div></div>
+            <div class="maint-report-footer"><span id="incident-submit-status" class="maint-cell-sub" role="status" aria-live="polite"></span><div><button class="maint-btn maint-btn--slate" type="button" data-close-incident-report>Cancel</button> <button class="maint-btn maint-btn--rose" type="submit"><i class="fa-solid fa-paper-plane"></i> Submit report</button></div></div>
         </form>
     </dialog>
     {% endif %}
@@ -303,5 +302,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{% static 'maintenance/js/dashboard.js' %}" defer></script>
+<script src="{% static 'maintenance/js/dashboard.js' %}?v=20261115-network-only" defer></script>
 {% endblock %}

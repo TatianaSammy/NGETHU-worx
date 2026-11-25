@@ -4,25 +4,25 @@
 {% block title %}Weekly Tasks | Monthly Lab Schedule{% endblock %}
 {% block extra_styles %}
 <link rel="stylesheet" href="{% static 'core/css/operations_dashboard.css' %}?v=20261028-operations">
-<link rel="stylesheet" href="{% static 'sc/css/duty_roster.css' %}?v=20261113-fitscreen">
-<link rel="stylesheet" href="{% static 'sc/css/shift_assignment_table.css' %}?v=20261113-fitscreen">
-<link rel="stylesheet" href="{% static 'weeklytasks/css/monthly_schedule.css' %}?v=20261113-fitscreen">
+<link rel="stylesheet" href="{% static 'sc/css/duty_roster.css' %}?v=20261116-compact-roster">
+<link rel="stylesheet" href="{% static 'sc/css/shift_assignment_table.css' %}?v=20261116-compact-roster">
+<link rel="stylesheet" href="{% static 'weeklytasks/css/monthly_schedule.css' %}?v=20261116-compact-tasks">
 {% endblock %}
 
 {% block sidebar %}{% endblock %}
 
 {% block page_content %}
-<main class="ops-dashboard weekly-dashboard weekly-schedule-dashboard sc-assignment-dashboard sc-roster-overview" data-options-url="{% url 'weeklytasks:assignment-options' %}" data-action-url="{% url 'weeklytasks:assignment-action' %}" id="overview">
+<main class="ops-dashboard weekly-dashboard weekly-schedule-dashboard sc-assignment-dashboard sc-roster-overview" data-options-url="{% url 'weeklytasks:assignment-options' %}" data-action-url="{% url 'weeklytasks:assignment-action' %}" data-show-plant-selector="{{ show_plant_selector|yesno:'true,false' }}" id="overview">
   <header class="sc-assignment-header">
     <div class="sc-assignment-title-block">
       <span class="sc-assignment-eyebrow"><i class="fas fa-list-check" aria-hidden="true"></i> Weekly Tasks · Laboratory Routine Workplan</span>
       <h1 id="sc-assignment-title">Task schedule for {{ month_label }}</h1>
-      <p>{% if selected_plant %}{{ selected_plant.name }}{% elif show_plant_selector %}All treatment plants{% else %}Plant assignment unavailable{% endif %} <span aria-hidden="true">·</span> {{ total_task_plans }} task plans <span aria-hidden="true">·</span> {{ daily_assignment_count }} daily assignments</p>
+      <p>{% if selected_plant %}{{ selected_plant.name }}{% elif show_plant_selector %}All treatment plants{% else %}Plant assignment unavailable{% endif %}{% if selected_filter_section %} · {{ selected_filter_section.name }}{% endif %} <span aria-hidden="true">·</span> {{ total_task_plans }} task plans <span aria-hidden="true">·</span> {{ daily_assignment_count }} daily assignments</p>
     </div>
     <div class="sc-assignment-header-tools">
-      <form method="get" class="sc-assignment-filters" aria-label="Filter weekly task schedule">
+      <form method="get" class="sc-assignment-filters" data-cascade-section="{{ show_plant_selector|yesno:'true,false' }}" aria-label="Filter weekly task schedule">
         {% if selected_plant and not show_plant_selector %}<input type="hidden" name="plant" value="{{ selected_plant.pk }}">{% endif %}
-        <a class="sc-assignment-period-link sc-nav-switch-btn" href="{% url 'sc:dashboard' %}?month={{ month }}&year={{ year }}{% if selected_plant %}&plant={{ selected_plant.pk }}{% endif %}" title="Navigate to monthly shift duty roster"><i class="fas fa-calendar-check" aria-hidden="true"></i> Monthly Duty Roster</a>
+        <a class="sc-assignment-period-link sc-nav-switch-btn" href="{% url 'sc:dashboard' %}?month={{ month }}&year={{ year }}{% if selected_plant %}&plant={{ selected_plant.pk }}{% endif %}{% if selected_filter_section %}&filter_section={{ selected_filter_section.pk }}{% endif %}" title="Navigate to monthly shift duty roster"><i class="fas fa-calendar-check" aria-hidden="true"></i> Monthly Duty Roster</a>
         <label><span>Month</span><select name="month">{% for value, label in month_choices %}<option value="{{ value }}" {% if month == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
         <label><span>Year</span><select name="year">{% for value in year_choices %}<option value="{{ value }}" {% if year == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
         {% if show_plant_selector %}
@@ -33,15 +33,29 @@
           </select>
         </label>
         {% endif %}
-        <label><span>Status</span>
-          <select id="weekly-schedule-filter" aria-label="Filter weekly task rows">
-            <option value="all">All weeks</option>
-            <option value="staffed">Fully staffed</option>
-            <option value="partial">Partially staffed</option>
-            <option value="open">Needs assignment</option>
+        <label><span>Section</span>
+          <select name="filter_section" {% if not show_plant_selector %}disabled{% endif %}>
+            <option value="">{% if show_plant_selector %}All sections{% else %}{{ selected_filter_section.name|default:"Section unavailable" }}{% endif %}</option>
+            {% if show_plant_selector %}{% for section in sections %}<option value="{{ section.pk }}" {% if selected_filter_section.pk == section.pk %}selected{% endif %}>{{ section.name }}</option>{% endfor %}{% endif %}
           </select>
         </label>
-        <label class="sc-assignment-search"><span>Find task or staff</span><input id="weekly-schedule-search" type="search" placeholder="Name, task, or plant" autocomplete="off"></label>
+        <label><span>In charge</span><select disabled title="Section in-charge staff member"><option>{% if incharge_user %}{{ incharge_user.get_full_name|default:incharge_user.get_username }}{% else %}No in charge{% endif %}</option></select></label>
+        <label><span>Shift</span>
+          <select name="shift" id="weekly-shift-filter">
+            <option value="">All shifts</option>
+            {% for shift in shift_options %}<option value="{{ shift.pk }}" {% if selected_shift == shift.pk|stringformat:"s" %}selected{% endif %}>{{ shift.name }} · {{ shift.treatment_plant.code }}</option>{% endfor %}
+            <option value="none" {% if selected_shift == "none" %}selected{% endif %}>Shift not set</option>
+          </select>
+        </label>
+        <label><span>Status</span>
+          <select id="weekly-schedule-filter" name="task_status" aria-label="Filter weekly task rows">
+            <option value="all" {% if task_status_filter == "all" %}selected{% endif %}>All weeks</option>
+            <option value="staffed" {% if task_status_filter == "staffed" %}selected{% endif %}>Fully staffed</option>
+            <option value="partial" {% if task_status_filter == "partial" %}selected{% endif %}>Partially staffed</option>
+            <option value="open" {% if task_status_filter == "open" %}selected{% endif %}>Needs assignment</option>
+          </select>
+        </label>
+        <label class="sc-assignment-search"><span>Find task or staff</span><input id="weekly-schedule-search" type="search" name="q" value="{{ search_query }}" placeholder="Name, task, section, or plant" autocomplete="off"></label>
         <button class="sc-assignment-apply" type="submit"><i class="fas fa-filter" aria-hidden="true"></i> Apply</button>
         <button type="button" class="sc-assignment-period-link" id="weekly-density-toggle" aria-pressed="false" title="Toggle compact density"><i class="fas fa-compress-alt" aria-hidden="true"></i> Compact</button>
         <button type="button" class="sc-assignment-period-link" id="weekly-filter-reset" title="Reset filter inputs"><i class="fas fa-rotate-left" aria-hidden="true"></i> Reset</button>
@@ -53,8 +67,8 @@
   </header>
 
   <section class="sc-assignment-table-panel weekly-schedule-panel" aria-label="Weekly laboratory tasks">
-    {% if not show_plant_selector and scope_issue %}
-    <div class="sc-assignment-scope-message" role="status"><i class="fas fa-shield-halved" aria-hidden="true"></i><div><strong>{% if scope_issue == 'plant' %}No treatment plant is assigned to your account{% else %}No matching section is assigned{% endif %}</strong><span>{% if scope_issue == 'plant' %}Ask an administrator to set your plant assignment.{% else %}Your assigned treatment plant is {{ selected_plant.name }}, but no matching section is assigned. Weekly task records remain unavailable until your account is assigned to a section within this plant.{% endif %}</span></div></div>
+    {% if scope_issue %}
+    <div class="sc-assignment-scope-message" role="status"><i class="fas fa-shield-halved" aria-hidden="true"></i><div><strong>{% if scope_issue == 'plant' %}No treatment plant is assigned to your account{% elif scope_issue == 'section' %}No matching section is available{% elif scope_issue == 'invalid_plant' %}The selected treatment plant is unavailable{% else %}The selected section is unavailable{% endif %}</strong><span>{% if scope_issue == 'plant' %}Ask an administrator to set your plant assignment.{% elif scope_issue == 'section' %}Choose or request an active section configured for routine work in this plant.{% elif scope_issue == 'invalid_plant' %}Choose a treatment plant from your permitted options.{% else %}Choose an active section configured for the selected plant.{% endif %}</span></div></div>
     {% else %}
     <div class="sc-assignment-table-wrap weekly-matrix-scroll">
       <table class="sc-assignment-table sc-weekly-roster-table weekly-schedule-matrix">
@@ -73,7 +87,6 @@
             {% empty %}
             <th scope="col" class="weekly-task-head-col">
               <span>Task routines</span>
-              <small>No standard tasks defined</small>
             </th>
             {% endfor %}
           </tr>
@@ -84,7 +97,6 @@
             <th scope="row" class="weekly-week-cell sc-roster-week-label">
               <strong>{{ row.start_date|date:"jS" }}–{{ row.end_date|date:"jS M, Y" }}</strong>
               <small>{{ row.plant.name }}</small>
-              <small>{{ row.assignment_count }} assignments</small>
             </th>
             {% for cell in row.cells %}
             <td class="weekly-task-cell sc-roster-duty-cell weekly-task-cell--{{ cell.status }}"
@@ -93,12 +105,13 @@
                 data-plant-id="{{ row.plant.pk }}"
                 data-start-date="{{ row.start_date|date:'Y-m-d' }}"
                 data-end-date="{{ row.end_date|date:'Y-m-d' }}"
+                data-destination-date="{{ row.start_date|date:'Y-m-d' }}"
                 data-task-id="{{ cell.task_records.0.id|default:'' }}"
                 data-section-id="{{ cell.task_records.0.section_id|default:'' }}"
                 data-section-name="{{ cell.task_records.0.section_name|default:'' }}"
                 data-template-id="{{ cell.template.pk }}"
-                data-template-name="{{ cell.template.name }}"
-                title="{{ cell.template.name }} · {{ row.start_date|date:'jS M' }}–{{ row.end_date|date:'jS M Y' }}">
+                data-template-name="{{ cell.template.name }}">
+              {% for task_record in cell.task_records %}<span hidden data-task-target-id="{{ task_record.id }}" data-task-target-section="{{ task_record.section_id }}" aria-hidden="true"></span>{% endfor %}
               
               <div class="sc-roster-assignment-list sc-roster-inline-names weekly-assignee-list">
                 {% for record in cell.task_records %}
@@ -111,25 +124,17 @@
                         data-section-id="{{ record.section_id }}"
                         data-plant-id="{{ row.plant.pk }}"
                         data-date="{{ assignment.date|date:'Y-m-d' }}"
-                        data-shift-id="{{ assignment.shift_id|default:'' }}"
-                        title="{{ assignment.name }} · {{ assignment.date|date:'D, d M Y' }}{% if assignment.shift_name %} · {{ assignment.shift_name }}{% endif %}">
+                        data-shift-id="{{ assignment.shift_id|default:'' }}">
                     <span class="sc-staff-name">{{ assignment.name }}</span><small class="sc-staff-date">({{ assignment.date|date:'D d' }})</small>{% if not forloop.last %}<span class="sc-staff-comma">, </span>{% endif %}
                   </span>
                   {% endfor %}
                 {% endfor %}
-                {% if not cell.assignment_count %}
-                <span class="sc-roster-no-assignment weekly-unassigned-hint">No assignment</span>
-                {% endif %}
               </div>
 
               {% if can_add_task_assignments and cell.task_records %}
-              <button type="button" class="sc-assignment-add weekly-add-trigger" data-open-weekly-add title="Add staff to {{ cell.template.name }}" aria-label="Add staff to {{ cell.template.name }}">
-                <i class="fas fa-user-plus" aria-hidden="true"></i><span>Add staff</span>
+              <button type="button" class="sc-assignment-add weekly-add-trigger" data-open-weekly-add title="Add staff" aria-label="Add staff">
+                <i class="fas fa-user-plus" aria-hidden="true"></i>
               </button>
-              {% endif %}
-
-              {% if cell.status == "staffed" %}
-                <i class="weekly-cell-indicator fas fa-circle-check" aria-label="Staff assigned"></i>
               {% endif %}
             </td>
             {% endfor %}
@@ -137,11 +142,7 @@
           {% empty %}
           <tr>
             <td colspan="{{ task_columns|length|default:1|add:1 }}">
-              <div class="sc-assignment-empty">
-                <i class="fas fa-calendar-xmark" aria-hidden="true"></i>
-                <strong>No duty weeks scheduled for {{ month_label }}</strong>
-                <span>Create the plant and section monthly schedules to populate the routine workplan.</span>
-              </div>
+              <div class="sc-assignment-empty">No weeks</div>
             </td>
           </tr>
           {% endfor %}
@@ -158,5 +159,5 @@
 
 {% block extra_scripts %}
 {{ block.super }}
-<script src="{% static 'weeklytasks/js/dashboard.js' %}?v=20261112-table-only"></script>
+<script src="{% static 'weeklytasks/js/dashboard.js' %}?v=20261116-weekly-dialog-date"></script>
 {% endblock %}

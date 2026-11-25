@@ -140,13 +140,8 @@ def _report_response(request, message, status=200, success=False):
 @permission_required("Maintenance_Incident.add_maintenanceincident", raise_exception=True)
 @require_POST
 def report_incident(request: HttpRequest) -> HttpResponse:
-    """Accept an online report or an idempotently synchronized offline draft."""
+    """Create an incident report submitted through the live application."""
     from maintenance.models import MaintenanceIncident
-
-    try:
-        submission_key = uuid.UUID(request.POST.get("offline_submission_key", ""))
-    except (TypeError, ValueError, AttributeError):
-        return _report_response(request, "The report could not be identified. Reload the form and try again.", 400)
 
     title = (request.POST.get("title") or "").strip()
     description = (request.POST.get("description") or "").strip()
@@ -202,29 +197,25 @@ def report_incident(request: HttpRequest) -> HttpResponse:
         "plant": plant,
         "occurred_at": occurred_at,
     }
-    incident, created = MaintenanceIncident.objects.get_or_create(
-        offline_submission_key=submission_key,
-        defaults=defaults,
-    )
-    if created:
-        if house and severity == IncidentSeverity.CRITICAL:
-            incident.process_incident()
-        else:
-            incident.generate_fingerprint()
-            incident.cluster_incident()
-            if incident.cluster:
-                incident.cluster.update_risk()
-            incident.update_equipment_health()
-            incident.save(
-                update_fields=["fingerprint", "cluster", "updated_at"]
-            )
-        incident.stream_event(
-            "reported",
-            {"by": request.user.get_username(), "source": "dashboard"},
+    incident = MaintenanceIncident.objects.create(**defaults)
+    if house and severity == IncidentSeverity.CRITICAL:
+        incident.process_incident()
+    else:
+        incident.generate_fingerprint()
+        incident.cluster_incident()
+        if incident.cluster:
+            incident.cluster.update_risk()
+        incident.update_equipment_health()
+        incident.save(
+            update_fields=["fingerprint", "cluster", "updated_at"]
         )
+    incident.stream_event(
+        "reported",
+        {"by": request.user.get_username(), "source": "dashboard"},
+    )
     return _report_response(
         request,
-        "Incident report submitted." if created else "This incident report was already received.",
+        "Incident report submitted.",
         success=True,
     )
 

@@ -25,10 +25,10 @@
             name: 'cyber',
             badge: 'CYBER',
             label: 'Cyber Command (Midnight)',
-            desc: 'Futuristic obsidian canvas, luminous cyan telemetry & sharp contrast',
+            desc: 'Layered midnight navy, luminous aqua telemetry and a soft aurora finish',
             icon: 'fas fa-terminal',
-            color: '#00e5ff',
-            border: '#00e5ff',
+            color: '#4fd8e7',
+            border: '#4fd8e7',
             scheme: 'dark',
             category: 'futuristic'
         },
@@ -515,7 +515,6 @@
             dispatch: false,
             persist: true
         });
-        root.classList.add('fullscreen-app');
     }
 
     window.ThemeEngine = {

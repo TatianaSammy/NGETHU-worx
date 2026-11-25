@@ -103,8 +103,8 @@ class VoiceAlertAdmin(admin.ModelAdmin):
 
 @admin.register(AlertTemplate)
 class AlertTemplateAdmin(admin.ModelAdmin):
-    list_display = ("name", "version", "active", "auto_voice_enabled")
-    list_filter = ("active", "auto_voice_enabled")
+    list_display = ("name", "version", "active")
+    list_filter = ("active",)
     search_fields = ("name", "subject_template", "body_template")
 
 

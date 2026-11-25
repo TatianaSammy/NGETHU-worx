@@ -1,349 +1,319 @@
+/*
+ * NCwaterLAB - Login Page | Cyber Command (Midnight)
+ * ==================================================
+ * Login inherits its palette from core/css/theme.css, pinned to data-theme="cyber".
+ */
 
+/* ── 2. BACKGROUND & BODY ── */
 body {
     margin: 0;
-    padding: 0;
-    font-family: var(--font-sans);
-    background: linear-gradient(135deg, var(--theme-bg), var(--theme-surface-muted));
-    color: var(--theme-text);
+    padding: 1rem;
+    font-family: var(--font-sans, "Segoe UI", system-ui, sans-serif);
+    min-height: 100vh;
+    min-height: 100svh;
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh;
-    min-height: 100svh;
     overflow-x: hidden;
     overflow-y: auto;
-    position: relative;
-    transition: background 1s ease;
     box-sizing: border-box;
-    padding: 1rem;
-}
-
-
-#errorMessage {
     position: relative;
-    width: 100%;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    gap: 0.7rem;
-    margin: 0 0 0.9rem;
-    padding: 0.75rem 0.85rem;
-    border: 1px solid transparent;
-    border-radius: 0.7rem;
-    font-size: var(--font-size-md);
-    line-height: 1.4;
-    text-align: left;
-    opacity: 1;
-    animation: feedback-in 180ms ease-out;
-    z-index: 10;
-}
 
-#errorMessage[hidden] {
-    display: none;
-}
+    /* theme.css supplies the pinned Cyber Command background grid. */
+    background-color: var(--theme-bg);
 
-#errorMessage.is-error {
-    color: color-mix(in srgb, var(--color-danger) 82%, var(--theme-text));
-    background: color-mix(in srgb, var(--color-danger) 12%, var(--theme-surface));
-    border-color: color-mix(in srgb, var(--color-danger) 32%, transparent);
-}
-
-#errorMessage.is-warning {
-    color: color-mix(in srgb, #d58b00 82%, var(--theme-text));
-    background: color-mix(in srgb, #d58b00 13%, var(--theme-surface));
-    border-color: color-mix(in srgb, #d58b00 34%, transparent);
-}
-
-#errorMessage.is-info {
+    /* Only the success transition animates the page itself. */
+    transition: opacity 300ms ease;
     color: var(--theme-text);
-    background: color-mix(in srgb, var(--theme-accent) 12%, var(--theme-surface));
-    border-color: color-mix(in srgb, var(--theme-accent) 32%, transparent);
 }
 
-.feedback-icon { flex: 0 0 auto; }
-#errorMessage.is-error .feedback-icon { color: var(--color-danger); }
-#errorMessage.is-warning .feedback-icon { color: #d58b00; }
-#errorMessage.is-info .feedback-icon { color: var(--theme-accent); }
-#feedbackText { flex: 1 1 auto; }
-
-.feedback-dismiss {
-    width: 2rem;
-    height: 2rem;
-    flex: 0 0 2rem;
-    padding: 0;
-    border: 0;
-    border-radius: 0.45rem;
-    background: transparent;
-    color: currentColor;
-    display: grid;
-    place-items: center;
+body.is-login-transitioning {
+    opacity: 0;
+    pointer-events: none;
 }
 
-.feedback-dismiss:hover { filter: none !important; box-shadow: none !important; transform: none !important; background: color-mix(in srgb, currentColor 10%, transparent); }
-
-@keyframes feedback-in {
-    from { opacity: 0; transform: translateY(-4px); }
-    to { opacity: 1; transform: translateY(0); }
+/* ── 3. WRAPPER ── */
+.login-wrapper {
+    width: 100%;
+    max-width: 300px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.9rem;
+    box-sizing: border-box;
+    margin: 0 auto;
 }
 
-
+/* ── 4. CARD (login-container) ── */
 .login-container {
     position: relative;
-    background: linear-gradient(145deg, var(--theme-surface), var(--theme-surface-muted));
-    color: var(--theme-text);
-    border: 1px solid var(--theme-border);
-    border-radius: 1rem;
-    box-shadow: 0 12px 35px rgba(0,0,0,0.35);
     width: 100%;
-    max-width: 400px;
+    max-width: 300px;
     box-sizing: border-box;
-    padding: 2rem 2rem;
+    padding: 2rem 1.6rem 1.6rem;
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    transition: all 0.5s ease;
     overflow: hidden;
+
+    /* Cyber Command glass card styling. */
+    background: linear-gradient(
+        145deg,
+        color-mix(in srgb, var(--theme-surface) 94%, white) 0%,
+        var(--theme-surface) 58%,
+        color-mix(in srgb, var(--theme-surface-muted) 62%, var(--theme-surface)) 100%
+    );
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, var(--theme-border));
+    border-radius: 20px;
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--theme-accent) 9%, transparent),
+        0 12px 36px rgba(5, 13, 26, .38),
+        0 3px 10px rgba(5, 13, 26, .24),
+        inset 0 1px 0 rgba(255, 255, 255, .10);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+
+    /* Subtle top cyan glow line */
+    background-image: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--theme-accent) 10%, transparent) 0px,
+        transparent 72px
+    );
+
+    transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.login-container:hover {
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--theme-accent) 16%, transparent),
+        0 16px 42px rgba(5, 13, 26, .42),
+        0 3px 12px rgba(5, 13, 26, .28),
+        inset 0 1px 0 rgba(255, 255, 255, .12);
 }
 
 .login-container.is-transitioning {
     opacity: 0;
-    transform: translateY(5px) scale(0.99);
+    transform: translateY(6px) scale(0.98);
     pointer-events: none;
 }
 
-
+/* ── 5. COMPANY BRANDING ── */
 .company-name {
-    font-size: var(--font-size-2xl);
+    font-size: 1.45rem;
     font-weight: 700;
-    margin-bottom: 1rem;
-    color: var(--theme-accent);
-    transition: color 0.3s ease;
+    margin: 0.5rem 0 1.1rem;
+    color: var(--theme-text);
+    letter-spacing: 0.01em;
 }
 
+.company-logo {
+    max-width: 100%;
+    max-height: 90px;
+}
 
+/* Avatar circle rendered by company_branding component */
+.company-avatar {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--theme-accent) 0%, var(--theme-accent-hover) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #ffffff;
+    margin: 0 auto 0.1rem;
+    box-shadow:
+        0 0 0 3px color-mix(in srgb, var(--theme-accent) 20.0%, transparent),
+        0 4px 16px color-mix(in srgb, var(--theme-accent) 25.0%, transparent);
+    letter-spacing: 0.03em;
+}
+
+/* ── 6. FORM GROUPS & INPUTS ── */
 .form-group {
     position: relative;
     width: 100%;
-    margin-bottom: 1rem;
+    margin-bottom: 0.85rem;
+    box-sizing: border-box;
 }
 
+#loginForm .form-group {
+    max-width: 100%;
+    margin-inline: auto;
+}
 
 .form-group i.left-icon {
     position: absolute;
     top: 50%;
-    left: 0.75rem;
+    left: 0.85rem;
     transform: translateY(-50%);
-    color: var(--theme-muted);
+    color: color-mix(in srgb, var(--theme-accent) 65.0%, transparent);
     pointer-events: none;
-    font-size: var(--font-size-body);
+    font-size: 0.85rem;
 }
-
 
 input[type="text"],
 input[type="password"] {
     width: 100%;
-    padding: 0.55rem 2.75rem 0.55rem 2.5rem;
-    border-radius: 0.5rem;
-    border: 1px solid var(--theme-border-strong);
+    padding: 0.6rem 2.75rem 0.6rem 2.5rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 22.0%, transparent);
     outline: none;
-    font-size: var(--font-size-body);
-    background: var(--theme-surface-strong);
+    font-size: 0.9rem;
+    background: var(--input-bg);
     color: var(--theme-text);
     box-sizing: border-box;
-    transition: background 0.3s ease, border 0.3s ease, box-shadow 0.3s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-input:focus {
-    background: var(--theme-surface);
-    border: 1px solid var(--theme-accent);
-    box-shadow: var(--theme-focus-ring);
+input[type="text"]:focus,
+input[type="password"]:focus {
+    background: var(--theme-surface-strong);
+    border-color: color-mix(in srgb, var(--theme-accent) 75.0%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-accent) 18.0%, transparent);
+}
+
+input::placeholder {
+    color: color-mix(in srgb, var(--theme-muted) 90.0%, transparent);
 }
 
 .form-group input[aria-invalid="true"] {
     border-color: var(--color-danger);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 16%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 16.0%, transparent);
 }
 
-input::placeholder {
-    color: var(--theme-muted);
-}
-
-
+/* ── 7. PASSWORD TOGGLE BUTTON ── */
 .toggle-password {
     position: absolute;
     top: 50%;
-    right: 0.75rem;
+    right: 0.6rem;
     transform: translateY(-50%);
-    color: var(--theme-muted);
-    font-size: var(--font-size-md);
+    color: color-mix(in srgb, var(--theme-muted) 85.0%, transparent);
+    font-size: 0.85rem;
     z-index: 3;
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2rem;
+    height: 2rem;
     padding: 0;
     border: 0;
-    border-radius: 0.5rem;
+    border-radius: 8px;
     background: transparent;
     display: grid;
     place-items: center;
     transition: color 0.2s ease, background 0.2s ease;
+    cursor: pointer;
 }
 
 .form-group .toggle-password:hover {
     color: var(--theme-accent);
-    background: color-mix(in srgb, var(--theme-accent) 9%, transparent);
-    filter: none;
+    background: color-mix(in srgb, var(--theme-accent) 10.0%, transparent);
     box-shadow: none;
     transform: translateY(-50%);
+    filter: none;
 }
 
-.form-group .toggle-password:disabled { opacity: 1; cursor: pointer; }
+.form-group .toggle-password:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 
-
+/* ── 8. LOGIN BUTTON ── */
 button {
     width: 100%;
-    padding: 0.55rem 1rem;
+    padding: 0.6rem 1rem;
     border: none;
-    border-radius: 2rem;
-    background: var(--theme-accent);
-    color: var(--theme-on-accent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--theme-surface-strong) 90.0%, transparent);
+    color: var(--theme-text);
     font-weight: 700;
-    font-size: var(--font-size-md);
+    font-size: 0.95rem;
     cursor: pointer;
     position: relative;
     overflow: hidden;
-    transition: filter 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease;
+    letter-spacing: 0.03em;
+    transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 20.0%, transparent);
+}
+
+button:not(:disabled) {
+    background: var(--theme-accent);
+    border-color: var(--theme-accent);
+    color: var(--theme-on-accent);
+}
+
+#loginBtn {
+    max-width: 190px;
+    align-self: center;
+    margin-top: 0.3rem;
 }
 
 button:hover:not(:disabled) {
-    filter: brightness(1.1);
-    box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+    background: var(--theme-accent-hover);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.40), 0 0 12px color-mix(in srgb, var(--theme-accent) 12.0%, transparent);
     transform: translateY(-1px);
 }
 
-button:disabled {
-    background: var(--theme-muted);
-    cursor: not-allowed;
-    opacity: 0.6;
+button:active:not(:disabled) {
+    transform: translateY(0);
 }
 
-button:focus-visible, a:focus-visible, input:focus-visible {
-    outline: 3px solid color-mix(in srgb, var(--theme-accent) 70%, white);
+button:disabled {
+    background: color-mix(in srgb, var(--theme-surface-muted) 70.0%, transparent);
+    color: color-mix(in srgb, var(--theme-muted) 75.0%, transparent);
+    cursor: not-allowed;
+    opacity: 0.75;
+    border-color: color-mix(in srgb, var(--theme-accent) 10.0%, transparent);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--theme-accent) 75.0%, transparent);
     outline-offset: 2px;
 }
 
-.auth-hint {
-    width: 100%;
-    margin: -0.55rem 0 0.75rem;
-    text-align: left;
-    font-size: var(--font-size-sm);
-    color: #a96700;
+/* ── 9. RESET / DIALOG BUTTONS ── */
+.reset-request-actions button {
+    width: auto;
+    flex: 1 1 0;
+    min-height: 2.4rem;
+    padding: 0.5rem 0.65rem;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    max-width: none;
+    align-self: unset;
+    margin-top: 0;
 }
 
-.auth-hint[hidden] { display: none; }
-
-.login-network-status {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.45rem;
-    margin-top: 0.9rem;
-    color: var(--theme-muted);
-    font-size: var(--font-size-sm);
+.reset-request-actions .reset-cancel-button {
+    background: color-mix(in srgb, var(--theme-surface) 80.0%, transparent);
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 22.0%, transparent);
+    color: var(--theme-text-secondary);
 }
 
-.login-network-status[hidden] { display: none; }
-
-.network-indicator {
-    width: 0.48rem;
-    height: 0.48rem;
-    border-radius: 50%;
+.reset-request-actions .reset-cancel-button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--theme-surface) 95.0%, transparent);
+    box-shadow: none;
+    transform: none;
 }
 
-.login-network-status.is-offline .network-indicator {
-    background: var(--color-danger);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15%, transparent);
-}
-
-
+/* ── 10. FORGOT PASSWORD LINK ── */
 .forgot-password {
-    margin-top: 0.5rem;
-    font-size: var(--font-size-sm);
+    margin-top: 0.6rem;
+    font-size: 0.82rem;
 }
 
 .forgot-password a {
     color: var(--theme-accent);
     text-decoration: none;
-    transition: all 0.3s ease;
+    transition: color 0.2s ease, text-shadow 0.2s ease;
 }
 
 .forgot-password a:hover {
-    text-decoration: underline;
     color: var(--theme-accent-hover);
-}
-
-
-#passwordStrengthContainer {
-    height: 6px;
-    width: 100%;
-    background: var(--theme-surface-muted);
-    border-radius: 3px;
-    margin-bottom: 1rem;
-    transition: all 0.3s ease;
-}
-
-#passwordStrengthBar {
-    height: 100%;
-    width: 0%;
-    background: var(--color-danger);
-    border-radius: 3px;
-    transition: width 0.3s ease, background 0.3s ease;
-}
-
-
-#passwordStrengthBar.strong {
-    box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 55%, transparent);
-}
-
-
-@media (max-width: 400px) {
-    .login-container {
-        padding: 1.5rem 1rem;
-    }
-
-    .company-name {
-        font-size: var(--font-size-xl);
-    }
-}
-
-
-.reset-status {
-    width: 100%;
-    text-align: center;
-    font-size: var(--font-size-sm);
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.4rem;
-    margin-top: 0.5rem;
-    transition: opacity 0.3s ease;
-    line-height: 1.4;
-}
-
-.reset-status[hidden] { display: none; }
-
-.reset-status.success {
-    background: color-mix(in srgb, var(--color-success, #00ff88) 12%, var(--theme-surface));
-    color: var(--color-success, #00ff88);
-    border: 1px solid color-mix(in srgb, var(--color-success, #00ff88) 25%, transparent);
-}
-
-.reset-status.error {
-    background: color-mix(in srgb, var(--color-danger, #ff4444) 12%, var(--theme-surface));
-    color: var(--color-danger, #ff4444);
-    border: 1px solid color-mix(in srgb, var(--color-danger, #ff4444) 25%, transparent);
-}
-
-.reset-status.sending {
-    color: var(--theme-muted);
+    text-decoration: underline;
+    text-shadow: 0 0 8px color-mix(in srgb, var(--theme-accent) 35.0%, transparent);
 }
 
 .forgot-password a.disabled-link {
@@ -351,7 +321,372 @@ button:focus-visible, a:focus-visible, input:focus-visible {
     opacity: 0.5;
 }
 
+/* ── 11. FEEDBACK / ERROR MESSAGES ── */
+#errorMessage,
+.reset-message {
+    position: relative;
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin: 0;
+    padding: 0.8rem 1rem;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    text-align: left;
+    animation: feedback-in 200ms ease-out;
+    z-index: 10;
+    backdrop-filter: blur(6px);
+}
+
+#errorMessage[hidden],
+.reset-message[hidden] {
+    display: none;
+}
+
+/* Error state */
+#errorMessage.is-error {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 14.0%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 32.0%, transparent);
+    box-shadow: 0 4px 18px color-mix(in srgb, var(--color-danger) 12.0%, transparent);
+}
+
+/* Warning state */
+#errorMessage.is-warning {
+    color: #fbbf24;
+    background: color-mix(in srgb, var(--color-warning) 13.0%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 30.0%, transparent);
+}
+
+/* Info state */
+#errorMessage.is-info {
+    color: var(--theme-text);
+    background: color-mix(in srgb, var(--theme-accent) 10.0%, transparent);
+    border-color: color-mix(in srgb, var(--theme-accent) 26.0%, transparent);
+}
+
+/* Success state */
+#errorMessage.is-success {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 13.0%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 28.0%, transparent);
+}
+
+/* Reset message variants */
+.reset-message.is-info {
+    color: var(--theme-text);
+    background: color-mix(in srgb, var(--theme-accent) 10.0%, transparent);
+    border-color: color-mix(in srgb, var(--theme-accent) 26.0%, transparent);
+}
+
+.reset-message.is-error {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 14.0%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 32.0%, transparent);
+}
+
+.reset-message.is-warning {
+    color: #fbbf24;
+    background: color-mix(in srgb, var(--color-warning) 13.0%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 30.0%, transparent);
+}
+
+.feedback-icon        { flex: 0 0 auto; }
+#feedbackText         { flex: 1 1 auto; }
+#resetMessageText     { flex: 1 1 auto; }
+
+#errorMessage.is-error   .feedback-icon { color: var(--color-danger); }
+#errorMessage.is-warning .feedback-icon { color: var(--color-warning); }
+#errorMessage.is-info    .feedback-icon { color: var(--theme-accent); }
+#errorMessage.is-success .feedback-icon { color: var(--color-success); }
+.reset-message.is-info   .feedback-icon { color: var(--theme-accent); }
+.reset-message.is-error  .feedback-icon { color: var(--color-danger); }
+.reset-message.is-warning .feedback-icon { color: var(--color-warning); }
+
+@keyframes feedback-in {
+    from { opacity: 0; transform: translateY(-5px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 12. PASSWORD POLICY NOTICE (marquee banner) ── */
+.password-policy-notice {
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 18.0%, transparent);
+    border-radius: 999px;
+    padding: 0.5rem 0;
+    background: color-mix(in srgb, var(--theme-accent) 5.0%, transparent);
+    color: color-mix(in srgb, var(--theme-muted) 90.0%, transparent);
+    font-size: 0.675rem;
+    line-height: 1.35;
+    letter-spacing: 0.015em;
+    white-space: nowrap;
+}
+
+.password-policy-notice-track {
+    display: flex;
+    width: max-content;
+    animation: password-policy-marquee 14s linear infinite;
+    will-change: transform;
+}
+
+.password-policy-notice-track span {
+    flex: 0 0 auto;
+    padding-inline: 1.25rem;
+}
+
+.password-policy-notice-login {
+    max-height: 0;
+    padding-block: 0;
+    border-color: transparent;
+    opacity: 0;
+    visibility: hidden;
+    transition: max-height 360ms ease, padding 360ms ease, border-color 320ms ease, opacity 320ms ease, visibility 0s linear 360ms;
+}
+
+.password-policy-notice-login.is-visible {
+    max-height: 3rem;
+    padding-block: 0.5rem;
+    border-color: color-mix(in srgb, var(--theme-accent) 18.0%, transparent);
+    opacity: 1;
+    visibility: visible;
+    transition: max-height 360ms ease, padding 360ms ease, border-color 320ms ease, opacity 320ms ease, visibility 0s;
+}
+
+.password-policy-notice-login:not(.is-visible) .password-policy-notice-track {
+    animation-play-state: paused;
+}
+
+@keyframes password-policy-marquee {
+    to { transform: translateX(-50%); }
+}
+
+/* ── 13. PASSWORD STRENGTH METER ── */
+.login-password-policy {
+    width: 100%;
+    margin: -0.2rem auto 0.2rem;
+    text-align: left;
+}
+
+.login-password-policy[hidden] { display: none; }
+
+.password-strength-meter {
+    position: relative;
+    width: 100%;
+    height: 0.5rem;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 18.0%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--theme-surface) 80.0%, transparent);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.40);
+}
+
+.password-strength-fill {
+    position: relative;
+    width: 0;
+    height: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+    background: linear-gradient(100deg, var(--color-danger) 0%, var(--color-warning) 25%, #fbbf24 50%, var(--color-success) 75%, var(--theme-accent) 100%);
+    background-size: 220% 100%;
+    animation: password-strength-flow 3.6s linear infinite;
+    transition: width 460ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.password-strength-fill.is-complete {
+    box-shadow: 0 0 10px color-mix(in srgb, var(--theme-accent) 45.0%, transparent);
+}
+
+@keyframes password-strength-flow {
+    to { background-position: 220% 0; }
+}
+
+/* ── 14. NETWORK STATUS ── */
+.login-network-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    color: color-mix(in srgb, var(--theme-muted) 85.0%, transparent);
+    font-size: 0.8rem;
+}
+
+.login-wrapper > .login-network-status { margin-top: 0; }
+
+.login-network-status[hidden] { display: none; }
+
+.network-indicator {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+}
+
+.login-network-status.is-offline .network-indicator {
+    background: var(--color-danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15.0%, transparent);
+}
+
+/* ── 15. CAPS LOCK WARNING ── */
+.auth-hint {
+    width: 100%;
+    margin: -0.5rem 0 0.65rem;
+    text-align: left;
+    font-size: 0.8rem;
+    color: var(--color-warning);
+}
+
+.auth-hint[hidden] { display: none; }
+
+.login-wrapper > #passwordCapsWarning {
+    width: 100%;
+    margin: 0;
+    text-align: center;
+}
+
+/* ── 16. FORGOT PASSWORD DIALOG ── */
+.forgot-password-dialog {
+    width: min(22rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 20.0%, transparent);
+    border-radius: 16px;
+    background: var(--theme-surface);
+    color: var(--theme-text);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.60), 0 0 0 1px color-mix(in srgb, var(--theme-accent) 8.0%, transparent);
+    backdrop-filter: blur(16px);
+}
+
+.forgot-password-dialog::backdrop {
+    background: color-mix(in srgb, var(--theme-bg) 72.0%, transparent);
+    backdrop-filter: blur(4px);
+}
+
+.forgot-password-dialog-content {
+    padding: 1.4rem 1.3rem;
+}
+
+.forgot-password-dialog h2 {
+    margin: 0;
+    font-size: 1.15rem;
+    color: var(--theme-text);
+}
+
+.forgot-password-dialog p {
+    margin: 0.45rem 0 1rem;
+    color: var(--theme-muted);
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+#passwordResetRequestForm {
+    width: 100%;
+}
+
+#passwordResetRequestForm label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: var(--theme-muted);
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-align: left;
+}
+
+#passwordResetRequestForm .reset-request-input {
+    width: 100%;
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 22.0%, transparent);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--theme-text);
+    box-sizing: border-box;
+    font-size: 0.875rem;
+}
+
+.reset-request-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    margin-top: 0.9rem;
+}
+
+.reset-validation-message {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    text-align: left;
+    color: var(--color-danger);
+}
+
+.reset-validation-message[hidden] { display: none; }
+
+.reset-validation-message.success {
+    border: 1px solid color-mix(in srgb, var(--color-success) 28.0%, transparent);
+    background: color-mix(in srgb, var(--color-success) 12.0%, transparent);
+    color: var(--color-success);
+}
+
+.reset-validation-message.error,
+.reset-validation-message.warning {
+    border: 1px solid color-mix(in srgb, var(--color-danger) 28.0%, transparent);
+    background: color-mix(in srgb, var(--color-danger) 12.0%, transparent);
+    color: var(--color-danger);
+}
+
+.reset-validation-message.sending {
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 18.0%, transparent);
+    background: color-mix(in srgb, var(--theme-accent) 5.0%, transparent);
+    color: var(--theme-muted);
+}
+
+/* ── 17. RESPONSIVE ── */
+@media (max-width: 360px) {
+    .login-container {
+        padding: 1.5rem 1.1rem 1.3rem;
+    }
+
+    .company-name {
+        font-size: 1.25rem;
+    }
+}
+
+/* ── 18. REDUCED MOTION ── */
 @media (prefers-reduced-motion: reduce) {
+    body { transition: none; }
+
+    .password-policy-notice-track {
+        width: 100%;
+        justify-content: center;
+        animation: none;
+        white-space: normal;
+    }
+
+    .password-policy-notice-track span:first-child {
+        flex: 1 1 auto;
+        text-align: center;
+        white-space: normal;
+    }
+
+    .password-policy-notice-track span + span { display: none; }
+
+    .password-policy-notice-login,
+    .password-policy-notice-login.is-visible {
+        transition: none;
+    }
+
+    .password-strength-fill {
+        animation: none;
+        background-position: 50% 0;
+        transition: width 180ms ease;
+    }
+
     *, *::before, *::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;

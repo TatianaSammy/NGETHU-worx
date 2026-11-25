@@ -1,0 +1,155 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qad-celery
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: celery
+spec:
+  replicas: 4
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: qad
+      app.kubernetes.io/component: celery
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: qad
+        app.kubernetes.io/component: celery
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: qad-serviceaccount
+      terminationGracePeriodSeconds: 120
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: celery
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: celery
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: wait-for-deps
+          image: qad-backend:stable
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until nc -z pgbouncer 6432; do echo "waiting for pgbouncer..."; sleep 2; done
+              until nc -z redis 6379; do echo "waiting for redis..."; sleep 2; done
+              echo "Celery dependencies ready."
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      containers:
+        - name: celery
+          image: qad-backend:stable
+          imagePullPolicy: IfNotPresent
+          workingDir: /app
+          command:
+            - celery
+            - -A
+            - qad
+            - worker
+            - --loglevel=INFO
+            - --concurrency=8
+            - --prefetch-multiplier=1
+            - --max-tasks-per-child=500
+            - --max-memory-per-child=512000
+            - --without-gossip
+            - --without-mingle
+            - --without-heartbeat
+            - -Ofair
+          envFrom:
+            - configMapRef:
+                name: qad-config
+            - secretRef:
+                name: qad-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "celery -A qad inspect ping --destination celery@$HOSTNAME --timeout=5 > /dev/null 2>&1 || exit 1"
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 15
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "celery -A qad inspect ping --destination celery@$HOSTNAME --timeout=5 > /dev/null 2>&1 || exit 1"
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - "celery -A qad control shutdown && sleep 10"
+          volumeMounts:
+            - name: media
+              mountPath: /app/media
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: media
+          persistentVolumeClaim:
+            claimName: media-pvc
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+

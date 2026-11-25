@@ -38,8 +38,8 @@ class DashboardNotificationsView(LoginRequiredMixin, View):
             # create voice jobs on every poll; alert lifecycle hooks queue
             # idempotent audio generation when the event is first created.
             alert["voice_url"] = None
-            alert["voice_profile"] = ""
-            alert["auto_voice"] = False
+            alert["voice_profile"] = "Browser speech"
+            alert["auto_voice"] = True
             try:
                 from alerts.models import VoiceAlert
 
@@ -62,17 +62,6 @@ class DashboardNotificationsView(LoginRequiredMixin, View):
                 if voice and voice.profile_audio_ready:
                     alert["voice_url"] = voice.audio_file.url
                     alert["voice_profile"] = "TTS"
-                    config = voice.alert_config
-                    alert["auto_voice"] = bool(
-                        not config
-                        or (
-                            config.active
-                            and (
-                                not config.template_id
-                                or config.template.active and config.template.auto_voice_enabled
-                            )
-                        )
-                    )
             except Exception:
                 pass
 
@@ -194,6 +183,7 @@ class DashboardNotificationAckView(LoginRequiredMixin, View):
             request.user,
             str(alert_id),
             is_superuser=is_superuser,
+            request=request,
         )
         response = JsonResponse(result, status=200 if result.get("success") else 404)
         response["Cache-Control"] = "no-store, max-age=0"

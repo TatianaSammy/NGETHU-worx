@@ -5,6 +5,7 @@ from __future__ import annotations
 
 WORKFLOW_STAGES = (
     {"key": "receipt", "title": "Batch receipt", "short_title": "Receipt"},
+    {"key": "inspection", "title": "Inspection Committee", "short_title": "Inspection"},
     {"key": "assignment", "title": "Analyst assignment", "short_title": "Analysts"},
     {"key": "checklist", "title": "Receiving checklist", "short_title": "Checklist"},
     {"key": "analysis", "title": "Laboratory analysis", "short_title": "Analysis"},
@@ -16,7 +17,9 @@ WORKFLOW_STAGES = (
 
 TASK_STAGE_MAP = {
     "receive": "receipt",
-    "create_request": "receipt",
+    "inspection_committee": "inspection",
+    "supply_chain_review": "inspection",
+    "create_request": "assignment",
     "assign_analysts": "assignment",
     "checklist": "checklist",
     "complete_checklist": "checklist",
@@ -45,6 +48,7 @@ TASK_STAGE_MAP = {
     "utilize": "disposition",
     "return_to_supplier": "disposition",
     "return_rejected": "disposition",
+    "supplier_collection": "disposition",
 }
 
 
@@ -57,6 +61,19 @@ def next_stage_key(process) -> str:
     if process is None:
         return "receipt"
 
+    status = getattr(process, "status", "")
+    if status == "CREATED":
+        return "receipt"
+    if status == "REJECTED":
+        return "disposition"
+    if status in {"UTILIZED", "RETURNED", "COMPLETED"}:
+        return "complete"
+
+    if process.batch_id:
+        latest_inspection = process.batch.inspections.order_by("-attempt").first()
+        if latest_inspection is None or latest_inspection.status != "PASS":
+            return "inspection"
+
     active_tasks = list(
         process.task_set.filter(status__in=("NEW", "ASSIGNED", "STARTED"))
     )
@@ -67,7 +84,6 @@ def next_stage_key(process) -> str:
         if stage:
             return stage
 
-    status = getattr(process, "status", "")
     request = getattr(process, "analysis_request", None)
     if status in {"CREATED"}:
         return "receipt"
@@ -85,8 +101,4 @@ def next_stage_key(process) -> str:
         return "quality"
     if status == "APPROVED":
         return "certificate"
-    if status == "REJECTED":
-        return "disposition"
-    if status in {"UTILIZED", "RETURNED", "COMPLETED"}:
-        return "complete"
     return "receipt"

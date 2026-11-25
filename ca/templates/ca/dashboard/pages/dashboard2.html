@@ -7,8 +7,8 @@
 {% block app_module %}dashboard{% endblock %}
 
 {% block page_css %}
-<link rel="stylesheet" href="{% static 'ca/css/pages/dashboard.css' %}">
-<link rel="stylesheet" href="{% static 'ca/css/pages/dashboard-operations.css' %}">
+<link rel="stylesheet" href="{% static 'ca/css/pages/dashboard.css' %}?v=20261114-ca-theme-v2">
+<link rel="stylesheet" href="{% static 'ca/css/pages/dashboard-operations.css' %}?v=20261114-ca-theme-v2">
 {% endblock %}
 
 {% block breadcrumbs %}
@@ -845,9 +845,18 @@
     }
 
     const charts = payload.charts || {};
+    const dashboardStyle = getComputedStyle(root);
+    const themeValue = (name, fallback) =>
+        dashboardStyle.getPropertyValue(name).trim() || fallback;
+    const themeFont = themeValue("--font-sans", dashboardStyle.fontFamily || "sans-serif");
+    const themeText = themeValue("--theme-text", "#172033");
+    const themeMuted = themeValue("--theme-text-secondary", themeValue("--theme-muted", "#64748b"));
+    const themeBorder = themeValue("--theme-border", "#dbe3eb");
+    const themeSurface = themeValue("--theme-surface", "#ffffff");
     const theme = {
         font: {
-            family: "Arial, sans-serif",
+            family: themeFont,
+            color: themeText,
             size: 10
         },
         margin: {
@@ -856,10 +865,61 @@
             t: 35,
             b: 38
         },
-        paper_bgcolor: "rgba(0,0,0,0)",
-        plot_bgcolor: "rgba(0,0,0,0)",
+        paper_bgcolor: "transparent",
+        plot_bgcolor: "transparent",
+        colorway: [
+            themeValue("--theme-accent", "#0284c7"),
+            themeValue("--color-success", "#16a34a"),
+            themeValue("--color-warning", "#d97706"),
+            themeValue("--color-danger", "#dc2626")
+        ],
+        hoverlabel: {
+            bgcolor: themeSurface,
+            bordercolor: themeBorder,
+            font: { family: themeFont, color: themeText, size: 10 }
+        },
         hovermode: "x unified"
     };
+
+    function applyAxisTheme(layout) {
+        if (layout.title) {
+            const title = typeof layout.title === "string" ? { text: layout.title } : layout.title;
+            layout.title = {
+                ...title,
+                font: { ...(title.font || {}), family: themeFont, color: themeText }
+            };
+        }
+        Object.keys(layout).filter(key => /^[xyz]axis\d*$/.test(key)).forEach(key => {
+            const axis = layout[key] || {};
+            const axisTitle = typeof axis.title === "string"
+                ? { text: axis.title }
+                : (axis.title || {});
+            layout[key] = {
+                ...axis,
+                color: themeMuted,
+                gridcolor: themeBorder,
+                linecolor: themeBorder,
+                zerolinecolor: themeBorder,
+                tickfont: { ...(axis.tickfont || {}), family: themeFont, color: themeMuted },
+                title: {
+                    ...axisTitle,
+                    font: { ...(axisTitle.font || {}), family: themeFont, color: themeText }
+                }
+            };
+        });
+        if (layout.legend) {
+            layout.legend = {
+                ...layout.legend,
+                font: { ...(layout.legend.font || {}), family: themeFont, color: themeText }
+            };
+        }
+        if (Array.isArray(layout.annotations)) {
+            layout.annotations = layout.annotations.map(annotation => ({
+                ...annotation,
+                font: { ...(annotation.font || {}), family: themeFont, color: themeText }
+            }));
+        }
+    }
 
     function renderChart(id, spec) {
         const element = document.getElementById(id);
@@ -877,7 +937,8 @@
         }
 
         const data = spec.data || [];
-        const layout = Object.assign({}, theme, spec.layout || {});
+        const layout = Object.assign({}, spec.layout || {}, theme, { template: "none" });
+        applyAxisTheme(layout);
         const config = Object.assign({
             responsive: true,
             displaylogo: false,
@@ -992,6 +1053,7 @@
         ?.addEventListener("click", refreshDashboard);
 
     renderAll();
+    window.addEventListener("themeChanged", renderAll);
     installChartResize();
 })();
 </script>

@@ -226,49 +226,40 @@
 </div>
 {% endif %}
 
-{% if analysis_input %}
+{% if analysis_input_values %}
 <div class="card">
     <div class="card-header">
         <div>
-            <h2>Analysis Input</h2>
-            <p>Calculation input associated with this result.</p>
+            <h2>Method Inputs</h2>
+            <p>Captured values for this result’s analysis method.</p>
         </div>
     </div>
 
     <div class="card-body">
-        <div class="details-grid">
-            <div class="detail-item">
-                <span class="detail-label">Calculated Value</span>
-                <span class="detail-value">
-                    {{ analysis_input.calculated_value|default:"—" }}
-                </span>
-            </div>
-
-            <div class="detail-item">
-                <span class="detail-label">Inputs</span>
-                <span class="detail-value">
-                    {{ analysis_input.inputs|default:"—" }}
-                </span>
-            </div>
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr><th>Input</th><th>Value</th></tr>
+                </thead>
+                <tbody>
+                    {% for item in analysis_input_values %}
+                    <tr>
+                        <td>{{ item.label }}{% if item.unit %} ({{ item.unit }}){% endif %}</td>
+                        <td>{{ item.value }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-
-        {% if analysis_input.pk %}
         <div class="page-actions">
-            <a
-                href="{% url 'ca:analysis-input-detail' analysis_input.pk %}"
-                class="btn btn-secondary"
-            >
-                View Input
-            </a>
-
-            <a
-                href="{% url 'ca:analysis-input-recalculate' analysis_input.pk %}"
-                class="btn btn-primary"
-            >
-                Recalculate
-            </a>
+            {% if analysis_input_definition %}
+            <a href="{% url 'ca:analysis-input-detail' analysis_input_definition.pk %}" class="btn btn-secondary">View Method Input</a>
+            {% endif %}
+            <form method="post" action="{% url 'ca:analysis-input-recalculate' result.pk %}" class="d-inline">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary">Verify Calculation</button>
+            </form>
         </div>
-        {% endif %}
     </div>
 </div>
 {% endif %}

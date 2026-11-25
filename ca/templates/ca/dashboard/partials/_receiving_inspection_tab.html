@@ -1,0 +1,153 @@
+<section class="receiving-inspection-page" aria-labelledby="receiving-inspection-title">
+    <header class="receiving-inspection-page__header">
+        <div>
+            <span class="receiving-inspection-page__eyebrow">RECEIPT CONTROL</span>
+            <h2 id="receiving-inspection-title">Receiving &amp; inspection</h2>
+            <p>Review new consignments, complete the committee sample inspection, and route failed inspections to Supply Chain.</p>
+        </div>
+    </header>
+
+    <div class="receiving-inspection-queues">
+        {% if can_receive_batch %}
+        <section class="inspection-queue-card" aria-labelledby="inspection-queue-title">
+            <header class="inspection-queue-card__header">
+                <div>
+                    <span class="inspection-queue-card__eyebrow">INSPECTION COMMITTEE</span>
+                    <h3 id="inspection-queue-title">Consignments to inspect</h3>
+                </div>
+                <span class="inspection-queue-card__count">{{ inspection_queue_count }}</span>
+            </header>
+            {% if inspection_batches %}
+            <div class="inspection-queue-table-wrap">
+                <table class="inspection-queue-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Consignment</th>
+                            <th scope="col">Supplier</th>
+                            <th scope="col">Received</th>
+                            <th scope="col">Inspection status</th>
+                            <th scope="col"><span class="sr-only">Action</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for batch in inspection_batches %}
+                        <tr>
+                            <td>
+                                <a class="inspection-queue-table__batch" href="{{ batch.inspection_detail_url }}">{{ batch.sample_id }}</a>
+                                <span class="inspection-queue-table__detail">{{ batch.chemical.name }}</span>
+                            </td>
+                            <td>{{ batch.supplier.name }}</td>
+                            <td>{{ batch.received_date|date:"d M Y"|default:"—" }}</td>
+                            <td>
+                                {% if not batch.package_quantity_display %}
+                                    <span class="inspection-state inspection-state--missing">Quantity details needed</span>
+                                {% elif batch.latest_inspection_status == 'PENDING' %}
+                                    <span class="inspection-state inspection-state--pending">Attempt {{ batch.latest_inspection_attempt }} · Ready</span>
+                                {% else %}
+                                    <span class="inspection-state inspection-state--new">Ready for first inspection</span>
+                                {% endif %}
+                                {% if batch.package_quantity_display %}<small class="inspection-queue-table__detail">{{ batch.package_quantity_display }} · 10% systematic sample</small>{% endif %}
+                            </td>
+                            <td class="inspection-queue-table__action">
+                                <a href="{{ batch.inspection_action_url }}">{{ batch.inspection_action_label }} <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="inspection-queue-empty">
+                <span class="inspection-queue-empty__icon"><i class="fa-solid fa-circle-check" aria-hidden="true"></i></span>
+                <div><strong>Inspection queue is clear</strong><p>New received consignments will appear here until the committee inspection is complete.</p></div>
+            </div>
+            {% endif %}
+            {% if inspection_queue_count > inspection_list_limit %}<footer class="inspection-queue-card__footer">Showing the newest {{ inspection_list_limit }} of {{ inspection_queue_count }} consignments.</footer>{% endif %}
+        </section>
+        {% endif %}
+
+        {% if can_review_inspections %}
+        <section class="inspection-queue-card inspection-queue-card--review" aria-labelledby="supply-chain-queue-title">
+            <header class="inspection-queue-card__header">
+                <div>
+                    <span class="inspection-queue-card__eyebrow">SUPPLY CHAIN</span>
+                    <h3 id="supply-chain-queue-title">Failed inspections for review</h3>
+                </div>
+                <span class="inspection-queue-card__count">{{ supply_chain_review_count }}</span>
+            </header>
+            {% if supply_chain_review_batches %}
+            <div class="inspection-queue-table-wrap">
+                <table class="inspection-queue-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Consignment</th>
+                            <th scope="col">Supplier</th>
+                            <th scope="col">Received</th>
+                            <th scope="col">Inspection</th>
+                            <th scope="col"><span class="sr-only">Action</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for batch in supply_chain_review_batches %}
+                        <tr>
+                            <td>
+                                <a class="inspection-queue-table__batch" href="{{ batch.inspection_detail_url }}">{{ batch.sample_id }}</a>
+                                <span class="inspection-queue-table__detail">{{ batch.chemical.name }}</span>
+                            </td>
+                            <td>{{ batch.supplier.name }}</td>
+                            <td>{{ batch.received_date|date:"d M Y"|default:"—" }}</td>
+                            <td><span class="inspection-state inspection-state--failed">Failed · Attempt {{ batch.latest_inspection_attempt }}</span></td>
+                            <td class="inspection-queue-table__action"><a href="{{ batch.inspection_detail_url }}">Review decision <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="inspection-queue-empty">
+                <span class="inspection-queue-empty__icon"><i class="fa-solid fa-shield-halved" aria-hidden="true"></i></span>
+                <div><strong>No decisions waiting</strong><p>Failed committee inspections will appear here for Supply Chain rejection.</p></div>
+            </div>
+            {% endif %}
+            {% if supply_chain_review_count > inspection_list_limit %}<footer class="inspection-queue-card__footer">Showing the newest {{ inspection_list_limit }} of {{ supply_chain_review_count }} inspections.</footer>{% endif %}
+        </section>
+        {% endif %}
+
+        {% if can_view_supplier_collections %}
+        <section class="inspection-queue-card inspection-queue-card--review" aria-labelledby="supplier-collection-queue-title">
+            <header class="inspection-queue-card__header">
+                <div>
+                    <span class="inspection-queue-card__eyebrow">SUPPLIER RETURN</span>
+                    <h3 id="supplier-collection-queue-title">Rejected consignments awaiting collection</h3>
+                </div>
+                <span class="inspection-queue-card__count">{{ supplier_collection_count }}</span>
+            </header>
+            {% if supplier_collection_batches %}
+            <div class="inspection-queue-table-wrap">
+                <table class="inspection-queue-table">
+                    <thead>
+                        <tr><th scope="col">Consignment</th><th scope="col">Supplier</th><th scope="col">Collection deadline</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Action</span></th></tr>
+                    </thead>
+                    <tbody>
+                        {% for batch in supplier_collection_batches %}
+                        <tr>
+                            <td><a class="inspection-queue-table__batch" href="{{ batch.collection_detail_url }}">{{ batch.sample_id }}</a><span class="inspection-queue-table__detail">{{ batch.chemical.name }}</span></td>
+                            <td>{{ batch.supplier.name }}</td>
+                            <td>{{ batch.supplier_collection_due_at|date:"d M Y, H:i" }}</td>
+                            <td>{% if batch.supplier_collection_overdue %}<span class="inspection-state inspection-state--failed">Overdue</span>{% else %}<span class="inspection-state inspection-state--pending">Due within 24 hours</span>{% endif %}</td>
+                            <td class="inspection-queue-table__action"><a href="{{ batch.collection_detail_url }}">Record collection <i class="fa-solid fa-arrow-right" aria-hidden="true"></i></a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="inspection-queue-empty">
+                <span class="inspection-queue-empty__icon"><i class="fa-solid fa-box-open" aria-hidden="true"></i></span>
+                <div><strong>No supplier collections pending</strong><p>Supply Chain rejections will appear here with a 24-hour collection deadline.</p></div>
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+    </div>
+</section>

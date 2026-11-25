@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qad-config
+  namespace: qad
+  labels:
+    app.kubernetes.io/name: qad
+    app.kubernetes.io/component: config
+data:
+  DJANGO_SETTINGS_MODULE: "qad.settings"
+  ENVIRONMENT: "production"
+  DEBUG: "False"
+  TZ: "Africa/Nairobi"
+
+  # Microsoft Exchange Web Services over HTTPS
+  EMAIL_BACKEND: "accounts.email_backends.exchange_ews.ExchangeEWSBackend"
+  EXCHANGE_EWS_URL: "https://mail.nairobiwater.co.ke/EWS/Exchange.asmx"
+  EXCHANGE_DOMAIN: "nairobiwater.co.ke"
+  EXCHANGE_VERIFY_SSL: "True"
+  EXCHANGE_TIMEOUT: "20"
+
+  # Networking & Domains
+  ALLOWED_HOSTS: "*"
+  PUBLIC_ORIGIN: "https://qad.local"
+  CSRF_TRUSTED_ORIGINS: "http://qad.local,https://qad.local,http://localhost,https://localhost,http://127.0.0.1"
+  USE_X_FORWARDED_HOST: "True"
+  SECURE_PROXY_SSL_HEADER: "HTTP_X_FORWARDED_PROTO,https"
+  DATA_UPLOAD_MAX_NUMBER_FIELDS: "10000"
+
+  # Database Routing via PgBouncer Pooler
+  POSTGRES_HOST: "pgbouncer"
+  POSTGRES_PORT: "6432"
+  POSTGRES_DB: "qaddb"
+  POSTGRES_USER: "postgres"
+
+  # Redis In-Memory Broker & Cache
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  CELERY_BROKER_URL: "redis://redis:6379/0"
+  CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+  CHANNEL_BACKEND: "channels_redis.core.RedisChannelLayer"
+
+  # Static & Media Asset Storage
+  STATIC_ROOT: "/app/staticfiles"
+  MEDIA_ROOT: "/app/media"
+
+  # Application Concurrency & Runtime Limits
+  GUNICORN_WORKERS: "4"
+  GUNICORN_THREADS: "4"
+  WEB_CONCURRENCY: "4"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONHASHSEED: "random"
+
+  # Security & Protection Headers
+  CSRF_COOKIE_SECURE: "True"
+  SESSION_COOKIE_SECURE: "True"
+  CSRF_COOKIE_HTTPONLY: "True"
+  SESSION_COOKIE_HTTPONLY: "True"
+  CSRF_COOKIE_SAMESITE: "Lax"
+  SESSION_COOKIE_SAMESITE: "Lax"
+  AXES_FAILURE_LIMIT: "5"
+  AXES_COOLOFF_TIME: "1"
+

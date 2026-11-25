@@ -115,3 +115,21 @@ class SingleDeviceSessionMiddleware:
     def __call__(self, request):
         return self.get_response(request)
 
+
+class NetworkOnlyResponseMiddleware:
+    """Keep dynamic application responses out of browser and intermediary caches."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        static_prefix = getattr(settings, "STATIC_URL", "/static/")
+        if static_prefix and request.path_info.startswith(static_prefix):
+            return response
+
+        response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response["Pragma"] = "no-cache"
+        response["Expires"] = "0"
+        return response
+

@@ -1,4 +1,5 @@
 import logging
+import re
 from django.shortcuts import render, redirect
 from django.conf import settings
 from django.contrib.auth import authenticate, login as auth_login, get_user_model
@@ -37,9 +38,14 @@ class LoginView(View):
         if reason == "logged_out":
             error_msg = "Your session has ended. Sign in again to continue."
 
+        min_username_length, min_password_length = self._credential_thresholds()
+
         response = render(request, self.template_name, {
             "error": error_msg,
             "feedback_level": feedback_level,
+            "login_min_username_length": min_username_length,
+            "login_min_password_length": min_password_length,
+            "login_username_pattern": self._username_pattern(),
         })
         return self._disable_login_caching(response)
 
@@ -49,11 +55,19 @@ class LoginView(View):
         username = (request.POST.get("username") or "").strip().upper()
         password = request.POST.get("password") or ""
 
-        if not username or not password:
+        min_username_length, min_password_length = self._credential_thresholds()
+        if not re.fullmatch(self._username_pattern(), username):
+            return self._fail(request, username, "Invalid username", is_ajax, severity="warning")
+
+        if (
+            len(username) < min_username_length
+            or len(username) > 10
+            or len(password) < min_password_length
+        ):
             return self._fail(
                 request,
                 username,
-                "Username and password required",
+                "Enter a complete username and a password that meets the configured minimum length.",
                 is_ajax,
                 severity="warning",
             )
@@ -91,6 +105,25 @@ class LoginView(View):
             return self._disable_login_caching(response)
 
         return self._disable_login_caching(redirect(redirect_url))
+
+    @staticmethod
+    def _credential_thresholds():
+        from core.models import SystemConfiguration
+
+        config = SystemConfiguration.current()
+        username_length = len(config.pf_prefix or "") + int(config.pf_length or 0)
+        return max(1, username_length), max(8, int(config.password_min_length or 0))
+
+    @staticmethod
+    def _username_pattern():
+        import re
+        from core.models import SystemConfiguration
+
+        config = SystemConfiguration.current()
+        prefix = re.escape((config.pf_prefix or "").strip().upper())
+        digits = max(1, int(config.pf_length or 0))
+        return rf"^{prefix}\d{{{digits}}}$"
+
     def _initialize_session(self, request, user):
         request.session.set_expiry(settings.SESSION_COOKIE_AGE)
         request.session.update({
@@ -304,6 +337,7 @@ class LoginView(View):
             )
             return self._disable_login_caching(response)
 
+        min_username_length, min_password_length = self._credential_thresholds()
         response = render(
             request,
             self.template_name,
@@ -311,6 +345,9 @@ class LoginView(View):
                 "username": "",
                 "error": error_text,
                 "feedback_level": severity,
+                "login_min_username_length": min_username_length,
+                "login_min_password_length": min_password_length,
+                "login_username_pattern": self._username_pattern(),
             },
             status=403,
         )
